@@ -12,8 +12,10 @@ type
 
   PEDIT_SECTION = ^TEDIT_SECTION;
   TFilterItemButtonCallback = procedure(Edit: PEDIT_SECTION); cdecl;
+  TCountObjectEffectFunc = function(Obj: OBJECT_HANDLE;
+    Effect: LPCWSTR): Integer; cdecl;
   TSetObjectItemValueFunc = function(Obj: OBJECT_HANDLE; Effect: LPCWSTR;
-    Item: LPCWSTR; Value: PAnsiChar): Byte; cdecl;
+    Item: LPCWSTR; Value: PAnsiChar): LongBool; cdecl;
   TGetFocusObjectFunc = function: OBJECT_HANDLE; cdecl;
 
   // ボタンコールバックで、選択中オブジェクトのGUI項目を一括変更する最小編集API。
@@ -21,7 +23,7 @@ type
     Info: Pointer;
     CreateObjectFromAlias: Pointer;
     FindObject: Pointer;
-    CountObjectEffect: Pointer;
+    CountObjectEffect: TCountObjectEffectFunc;
     GetObjectLayerFrame: Pointer;
     GetObjectAlias: Pointer;
     GetObjectItemValue: Pointer;

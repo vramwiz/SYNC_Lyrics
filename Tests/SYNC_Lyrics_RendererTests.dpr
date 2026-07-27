@@ -19,6 +19,11 @@ var
   CapturedWidth: Integer;
   CapturedHeight: Integer;
 
+function TestRenderSettings: TLyricsRenderSettings;
+begin
+  Result := DefaultLyricsRenderSettings;
+end;
+
 procedure Check(Condition: Boolean; const MessageText: string);
 begin
   if not Condition then
@@ -133,6 +138,8 @@ begin
     (Units[0].RubyIndex = 0), 'bracket ruby display unit mismatch');
   Check((Units[2].BaseStart = 4) and (Units[2].BaseLength = 1) and
     (Units[2].RubyIndex = 1), 'short ruby display unit mismatch');
+  Check(CountLyricsDisplayUnits('[漢字](かんじ)を読(よ)む') = 4,
+    'display unit count mismatch');
 
   ParseLyrics('[世界](せかい', PlainText, RubySpans);
   Check(PlainText = '[世界](せかい', 'broken syntax was not preserved');
@@ -142,6 +149,7 @@ end;
 procedure TestVisibleJapaneseLyrics;
 var
   ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
@@ -151,7 +159,9 @@ begin
   Video.Object_ := @ObjectInfo;
   Video.SetImageData := CaptureImage;
 
-  Check(RenderLyrics(@Video, '入力した歌詞', 0, 0, 0), 'lyrics render failed');
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '入力した歌詞', 0, Settings, 0, 0),
+    'lyrics render failed');
   Check((CapturedWidth = TEST_WIDTH) and (CapturedHeight = TEST_HEIGHT),
     'render size mismatch');
   Check(CountVisiblePixels > 0, 'lyrics produced no visible pixels');
@@ -160,6 +170,7 @@ end;
 procedure TestRubyIsDrawnAboveLyrics;
 var
   ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
@@ -169,13 +180,16 @@ begin
   Video.Object_ := @ObjectInfo;
   Video.SetImageData := CaptureImage;
 
-  Check(RenderLyrics(@Video, '[世界](せかい)は広い', 0, 0, 0), 'ruby render failed');
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '[世界](せかい)は広い', 0, Settings, 0, 0),
+    'ruby render failed');
   Check(CountVisiblePixelsInRows(60, 120) > 0, 'ruby produced no pixels above lyrics');
 end;
 
 procedure TestConsumedLyricsUseAfterColor;
 var
   ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
@@ -185,13 +199,16 @@ begin
   Video.Object_ := @ObjectInfo;
   Video.SetImageData := CaptureImage;
 
-  Check(RenderLyrics(@Video, '同期', 0.5, 0, 0), 'consumed lyrics render failed');
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '同期', 0.5, Settings, 0, 0),
+    'consumed lyrics render failed');
   Check(CountAfterColorPixels > 0, 'consumed lyrics produced no after-color pixels');
 end;
 
 procedure TestRubyAndBaseShareProgress;
 var
   ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
@@ -201,7 +218,8 @@ begin
   Video.Object_ := @ObjectInfo;
   Video.SetImageData := CaptureImage;
 
-  Check(RenderLyrics(@Video, '[漢字](かんじ)', 0.5, 0, 0),
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '[漢字](かんじ)', 0.5, Settings, 0, 0),
     'shared ruby progress render failed');
   Check(CountAfterColorPixelsInRows(60, 123) > 0,
     'ruby did not receive partial after color');
@@ -212,6 +230,7 @@ end;
 procedure TestEmptyLyricsIsTransparent;
 var
   ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
@@ -221,7 +240,9 @@ begin
   Video.Object_ := @ObjectInfo;
   Video.SetImageData := CaptureImage;
 
-  Check(RenderLyrics(@Video, '', 0, 0, 0), 'empty lyrics render failed');
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '', 0, Settings, 0, 0),
+    'empty lyrics render failed');
   Check(CountVisiblePixels = 0, 'empty lyrics left visible pixels');
 end;
 
@@ -236,6 +257,7 @@ var
   MovedRight: Integer;
   MovedTop: Integer;
   ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
@@ -245,16 +267,160 @@ begin
   Video.Object_ := @ObjectInfo;
   Video.SetImageData := CaptureImage;
 
-  Check(RenderLyrics(@Video, '[座標](ざひょう)', 0, 0, 0),
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '[座標](ざひょう)', 0, Settings, 0, 0),
     'base position render failed');
   FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
-  Check(RenderLyrics(@Video, '[座標](ざひょう)', 0, 37, 19),
+  Check(RenderLyrics(@Video, '[座標](ざひょう)', 0, Settings, 37, 19),
     'offset position render failed');
   FindVisibleBounds(MovedLeft, MovedTop, MovedRight, MovedBottom);
   Check((MovedLeft - BaseLeft = 37) and (MovedRight - BaseRight = 37),
     'X offset did not move all lyrics pixels');
   Check((MovedTop - BaseTop = 19) and (MovedBottom - BaseBottom = 19),
     'Y offset did not move all lyrics pixels');
+end;
+
+procedure TestConfiguredColorsAreUsed;
+var
+  BlackPixels: Integer;
+  I: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  RedPixels: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Settings.BeforeColor.R := 255;
+  Settings.BeforeColor.G := 0;
+  Settings.BeforeColor.B := 0;
+  Check(RenderLyrics(@Video, '色設定', 0, Settings, 0, 0),
+    'configured color render failed');
+  RedPixels := 0;
+  for I := 0 to High(CapturedPixels) do
+    if (CapturedPixels[I].R > CapturedPixels[I].G) and
+      (CapturedPixels[I].R > CapturedPixels[I].B) and
+      (CapturedPixels[I].A <> 0) then
+      Inc(RedPixels);
+  Check(RedPixels > 0, 'configured before color produced no red pixels');
+
+  Settings.BeforeColor.R := 0;
+  Check(RenderLyrics(@Video, '黒色', 0, Settings, 0, 0),
+    'black color render failed');
+  BlackPixels := 0;
+  for I := 0 to High(CapturedPixels) do
+    if (CapturedPixels[I].R = 0) and (CapturedPixels[I].G = 0) and
+      (CapturedPixels[I].B = 0) and (CapturedPixels[I].A <> 0) then
+      Inc(BlackPixels);
+  Check(BlackPixels > 0, 'configured black color became transparent');
+end;
+
+procedure TestConfiguredFontSizesChangeBounds;
+var
+  LargeBottom: Integer;
+  LargeLeft: Integer;
+  LargeRight: Integer;
+  LargeTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  SmallBottom: Integer;
+  SmallLeft: Integer;
+  SmallRight: Integer;
+  SmallTop: Integer;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Settings.BaseFontHeight := 48;
+  Check(RenderLyrics(@Video, 'サイズ', 0, Settings, 0, 0),
+    'small font render failed');
+  FindVisibleBounds(SmallLeft, SmallTop, SmallRight, SmallBottom);
+  Settings.BaseFontHeight := 144;
+  Check(RenderLyrics(@Video, 'サイズ', 0, Settings, 0, 0),
+    'large font render failed');
+  FindVisibleBounds(LargeLeft, LargeTop, LargeRight, LargeBottom);
+  Check((LargeRight - LargeLeft) > (SmallRight - SmallLeft),
+    'configured base font size did not increase text width');
+  Check((LargeBottom - LargeTop) > (SmallBottom - SmallTop),
+    'configured base font size did not increase text height');
+end;
+
+procedure TestConfiguredCharacterSpacingChangesWidth;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  SpacedBottom: Integer;
+  SpacedLeft: Integer;
+  SpacedRight: Integer;
+  SpacedTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '文字間隔', 0, Settings, 0, 0),
+    'base character spacing render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Settings.BaseCharacterSpacing := 16;
+  Check(RenderLyrics(@Video, '文字間隔', 0, Settings, 0, 0),
+    'expanded character spacing render failed');
+  FindVisibleBounds(SpacedLeft, SpacedTop, SpacedRight, SpacedBottom);
+  Check((SpacedRight - SpacedLeft) > (BaseRight - BaseLeft),
+    'configured character spacing did not increase text width');
+end;
+
+procedure TestRubyGapAdjustmentChangesRowDistance;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  ExpandedBottom: Integer;
+  ExpandedLeft: Integer;
+  ExpandedRight: Integer;
+  ExpandedTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '[行間](ぎょうかん)', 0, Settings, 0, 0),
+    'base ruby gap render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Settings.RubyGapAdjustment := 30;
+  Check(RenderLyrics(@Video, '[行間](ぎょうかん)', 0, Settings, 0, 0),
+    'expanded ruby gap render failed');
+  FindVisibleBounds(ExpandedLeft, ExpandedTop, ExpandedRight, ExpandedBottom);
+  Check((ExpandedBottom - ExpandedTop) > (BaseBottom - BaseTop),
+    'configured ruby gap did not increase row distance');
 end;
 
 begin
@@ -266,6 +432,10 @@ begin
     TestConsumedLyricsUseAfterColor;
     TestRubyAndBaseShareProgress;
     TestPositionOffsetsMoveBaseAndRuby;
+    TestConfiguredColorsAreUsed;
+    TestConfiguredFontSizesChangeBounds;
+    TestConfiguredCharacterSpacingChangesWidth;
+    TestRubyGapAdjustmentChangesRowDistance;
     TestEmptyLyricsIsTransparent;
     Writeln('PASS');
   finally

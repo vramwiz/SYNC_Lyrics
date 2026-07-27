@@ -7,12 +7,35 @@ interface
 uses
   AviUtl2FilterTypes;
 
+type
+  // AviUtl2の色項目から独立して描画処理へ渡す不透明RGB色。
+  TLyricsRenderColor = record
+    R: Byte;
+    G: Byte;
+    B: Byte;
+  end;
+
+  // 1行の本文とルビに適用する基本表示設定。
+  TLyricsRenderSettings = record
+    BaseFontName: string;
+    RubyFontName: string;
+    BaseFontHeight: Integer;
+    RubyFontHeight: Integer;
+    RubyGapAdjustment: Integer;
+    BaseCharacterSpacing: Integer;
+    BeforeColor: TLyricsRenderColor;
+    AfterColor: TLyricsRenderColor;
+  end;
+
 // 描画用の共有資源を初期化する。Filterの初期化時に1回だけ呼び出す。
 procedure InitializeLyricsRenderer;
 
+// 従来の検証済み表示と同じ基本表示設定を返す。
+function DefaultLyricsRenderSettings: TLyricsRenderSettings;
+
 // 入力文字列を中央基準の指定座標へ配置し、表示単位進捗をクリッピング描画してAviUtl2へ渡す。
 function RenderLyrics(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits: Double;
-  PositionX, PositionY: Integer): Boolean;
+  const Settings: TLyricsRenderSettings; PositionX, PositionY: Integer): Boolean;
 
 // 描画用の共有資源を解放する。処理中のコールバックがない状態で呼び出す。
 procedure FinalizeLyricsRenderer;
@@ -27,11 +50,15 @@ uses
 
 const
   MAX_RENDER_DIMENSION = 16384;
-  LYRIC_FONT_HEIGHT = 96;
-  RUBY_FONT_HEIGHT = 42;
-  RUBY_GAP = 4;
-  COLOR_BEFORE = $00FFFFFF;
-  COLOR_AFTER = $00FFFF00;
+  DEFAULT_LYRIC_FONT_HEIGHT = 96;
+  DEFAULT_RUBY_FONT_HEIGHT = 42;
+  DEFAULT_RUBY_GAP = 4;
+  MIN_FONT_HEIGHT = 1;
+  MAX_FONT_HEIGHT = 1024;
+  MIN_RUBY_GAP = -1024;
+  MAX_RUBY_GAP = 1024;
+  MIN_CHARACTER_SPACING = -1024;
+  MAX_CHARACTER_SPACING = 1024;
 
 var
   RendererLock: TRTLCriticalSection;
@@ -59,33 +86,66 @@ begin
     (Width <= MAX_RENDER_DIMENSION) and (Height <= MAX_RENDER_DIMENSION);
 end;
 
-procedure ConvertDibToRgba(Bits: Pointer; Buffer: PPIXEL_RGBA; PixelCount: NativeInt);
+procedure ConvertDibToRgba(ColorBits, MaskBits: Pointer;
+  Buffer: PPIXEL_RGBA; PixelCount: NativeInt);
 var
   Coverage: Byte;
+  CoverageSrc: PByte;
   Dst: PPIXEL_RGBA;
-  Src: PByte;
+  ColorSrc: PByte;
   I: NativeInt;
 begin
-  Src := Bits;
+  ColorSrc := ColorBits;
+  CoverageSrc := MaskBits;
   Dst := Buffer;
   for I := 0 to PixelCount - 1 do
   begin
-    // GDIはアルファを書かないため、描画色の最大成分をカバレッジとしてRGBAへ移す。
-    Coverage := Max(Src[0], Max(Src[1], Src[2]));
-    Dst^.R := Src[2];
-    Dst^.G := Src[1];
-    Dst^.B := Src[0];
+    // 色とは別の白文字マスクからカバレッジを取得し、黒や暗色でも透明度を失わないようにする。
+    Coverage := Max(CoverageSrc[0], Max(CoverageSrc[1], CoverageSrc[2]));
+    Dst^.R := ColorSrc[2];
+    Dst^.G := ColorSrc[1];
+    Dst^.B := ColorSrc[0];
     Dst^.A := Coverage;
-    Inc(Src, 4);
+    Inc(ColorSrc, 4);
+    Inc(CoverageSrc, 4);
     Inc(Dst);
   end;
 end;
 
-function CreateLyricsFont(FontHeight: Integer): HFONT;
+function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 begin
+  Result.BaseFontName := 'Yu Gothic UI';
+  Result.RubyFontName := 'Yu Gothic UI';
+  Result.BaseFontHeight := DEFAULT_LYRIC_FONT_HEIGHT;
+  Result.RubyFontHeight := DEFAULT_RUBY_FONT_HEIGHT;
+  Result.RubyGapAdjustment := 0;
+  Result.BaseCharacterSpacing := 0;
+  Result.BeforeColor.R := 255;
+  Result.BeforeColor.G := 255;
+  Result.BeforeColor.B := 255;
+  Result.AfterColor.R := 0;
+  Result.AfterColor.G := 255;
+  Result.AfterColor.B := 255;
+end;
+
+function LyricsColorToColorRef(const Color: TLyricsRenderColor): COLORREF;
+begin
+  Result := Color.R or (Cardinal(Color.G) shl 8) or
+    (Cardinal(Color.B) shl 16);
+end;
+
+function CreateLyricsFont(const FontName: string; FontHeight: Integer): HFONT;
+var
+  ResolvedFontName: string;
+begin
+  ResolvedFontName := FontName;
+  if ResolvedFontName = '' then
+    ResolvedFontName := 'Yu Gothic UI';
+  FontHeight := EnsureRange(FontHeight, MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
   Result := CreateFontW(FontHeight, 0, 0, 0, FW_BOLD, 0, 0, 0,
     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-    ANTIALIASED_QUALITY, DEFAULT_PITCH or FF_DONTCARE, 'Yu Gothic UI');
+    ANTIALIASED_QUALITY, DEFAULT_PITCH or FF_DONTCARE,
+    PWideChar(ResolvedFontName));
 end;
 
 function MeasureTextWidth(DC: HDC; const Text: string): Integer;
@@ -141,9 +201,12 @@ begin
 end;
 
 procedure DrawParsedLyrics(DC: HDC; Width, Height: Integer; const Source: string;
-  ProgressUnits: Double; PositionX, PositionY: Integer);
+  ProgressUnits: Double; const Settings: TLyricsRenderSettings;
+  PositionX, PositionY: Integer);
 var
   BaseFont: HFONT;
+  BaseFontHeight: Integer;
+  BaseCharacterSpacing: Integer;
   BaseProgressWidth: Integer;
   BaseWidth: Integer;
   BaseX: Integer;
@@ -151,10 +214,13 @@ var
   ClipState: Integer;
   I: Integer;
   OldFont: HGDIOBJ;
+  OldCharacterSpacing: Integer;
   PlainText: string;
   PrefixText: string;
   PrefixWidth: Integer;
   RubyFont: HFONT;
+  RubyFontHeight: Integer;
+  RubyGap: Integer;
   RubySpans: TLyricsRubySpans;
   RubyWidth: Integer;
   RubyX: Integer;
@@ -167,8 +233,16 @@ var
 begin
   ParseLyrics(Source, PlainText, RubySpans);
   BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
-  BaseFont := CreateLyricsFont(LYRIC_FONT_HEIGHT);
-  RubyFont := CreateLyricsFont(RUBY_FONT_HEIGHT);
+  BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
+    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+  RubyFontHeight := EnsureRange(Settings.RubyFontHeight,
+    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+  RubyGap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
+    MIN_RUBY_GAP, MAX_RUBY_GAP);
+  BaseCharacterSpacing := EnsureRange(Settings.BaseCharacterSpacing,
+    MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
+  BaseFont := CreateLyricsFont(Settings.BaseFontName, BaseFontHeight);
+  RubyFont := CreateLyricsFont(Settings.RubyFontName, RubyFontHeight);
   if (BaseFont = 0) or (RubyFont = 0) then
   begin
     if BaseFont <> 0 then
@@ -179,32 +253,37 @@ begin
   end;
   try
     OldFont := SelectObject(DC, BaseFont);
+    OldCharacterSpacing := GetTextCharacterExtra(DC);
+    SetTextCharacterExtra(DC, BaseCharacterSpacing);
     BaseWidth := MeasureTextWidth(DC, PlainText);
     // X・Yはグループ制御後に各行だけを微調整する中央基準のオフセットとする。
     BaseX := (Width - BaseWidth) div 2 + PositionX;
     if Length(RubySpans) = 0 then
-      BaseY := (Height - LYRIC_FONT_HEIGHT) div 2 + PositionY
+      BaseY := (Height - BaseFontHeight) div 2 + PositionY
     else
-      BaseY := (Height - (RUBY_FONT_HEIGHT + RUBY_GAP + LYRIC_FONT_HEIGHT)) div 2 +
-        RUBY_FONT_HEIGHT + RUBY_GAP + PositionY;
-    SetTextColor(DC, COLOR_BEFORE);
+      BaseY := (Height - (RubyFontHeight + RubyGap + BaseFontHeight)) div 2 +
+        RubyFontHeight + RubyGap + PositionY;
+    SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
     TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
 
     if Length(RubySpans) > 0 then
     begin
       SelectObject(DC, RubyFont);
-      RubyY := BaseY - RUBY_GAP - RUBY_FONT_HEIGHT;
+      SetTextCharacterExtra(DC, 0);
+      RubyY := BaseY - RubyGap - RubyFontHeight;
       for I := 0 to High(RubySpans) do
       begin
         PrefixText := Copy(PlainText, 1, RubySpans[I].BaseStart - 1);
         SpanText := Copy(PlainText, RubySpans[I].BaseStart, RubySpans[I].BaseLength);
         SelectObject(DC, BaseFont);
+        SetTextCharacterExtra(DC, BaseCharacterSpacing);
         PrefixWidth := MeasureTextWidth(DC, PrefixText);
         SpanWidth := MeasureTextWidth(DC, SpanText);
         SelectObject(DC, RubyFont);
+        SetTextCharacterExtra(DC, 0);
         RubyWidth := MeasureTextWidth(DC, RubySpans[I].RubyText);
         RubyX := BaseX + PrefixWidth + (SpanWidth - RubyWidth) div 2;
-        SetTextColor(DC, COLOR_BEFORE);
+        SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
         TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
           Length(RubySpans[I].RubyText));
 
@@ -215,8 +294,8 @@ begin
           ClipState := SaveDC(DC);
           try
             IntersectClipRect(DC, RubyX, RubyY,
-              RubyX + Round(RubyWidth * UnitProgress), RubyY + RUBY_FONT_HEIGHT);
-            SetTextColor(DC, COLOR_AFTER);
+              RubyX + Round(RubyWidth * UnitProgress), RubyY + RubyFontHeight);
+            SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
             TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
               Length(RubySpans[I].RubyText));
           finally
@@ -227,19 +306,21 @@ begin
     end;
 
     SelectObject(DC, BaseFont);
+    SetTextCharacterExtra(DC, BaseCharacterSpacing);
     BaseProgressWidth := MeasureBaseProgressWidth(DC, PlainText, Units, ProgressUnits);
     if BaseProgressWidth > 0 then
     begin
       ClipState := SaveDC(DC);
       try
         IntersectClipRect(DC, BaseX, BaseY, BaseX + BaseProgressWidth,
-          BaseY + LYRIC_FONT_HEIGHT);
-        SetTextColor(DC, COLOR_AFTER);
+          BaseY + BaseFontHeight);
+        SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
         TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
       finally
         RestoreDC(DC, ClipState);
       end;
     end;
+    SetTextCharacterExtra(DC, OldCharacterSpacing);
     SelectObject(DC, OldFont);
   finally
     DeleteObject(RubyFont);
@@ -248,6 +329,7 @@ begin
 end;
 
 function RenderLocked(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits: Double;
+  const Settings: TLyricsRenderSettings;
   PositionX, PositionY, Width, Height: Integer): Boolean;
 var
   Bitmap: HBITMAP;
@@ -255,6 +337,11 @@ var
   Bits: Pointer;
   Buffer: PPIXEL_RGBA;
   DC: HDC;
+  MaskBitmap: HBITMAP;
+  MaskBits: Pointer;
+  MaskDC: HDC;
+  MaskOldBitmap: HGDIOBJ;
+  MaskSettings: TLyricsRenderSettings;
   OldBitmap: HGDIOBJ;
   PixelCount: NativeInt;
 begin
@@ -285,22 +372,50 @@ begin
       Exit;
     try
       FillChar(Bits^, PixelCount * 4, 0);
-      DC := CreateCompatibleDC(0);
-      if DC = 0 then
+      MaskBits := nil;
+      MaskBitmap := CreateDIBSection(0, BitmapInfo, DIB_RGB_COLORS,
+        MaskBits, 0, 0);
+      if (MaskBitmap = 0) or (MaskBits = nil) then
         Exit;
       try
-        OldBitmap := SelectObject(DC, Bitmap);
-        SetBkMode(DC, TRANSPARENT);
-        DrawParsedLyrics(DC, Width, Height, string(Lyrics), ProgressUnits,
-          PositionX, PositionY);
-        SelectObject(DC, OldBitmap);
-      finally
-        DeleteDC(DC);
-      end;
+        FillChar(MaskBits^, PixelCount * 4, 0);
+        DC := CreateCompatibleDC(0);
+        MaskDC := CreateCompatibleDC(0);
+        if (DC = 0) or (MaskDC = 0) then
+        begin
+          if DC <> 0 then
+            DeleteDC(DC);
+          if MaskDC <> 0 then
+            DeleteDC(MaskDC);
+          Exit;
+        end;
+        try
+          OldBitmap := SelectObject(DC, Bitmap);
+          MaskOldBitmap := SelectObject(MaskDC, MaskBitmap);
+          SetBkMode(DC, TRANSPARENT);
+          SetBkMode(MaskDC, TRANSPARENT);
+          DrawParsedLyrics(DC, Width, Height, string(Lyrics), ProgressUnits,
+            Settings, PositionX, PositionY);
+          MaskSettings := Settings;
+          MaskSettings.BeforeColor.R := 255;
+          MaskSettings.BeforeColor.G := 255;
+          MaskSettings.BeforeColor.B := 255;
+          MaskSettings.AfterColor := MaskSettings.BeforeColor;
+          DrawParsedLyrics(MaskDC, Width, Height, string(Lyrics), ProgressUnits,
+            MaskSettings, PositionX, PositionY);
+          SelectObject(MaskDC, MaskOldBitmap);
+          SelectObject(DC, OldBitmap);
+        finally
+          DeleteDC(MaskDC);
+          DeleteDC(DC);
+        end;
 
-      ConvertDibToRgba(Bits, Buffer, PixelCount);
-      Video^.SetImageData(Buffer, Width, Height);
-      Result := True;
+        ConvertDibToRgba(Bits, MaskBits, Buffer, PixelCount);
+        Video^.SetImageData(Buffer, Width, Height);
+        Result := True;
+      finally
+        DeleteObject(MaskBitmap);
+      end;
     finally
       DeleteObject(Bitmap);
     end;
@@ -310,6 +425,7 @@ begin
 end;
 
 function RenderLyrics(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits: Double;
+  const Settings: TLyricsRenderSettings;
   PositionX, PositionY: Integer): Boolean;
 var
   Height: Integer;
@@ -321,8 +437,8 @@ begin
 
   EnterCriticalSection(RendererLock);
   try
-    Result := RenderLocked(Video, Lyrics, ProgressUnits, PositionX, PositionY,
-      Width, Height);
+    Result := RenderLocked(Video, Lyrics, ProgressUnits, Settings,
+      PositionX, PositionY, Width, Height);
   finally
     LeaveCriticalSection(RendererLock);
   end;

@@ -3,7 +3,7 @@
         <ProjectGuid>{7786106E-74E2-4DEB-875F-21914EBDD449}</ProjectGuid>
         <ProjectVersion>20.4</ProjectVersion>
         <FrameworkType>None</FrameworkType>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <ProjectName Condition="'$(ProjectName)'==''">SYNC_Lyrics_Filter</ProjectName>
         <TargetedPlatforms>2</TargetedPlatforms>
@@ -120,6 +120,9 @@
         <DCCReference Include="Source\Lib\SongReader\SongReaderManager.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSync.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas">
+            <Form>FormLyricsFontSettings</Form>
+        </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

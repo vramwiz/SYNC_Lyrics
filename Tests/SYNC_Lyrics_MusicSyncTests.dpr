@@ -79,6 +79,27 @@ begin
         'second continuous progress resolve failed');
       Check(Abs(ProgressUnits - 1.5) < 0.000001,
         'second continuous progress mismatch');
+
+      Check(ResolveMusicSyncProgressForUnits(FileName, -1, 0.0, -0.25, 2,
+        ProgressUnits), 'pre-display state resolve failed');
+      Check(Abs(ProgressUnits) < 0.000001,
+        'pre-display state did not remain unconsumed');
+      Check(ResolveMusicSyncProgressForUnits(FileName, -1, 0.0, 0.75, 2,
+        ProgressUnits), 'active display state resolve failed');
+      Check(Abs(ProgressUnits - 1.5) < 0.000001,
+        'active display state progress mismatch');
+      Check(ResolveMusicSyncProgressForUnits(FileName, -1, 0.0, 10.0, 2,
+        ProgressUnits), 'completed display state resolve failed');
+      Check(Abs(ProgressUnits - 2.0) < 0.000001,
+        'completed lyrics did not remain complete');
+      Check(ResolveMusicSyncProgressForUnits(FileName, -1, 0.0, 1.01, 1,
+        ProgressUnits), 'single-unit display state resolve failed');
+      Check(Abs(ProgressUnits - 1.0) < 0.000001,
+        'notes after the assigned unit changed progress');
+      Check(ResolveMusicSyncProgressForUnits(FileName, -1, 0.0, 2.0, 3,
+        ProgressUnits), 'insufficient-note display state resolve failed');
+      Check(Abs(ProgressUnits - 2.0) < 0.000001,
+        'insufficient notes did not preserve the incomplete state');
     finally
       FinalizeMusicSync;
     end;

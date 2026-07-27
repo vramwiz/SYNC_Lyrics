@@ -23,6 +23,11 @@ function CountConsumedMusicNotes(const FileName: string; Track: Integer;
 function ResolveMusicSyncProgress(const FileName: string; Track: Integer;
   StartSeconds, CurrentSeconds: Double; out ProgressUnits: Double): Boolean;
 
+// 同期開始以降の音を表示単位数だけ割り当て、後続行の音を除外した進捗を返す。
+function ResolveMusicSyncProgressForUnits(const FileName: string; Track: Integer;
+  SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
+  out ProgressUnits: Double): Boolean;
+
 // 音楽データキャッシュの排他資源をFilter読込時に初期化する。
 procedure InitializeMusicSync;
 
@@ -204,6 +209,64 @@ begin
         (CurrentSeconds - CacheNotes[I].Seconds) / Duration;
       Break;
     end;
+  finally
+    LeaveCriticalSection(CacheLock);
+  end;
+end;
+
+function ResolveMusicSyncProgressForUnits(const FileName: string; Track: Integer;
+  SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
+  out ProgressUnits: Double): Boolean;
+var
+  AssignedCount: Integer;
+  Duration: Double;
+  I: Integer;
+  ProgressBlocked: Boolean;
+begin
+  Result := False;
+  ProgressUnits := 0;
+  if DisplayUnitCount <= 0 then
+    Exit(True);
+  if CurrentSeconds < SyncStartSeconds - MUSIC_TIME_EPSILON then
+    Exit(True);
+
+  EnterCriticalSection(CacheLock);
+  try
+    if not EnsureMusicCache(FileName) then
+      Exit;
+
+    AssignedCount := 0;
+    ProgressBlocked := False;
+    for I := 0 to High(CacheNotes) do
+    begin
+      if CacheNotes[I].Seconds < SyncStartSeconds - MUSIC_TIME_EPSILON then
+        Continue;
+      if (Track >= 0) and (CacheNotes[I].TrackIndex <> Track) then
+        Continue;
+      if AssignedCount >= DisplayUnitCount then
+        Break;
+
+      Inc(AssignedCount);
+      if ProgressBlocked then
+        Continue;
+      if CurrentSeconds < CacheNotes[I].Seconds then
+      begin
+        ProgressBlocked := True;
+        Continue;
+      end;
+
+      Duration := CacheNotes[I].EndSeconds - CacheNotes[I].Seconds;
+      if (Duration <= MUSIC_TIME_EPSILON) or
+        (CurrentSeconds >= CacheNotes[I].EndSeconds) then
+        ProgressUnits := ProgressUnits + 1
+      else
+      begin
+        ProgressUnits := ProgressUnits +
+          (CurrentSeconds - CacheNotes[I].Seconds) / Duration;
+        ProgressBlocked := True;
+      end;
+    end;
+    Result := True;
   finally
     LeaveCriticalSection(CacheLock);
   end;

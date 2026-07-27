@@ -25,6 +25,9 @@ procedure ParseLyrics(const Source: string; out PlainText: string; out RubySpans
 procedure BuildLyricsDisplayUnits(const PlainText: string; const RubySpans: TLyricsRubySpans;
   out Units: TLyricsDisplayUnits);
 
+// 1行の構文を解析し、音へ割り当てる表示単位数を返す。
+function CountLyricsDisplayUnits(const Source: string): Integer;
+
 implementation
 
 uses
@@ -168,6 +171,17 @@ begin
       Inc(Position);
     end;
   end;
+end;
+
+function CountLyricsDisplayUnits(const Source: string): Integer;
+var
+  PlainText: string;
+  RubySpans: TLyricsRubySpans;
+  Units: TLyricsDisplayUnits;
+begin
+  ParseLyrics(Source, PlainText, RubySpans);
+  BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
+  Result := Length(Units);
 end;
 
 end.
