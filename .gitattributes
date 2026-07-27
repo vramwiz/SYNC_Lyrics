@@ -1,0 +1,16 @@
+*.pas text eol=crlf
+*.dpr text eol=crlf
+*.dproj text eol=crlf
+*.md text eol=crlf
+*.py text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.local text eol=crlf
+.gitignore text eol=crlf
+.gitattributes text eol=crlf
+
+*.png binary
+*.gif binary
+*.wav binary
+*.res binary
+*.aup2 binary

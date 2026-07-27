@@ -78,6 +78,14 @@ type
   TFuncProcVideo = function(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
   TFuncProcAudio = function(Audio: Pointer): Byte; cdecl;
 
+  // AviUtl2が1行のUnicode文字列を保持する文字列項目。
+  PFILTER_ITEM_STRING = ^TFILTER_ITEM_STRING;
+  TFILTER_ITEM_STRING = record
+    ItemType: LPCWSTR; // SDK項目種別の固定値 `string`。
+    Name    : LPCWSTR; // GUI表示名兼、設定取得時の項目識別名。
+    Value   : LPCWSTR; // AviUtl2が管理する現在の文字列。
+  end;
+
   // AviUtl2が現在値と範囲を管理する数値トラック項目。
   PFILTER_ITEM_TRACK = ^TFILTER_ITEM_TRACK;
   TFILTER_ITEM_TRACK = record
