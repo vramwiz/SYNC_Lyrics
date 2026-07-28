@@ -9,6 +9,7 @@ type
     TrackIndex: Integer; // 読込形式を問わずSongReaderが割り当てたトラック番号。
     Seconds   : Double;  // 曲先頭からのノート開始秒。
     EndSeconds: Double;  // 曲先頭からのノート終了秒。
+    Key       : Integer; // ピアノロール表示に使うMIDIキー番号。
   end;
   TMusicNoteStarts = TArray<TMusicNoteStart>;
 
@@ -28,6 +29,11 @@ function ResolveMusicSyncProgressForUnits(const FileName: string; Track: Integer
   SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
   out ProgressUnits: Double): Boolean;
 
+// 同期値列を処理順に適用し、音数と表示単位数の対応を反映した連続進捗を返す。
+function ResolveAdjustedMusicSyncProgress(const FileName: string; Track: Integer;
+  SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
+  const SyncParameters: array of Integer; out ProgressUnits: Double): Boolean;
+
 // 音楽データキャッシュの排他資源をFilter読込時に初期化する。
 procedure InitializeMusicSync;
 
@@ -38,6 +44,7 @@ implementation
 
 uses
   System.IOUtils,
+  System.Math,
   System.SysUtils,
   SongData,
   Winapi.Windows;
@@ -119,6 +126,7 @@ begin
         Notes[I].TrackIndex := Song.Notes[I].TrackIndex;
         Notes[I].Seconds := Song.Notes[I].StartSec;
         Notes[I].EndSeconds := Song.Notes[I].EndSec;
+        Notes[I].Key := Song.Notes[I].Key;
       end;
       SortNoteStarts(Notes);
       Result := True;
@@ -214,14 +222,55 @@ begin
   end;
 end;
 
-function ResolveMusicSyncProgressForUnits(const FileName: string; Track: Integer;
+procedure ResolveSyncStage(SyncValue, RemainingUnits: Integer;
+  out NoteCount, UnitCount: Integer);
+begin
+  SyncValue := EnsureRange(SyncValue, -1024, 1024);
+  if SyncValue > 0 then
+  begin
+    NoteCount := SyncValue + 1;
+    UnitCount := 1;
+  end
+  else if SyncValue < 0 then
+  begin
+    NoteCount := 1;
+    UnitCount := Abs(SyncValue) + 1;
+  end
+  else
+  begin
+    NoteCount := 1;
+    UnitCount := 1;
+  end;
+  UnitCount := Min(UnitCount, RemainingUnits);
+end;
+
+function GetSyncParameter(const SyncParameters: array of Integer;
+  ParameterIndex: Integer): Integer;
+begin
+  if ParameterIndex <= High(SyncParameters) then
+    Result := SyncParameters[ParameterIndex]
+  else
+    Result := 0;
+end;
+
+function ResolveAdjustedMusicSyncProgress(const FileName: string; Track: Integer;
   SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
-  out ProgressUnits: Double): Boolean;
+  const SyncParameters: array of Integer; out ProgressUnits: Double): Boolean;
 var
-  AssignedCount: Integer;
   Duration: Double;
+  FilteredNotes: TMusicNoteStarts;
   I: Integer;
-  ProgressBlocked: Boolean;
+  NoteCount: Integer;
+  NoteIndex: Integer;
+  NoteProgress: Double;
+  ParameterIndex: Integer;
+  RequiredNoteCount: Integer;
+  SelectedNoteCount: Integer;
+  StageNoteIndex: Integer;
+  StageProgress: Double;
+  SyncValue: Integer;
+  UnitCount: Integer;
+  UnitIndex: Integer;
 begin
   Result := False;
   ProgressUnits := 0;
@@ -235,41 +284,86 @@ begin
     if not EnsureMusicCache(FileName) then
       Exit;
 
-    AssignedCount := 0;
-    ProgressBlocked := False;
+    RequiredNoteCount := 0;
+    ParameterIndex := 0;
+    UnitIndex := 0;
+    while UnitIndex < DisplayUnitCount do
+    begin
+      SyncValue := GetSyncParameter(SyncParameters, ParameterIndex);
+      ResolveSyncStage(SyncValue, DisplayUnitCount - UnitIndex,
+        NoteCount, UnitCount);
+      Inc(RequiredNoteCount, NoteCount);
+      Inc(UnitIndex, UnitCount);
+      Inc(ParameterIndex);
+    end;
+
+    SetLength(FilteredNotes, RequiredNoteCount);
+    SelectedNoteCount := 0;
     for I := 0 to High(CacheNotes) do
     begin
       if CacheNotes[I].Seconds < SyncStartSeconds - MUSIC_TIME_EPSILON then
         Continue;
       if (Track >= 0) and (CacheNotes[I].TrackIndex <> Track) then
         Continue;
-      if AssignedCount >= DisplayUnitCount then
+      if SelectedNoteCount >= RequiredNoteCount then
         Break;
+      FilteredNotes[SelectedNoteCount] := CacheNotes[I];
+      Inc(SelectedNoteCount);
+    end;
+    SetLength(FilteredNotes, SelectedNoteCount);
 
-      Inc(AssignedCount);
-      if ProgressBlocked then
-        Continue;
-      if CurrentSeconds < CacheNotes[I].Seconds then
+    NoteIndex := 0;
+    ParameterIndex := 0;
+    UnitIndex := 0;
+    while UnitIndex < DisplayUnitCount do
+    begin
+      SyncValue := GetSyncParameter(SyncParameters, ParameterIndex);
+      ResolveSyncStage(SyncValue, DisplayUnitCount - UnitIndex,
+        NoteCount, UnitCount);
+      NoteProgress := 0;
+      for StageNoteIndex := 0 to NoteCount - 1 do
       begin
-        ProgressBlocked := True;
-        Continue;
+        if NoteIndex + StageNoteIndex >= Length(FilteredNotes) then
+          Break;
+        if CurrentSeconds <
+          FilteredNotes[NoteIndex + StageNoteIndex].Seconds then
+          Break;
+
+        Duration := FilteredNotes[NoteIndex + StageNoteIndex].EndSeconds -
+          FilteredNotes[NoteIndex + StageNoteIndex].Seconds;
+        if (Duration <= MUSIC_TIME_EPSILON) or
+          (CurrentSeconds >=
+            FilteredNotes[NoteIndex + StageNoteIndex].EndSeconds) then
+          NoteProgress := NoteProgress + 1
+        else
+        begin
+          NoteProgress := NoteProgress +
+            (CurrentSeconds -
+              FilteredNotes[NoteIndex + StageNoteIndex].Seconds) / Duration;
+          Break;
+        end;
       end;
 
-      Duration := CacheNotes[I].EndSeconds - CacheNotes[I].Seconds;
-      if (Duration <= MUSIC_TIME_EPSILON) or
-        (CurrentSeconds >= CacheNotes[I].EndSeconds) then
-        ProgressUnits := ProgressUnits + 1
-      else
-      begin
-        ProgressUnits := ProgressUnits +
-          (CurrentSeconds - CacheNotes[I].Seconds) / Duration;
-        ProgressBlocked := True;
-      end;
+      StageProgress := EnsureRange(NoteProgress / NoteCount, 0.0, 1.0);
+      ProgressUnits := UnitIndex + StageProgress * UnitCount;
+      if StageProgress < 1.0 - MUSIC_TIME_EPSILON then
+        Break;
+      Inc(NoteIndex, NoteCount);
+      Inc(UnitIndex, UnitCount);
+      Inc(ParameterIndex);
     end;
     Result := True;
   finally
     LeaveCriticalSection(CacheLock);
   end;
+end;
+
+function ResolveMusicSyncProgressForUnits(const FileName: string; Track: Integer;
+  SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
+  out ProgressUnits: Double): Boolean;
+begin
+  Result := ResolveAdjustedMusicSyncProgress(FileName, Track,
+    SyncStartSeconds, CurrentSeconds, DisplayUnitCount, [], ProgressUnits);
 end;
 
 procedure InitializeMusicSync;

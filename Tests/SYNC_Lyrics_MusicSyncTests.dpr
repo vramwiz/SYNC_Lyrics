@@ -25,6 +25,7 @@ uses
   SongReaderMusicMSC in 'Source\Lib\SongReader\SongReaderMusicMSC.pas',
   SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
+  SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas';
 
 const
@@ -52,6 +53,9 @@ var
   I: Integer;
   Notes: TMusicNoteStarts;
   ProgressUnits: Double;
+  SyncData: TSyncTextData;
+  SyncParameters: TArray<Integer>;
+  SyncText: string;
 begin
   FileName := TPath.Combine(TPath.GetTempPath, 'SYNC_Lyrics_MusicSyncTests.mid');
   SetLength(Bytes, Length(TEST_MIDI));
@@ -62,7 +66,9 @@ begin
     Check(LoadMusicNoteStarts(FileName, Notes), 'SongReader MIDI load failed');
     Check(Length(Notes) = 2, 'SongReader note count mismatch');
     Check(Abs(Notes[0].Seconds) < 0.000001, 'first note time mismatch');
+    Check(Notes[0].Key = 60, 'first note key mismatch');
     Check(Abs(Notes[1].Seconds - 0.5) < 0.000001, 'second note time mismatch');
+    Check(Notes[1].Key = 62, 'second note key mismatch');
     Check(Abs(Notes[0].EndSeconds - 0.5) < 0.000001, 'first note end time mismatch');
 
     InitializeMusicSync;
@@ -100,6 +106,46 @@ begin
         ProgressUnits), 'insufficient-note display state resolve failed');
       Check(Abs(ProgressUnits - 2.0) < 0.000001,
         'insufficient notes did not preserve the incomplete state');
+
+      SetLength(SyncParameters, 1);
+      SyncParameters[0] := 1;
+      Check(ResolveAdjustedMusicSyncProgress(FileName, -1, 0.0, 0.25, 1,
+        SyncParameters, ProgressUnits), 'multi-note sync resolve failed');
+      Check(Abs(ProgressUnits - 0.25) < 0.000001,
+        'first of two notes did not advance one display unit proportionally');
+      Check(ResolveAdjustedMusicSyncProgress(FileName, -1, 0.0, 0.75, 1,
+        SyncParameters, ProgressUnits), 'second multi-note sync resolve failed');
+      Check(Abs(ProgressUnits - 0.75) < 0.000001,
+        'second of two notes did not continue the same display unit');
+
+      SyncParameters[0] := -1;
+      Check(ResolveAdjustedMusicSyncProgress(FileName, -1, 0.0, 0.25, 2,
+        SyncParameters, ProgressUnits), 'multi-unit sync resolve failed');
+      Check(Abs(ProgressUnits - 1.0) < 0.000001,
+        'one note did not advance two display units proportionally');
+      Check(ResolveAdjustedMusicSyncProgress(FileName, -1, 0.0, 0.75, 3,
+        SyncParameters, ProgressUnits), 'implicit default sync resolve failed');
+      Check(Abs(ProgressUnits - 2.5) < 0.000001,
+        'implicit default sync after adjusted stage mismatch');
+
+      SyncText := SerializeMusicSyncText([1, -1, 0]);
+      Check(TryParseSyncText(SyncText, SyncData),
+        'serialized music sync text could not be parsed');
+      Check((SyncData.Version = SYNC_TEXT_VERSION) and
+        (SyncData.Mode = smMusic), 'music sync header mismatch');
+      Check((Length(SyncData.MusicStages) = 3) and
+        (SyncData.MusicStages[0] = 1) and
+        (SyncData.MusicStages[1] = -1) and
+        (SyncData.MusicStages[2] = 0), 'music sync stages mismatch');
+      Check(TryParseSyncText(DEFAULT_MUSIC_SYNC_TEXT, SyncData) and
+        (Length(SyncData.MusicStages) = 0),
+        'empty music sync stages were not accepted');
+      Check(not TryParseSyncText(
+        'SYNC_LYRICS_SYNC/2;mode=music;stages=0', SyncData),
+        'unsupported sync text version was accepted');
+      Check(not TryParseSyncText(
+        'SYNC_LYRICS_SYNC/1;mode=music;stages=64', SyncData),
+        'out-of-range music sync stage was accepted');
     finally
       FinalizeMusicSync;
     end;

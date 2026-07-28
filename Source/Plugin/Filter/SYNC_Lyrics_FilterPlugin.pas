@@ -27,13 +27,17 @@ uses
   SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_MusicSync,
+  SYNC_Lyrics_MusicSyncAnchor,
+  SYNC_Lyrics_MusicSyncSettingsForm,
   SYNC_Lyrics_Renderer,
+  SYNC_Lyrics_SyncFormat,
   SYNC_Lyrics_Time,
   Vcl.Dialogs,
   Vcl.Forms;
 
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 procedure FontSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
+procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 
 var
   LyricsItem: TFILTER_ITEM_STRING = (
@@ -144,7 +148,17 @@ var
     E: 60;
     Step: 0.01
   );
-  PluginItems: array[0..15] of Pointer;
+  MusicSyncSettingsButton: TFILTER_ITEM_BUTTON = (
+    ItemType: 'button';
+    Name: '曲同期設定';
+    Callback: MusicSyncSettingsButtonCallback
+  );
+  SyncDataItem: TFILTER_ITEM_STRING = (
+    ItemType: 'string';
+    Name: '同期データ';
+    Value: DEFAULT_MUSIC_SYNC_TEXT
+  );
+  PluginItems: array[0..17] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -163,6 +177,29 @@ const
 procedure ShowFontSettingsError(const MessageText: string);
 begin
   MessageDlg(MessageText, mtError, [mbOK], 0);
+end;
+
+procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
+var
+  Anchor: TMusicSyncAnchor;
+  CurrentMusicFileName: string;
+  SyncForm: TFormLyricsMusicSyncSettings;
+begin
+  CurrentMusicFileName := '';
+  if Assigned(MusicFileItem.Value) then
+    CurrentMusicFileName := string(MusicFileItem.Value);
+
+  SyncForm := TFormLyricsMusicSyncSettings.Create(nil);
+  try
+    if TryGetMusicSyncAnchor(Anchor) then
+      SyncForm.SetAnchor(Anchor.Frame, Anchor.Rate, Anchor.Scale)
+    else
+      SyncForm.SetAnchorUnavailable;
+    SyncForm.LoadSettings(CurrentMusicFileName, Round(TrackItem.Value));
+    SyncForm.ShowModal;
+  finally
+    SyncForm.Free;
+  end;
 end;
 
 procedure FontSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
@@ -271,6 +308,7 @@ var
   MusicFileName: string;
   ObjectStartSeconds: Double;
   RenderSettings: TLyricsRenderSettings;
+  SyncData: TSyncTextData;
   SyncStartSeconds: Double;
   SyncProgress: Double;
   Track: Integer;
@@ -298,6 +336,8 @@ begin
     SyncProgress := 0;
     if TryGetLyricsFrameState(Video, FrameState) then
     begin
+      RecordMusicSyncAnchor(FrameState.Frame, FrameState.Rate,
+        FrameState.Scale);
       MusicFileName := '';
       if Assigned(MusicFileItem.Value) then
         MusicFileName := string(MusicFileItem.Value);
@@ -308,8 +348,12 @@ begin
           Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate;
       SyncStartSeconds := ObjectStartSeconds +
         Max(0.0, PreDisplayTimeItem.Value);
-      ResolveMusicSyncProgressForUnits(MusicFileName, Track, SyncStartSeconds,
-        FrameState.TimeSeconds, DisplayUnitCount, SyncProgress);
+      if Assigned(SyncDataItem.Value) and
+        TryParseSyncText(string(SyncDataItem.Value), SyncData) and
+        (SyncData.Mode = smMusic) then
+        ResolveAdjustedMusicSyncProgress(MusicFileName, Track, SyncStartSeconds,
+          FrameState.TimeSeconds, DisplayUnitCount, SyncData.MusicStages,
+          SyncProgress);
     end;
     RenderLyrics(Video, PWideChar(LyricsText), SyncProgress, RenderSettings,
       Round(PositionXItem.Value), Round(PositionYItem.Value));
@@ -339,7 +383,9 @@ begin
     PluginItems[12] := @RubyGapAdjustmentItem;
     PluginItems[13] := @BaseCharacterSpacingItem;
     PluginItems[14] := @PreDisplayTimeItem;
-    PluginItems[15] := nil;
+    PluginItems[15] := @MusicSyncSettingsButton;
+    PluginItems[16] := @SyncDataItem;
+    PluginItems[17] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;
@@ -349,6 +395,7 @@ procedure InitializeLyricsFilter;
 begin
   InitializeLyricsFrameShared;
   InitializeLyricsContexts;
+  InitializeMusicSyncAnchor;
   InitializeMusicSync;
   InitializeLyricsRenderer;
 end;
@@ -357,6 +404,7 @@ procedure FinalizeLyricsFilter;
 begin
   FinalizeLyricsRenderer;
   FinalizeMusicSync;
+  FinalizeMusicSyncAnchor;
   FinalizeLyricsContexts;
   FinalizeLyricsFrameShared;
 end;

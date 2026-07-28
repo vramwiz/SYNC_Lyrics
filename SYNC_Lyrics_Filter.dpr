@@ -29,9 +29,12 @@ uses
   SongReaderMusicMSC in 'Source\Lib\SongReader\SongReaderMusicMSC.pas',
   SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
+  SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
+  SYNC_Lyrics_MusicSyncAnchor in 'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas',
   SYNC_Lyrics_FontSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas' {FormLyricsFontSettings},
+  SYNC_Lyrics_MusicSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas' {FormLyricsMusicSyncSettings},
   SYNC_Lyrics_FilterPlugin in 'Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas';
 
 function InitializePlugin(Version: Cardinal): Byte; cdecl;
