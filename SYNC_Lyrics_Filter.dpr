@@ -30,6 +30,15 @@ uses
   SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
+  FFmpegApi in 'Source\Lib\FFmpeg\FFmpegApi.pas',
+  FFmpegAudioTempo in 'Source\Lib\FFmpeg\FFmpegAudioTempo.pas',
+  SYNC_Lyrics_SyncSourceKind in 'Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas',
+  SYNC_Lyrics_AudioProbe in 'Source\Common\Sync\SYNC_Lyrics_AudioProbe.pas',
+  SYNC_Lyrics_AudioWaveform in 'Source\Common\Sync\SYNC_Lyrics_AudioWaveform.pas',
+  SYNC_Lyrics_AudioPcm in 'Source\Common\Sync\SYNC_Lyrics_AudioPcm.pas',
+  SYNC_Lyrics_AudioPlayer in 'Source\Common\Sync\SYNC_Lyrics_AudioPlayer.pas',
+  SYNC_Lyrics_ManualSyncEditModel in 'Source\Common\Sync\SYNC_Lyrics_ManualSyncEditModel.pas',
+  SYNC_Lyrics_ManualSync in 'Source\Common\Sync\SYNC_Lyrics_ManualSync.pas',
   SYNC_Lyrics_MusicSyncAnchor in 'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
   SYNC_Lyrics_Animation in 'Source\Common\Render\SYNC_Lyrics_Animation.pas',
@@ -40,6 +49,7 @@ uses
   SYNC_Lyrics_MusicSyncNoteLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas',
   SYNC_Lyrics_MusicSyncFixedLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas',
   SYNC_Lyrics_MusicSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas' {FormLyricsMusicSyncSettings},
+  SYNC_Lyrics_ManualSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas' {FormLyricsManualSyncSettings},
   SYNC_Lyrics_FilterPlugin in 'Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas';
 
 function InitializePlugin(Version: Cardinal): Byte; cdecl;

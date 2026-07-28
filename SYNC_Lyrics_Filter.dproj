@@ -121,6 +121,13 @@
         <DCCReference Include="Source\Lib\SongReader\SongReaderMusicMSCZ.pas"/>
         <DCCReference Include="Source\Lib\SongReader\SongReaderManager.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_AudioProbe.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_AudioWaveform.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_AudioPcm.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_AudioPlayer.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_ManualSyncEditModel.pas"/>
+        <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_ManualSync.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSync.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
@@ -133,6 +140,9 @@
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas">
             <Form>FormLyricsMusicSyncSettings</Form>
+        </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas">
+            <Form>FormLyricsManualSyncSettings</Form>
         </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas"/>
         <BuildConfiguration Include="Base">

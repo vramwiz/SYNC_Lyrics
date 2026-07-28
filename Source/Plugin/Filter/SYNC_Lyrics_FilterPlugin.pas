@@ -26,11 +26,15 @@ uses
   SYNC_Lyrics_FontSettingsForm,
   SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
+  SYNC_Lyrics_ManualSync,
+  SYNC_Lyrics_ManualSyncSettingsForm,
+  SYNC_Lyrics_AudioProbe,
   SYNC_Lyrics_MusicSync,
   SYNC_Lyrics_MusicSyncAnchor,
   SYNC_Lyrics_MusicSyncSettingsForm,
   SYNC_Lyrics_Animation,
   SYNC_Lyrics_Renderer,
+  SYNC_Lyrics_SyncSourceKind,
   SYNC_Lyrics_SyncFormat,
   SYNC_Lyrics_Time,
   Vcl.Dialogs,
@@ -51,8 +55,13 @@ var
     Name: '音楽ファイル';
     Value: '';
     FileFilter:
-      '音楽ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz)'#0 +
-      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz'#0#0
+      '同期ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz;*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma)'#0 +
+      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz;*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma'#0 +
+      '楽譜ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz)'#0 +
+      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz'#0 +
+      '音声ファイル (*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma)'#0 +
+      '*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma'#0 +
+      'すべてのファイル (*.*)'#0'*.*'#0#0
   );
   TrackItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track';
@@ -279,11 +288,14 @@ end;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
 var
   Anchor: TMusicSyncAnchor;
+  AudioInfo: TSyncAudioFileInfo;
+  AudioProbeError: string;
   CurrentLyrics: string;
   CurrentMusicFileName: string;
   CurrentPreDisplaySeconds: Double;
   CurrentSyncText: string;
   LyricsChanged: Boolean;
+  ManualSyncForm: TFormLyricsManualSyncSettings;
   Obj: OBJECT_HANDLE;
   ObjectLayerFrame: TOBJECT_LAYER_FRAME;
   SelectedLyrics: string;
@@ -312,6 +324,65 @@ begin
   CurrentSyncText := DEFAULT_MUSIC_SYNC_TEXT;
   if Assigned(SyncDataItem.Value) then
     CurrentSyncText := string(SyncDataItem.Value);
+  if not IsMusicScoreFileName(CurrentMusicFileName) then
+  begin
+    if not TryProbeSyncAudioFile(CurrentMusicFileName,
+      AudioInfo, AudioProbeError) then
+    begin
+      ShowFontSettingsError(AudioProbeError);
+      Exit;
+    end;
+    ManualSyncForm := TFormLyricsManualSyncSettings.Create(nil);
+    try
+      ManualSyncForm.LoadSettings(CurrentMusicFileName, AudioInfo,
+        CurrentLyrics, CurrentSyncText);
+      if ManualSyncForm.ShowModal <> mrOk then
+        Exit;
+      SelectedLyrics := ManualSyncForm.LyricsText;
+      SelectedSyncText := ManualSyncForm.SyncText;
+    finally
+      ManualSyncForm.Free;
+    end;
+    LyricsChanged := SelectedLyrics <> CurrentLyrics;
+    SyncChanged := SelectedSyncText <> CurrentSyncText;
+    if not LyricsChanged and not SyncChanged then
+      Exit;
+    if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
+      (Obj = nil) then
+    begin
+      ShowFontSettingsError(
+        '手動同期設定を反映する対象オブジェクトを取得できませんでした。');
+      Exit;
+    end;
+    if LyricsChanged then
+    begin
+      Utf8Lyrics := UTF8String(SelectedLyrics);
+      if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+        '歌詞', PAnsiChar(Utf8Lyrics)) then
+      begin
+        ShowFontSettingsError(
+          '歌詞を歌詞テロップへ反映できませんでした。');
+        Exit;
+      end;
+    end;
+    if SyncChanged then
+    begin
+      Utf8SyncText := UTF8String(SelectedSyncText);
+      if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+        '同期データ', PAnsiChar(Utf8SyncText)) then
+      begin
+        if LyricsChanged then
+        begin
+          Utf8OriginalLyrics := UTF8String(CurrentLyrics);
+          Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+            '歌詞', PAnsiChar(Utf8OriginalLyrics));
+        end;
+        ShowFontSettingsError(
+          '手動同期データを歌詞テロップへ反映できませんでした。');
+      end;
+    end;
+    Exit;
+  end;
   CurrentPreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
 
   SyncForm := TFormLyricsMusicSyncSettings.Create(nil);
@@ -580,11 +651,16 @@ begin
       SyncStartSeconds := ObjectStartSeconds +
         Max(0.0, PreDisplayTimeItem.Value);
       if Assigned(SyncDataItem.Value) and
-        TryParseSyncText(string(SyncDataItem.Value), SyncData) and
-        (SyncData.Mode = smMusic) then
-        ResolveAdjustedMusicSyncProgress(MusicFileName, Track, SyncStartSeconds,
-          FrameState.TimeSeconds, DisplayUnitCount, SyncData.MusicStages,
-          SyncProgress);
+        TryParseSyncText(string(SyncDataItem.Value), SyncData) then
+        case SyncData.Mode of
+          smMusic:
+            ResolveAdjustedMusicSyncProgress(MusicFileName, Track,
+              SyncStartSeconds, FrameState.TimeSeconds, DisplayUnitCount,
+              SyncData.MusicStages, SyncProgress);
+          smManual:
+            ResolveManualSyncProgress(FrameState.TimeSeconds,
+              DisplayUnitCount, SyncData.ManualBoundaries, SyncProgress);
+        end;
       if (Video <> nil) and (Video^.Object_ <> nil) and
         (FrameState.Rate > 0) then
       begin

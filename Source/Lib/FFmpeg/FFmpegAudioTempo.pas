@@ -99,7 +99,10 @@ var
   SinkFilter   : PAVFilter;        // abuffersink filter 定義
   SinkName     : AnsiString;       // abuffersink filter 名
   SourceName   : AnsiString;       // abuffer filter 名
+  FirstRate    : Double;           // 1段目のatempo倍率
+  SecondRate   : Double;           // 2段目のatempo倍率（不要時は1.0）
   TempoContext : PAVFilterContext; // atempo filter context
+  TempoContext2: PAVFilterContext; // 0.5未満を扱う2段目atempo
   TempoFilter  : PAVFilter;        // atempo filter 定義
   TempoName    : AnsiString;       // atempo filter 名
   TempoText    : AnsiString;       // atempo に渡す倍率文字列
@@ -109,6 +112,7 @@ begin
   SourceContext := nil;
   SinkContext := nil;
   TempoContext := nil;
+  TempoContext2 := nil;
   ErrorMessage := '';
 
   SourceName := 'abuffer';
@@ -139,7 +143,18 @@ begin
     Exit;
   end;
 
-  TempoText := AnsiString(StringReplace(Format('%.6f', [Rate]), ',', '.',
+  if Rate < 0.5 then
+  begin
+    FirstRate := 0.5;
+    SecondRate := Rate / FirstRate;
+  end
+  else
+  begin
+    FirstRate := Rate;
+    SecondRate := 1.0;
+  end;
+
+  TempoText := AnsiString(StringReplace(Format('%.6f', [FirstRate]), ',', '.',
     [rfReplaceAll]));
   Ret := TFFmpegApi.avfilter_graph_create_filter(@TempoContext, TempoFilter,
     'tempo', PAnsiChar(TempoText), nil, Graph);
@@ -147,6 +162,20 @@ begin
   begin
     ErrorMessage := 'atempo: ' + TFFmpegApi.ErrorText(Ret);
     Exit;
+  end;
+
+  if not SameValue(SecondRate, 1.0) then
+  begin
+    TempoText := AnsiString(StringReplace(
+      Format('%.6f', [SecondRate]), ',', '.', [rfReplaceAll]));
+    Ret := TFFmpegApi.avfilter_graph_create_filter(@TempoContext2,
+      TempoFilter, 'tempo2', PAnsiChar(TempoText), nil, Graph);
+    if Ret < 0 then
+    begin
+      ErrorMessage := 'atempo second stage: ' +
+        TFFmpegApi.ErrorText(Ret);
+      Exit;
+    end;
   end;
 
   Ret := TFFmpegApi.avfilter_graph_create_filter(@SinkContext, SinkFilter,
@@ -164,7 +193,14 @@ begin
     Exit;
   end;
 
-  Ret := TFFmpegApi.avfilter_link(TempoContext, 0, SinkContext, 0);
+  if TempoContext2 <> nil then
+  begin
+    Ret := TFFmpegApi.avfilter_link(TempoContext, 0, TempoContext2, 0);
+    if Ret >= 0 then
+      Ret := TFFmpegApi.avfilter_link(TempoContext2, 0, SinkContext, 0);
+  end
+  else
+    Ret := TFFmpegApi.avfilter_link(TempoContext, 0, SinkContext, 0);
   if Ret < 0 then
   begin
     ErrorMessage := 'link tempo->sink: ' + TFFmpegApi.ErrorText(Ret);

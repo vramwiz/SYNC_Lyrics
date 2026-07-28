@@ -45,6 +45,7 @@ type
     FAvailableNoteCount: Integer;
     FDraggingLyric: Boolean;
     FDraggingPreDisplay: Boolean;
+    FDraggingView: Boolean;
     FDisplaySeconds: Double;
     FEditModel: TMusicSyncEditModel;
     FFilterLyricHitRects: TArray<TRect>;
@@ -59,6 +60,8 @@ type
     FPreDisplaySeconds: Double;
     FMusicLoaded: Boolean;
     FViewStartOffsetSeconds: Double;
+    FViewDragStartOffsetSeconds: Double;
+    FViewDragStartX: Integer;
     function GetPreDisplayLinePosition: Integer;
     function HitTestFilterLyric(X, Y: Integer): Integer;
     procedure LoadPianoRoll(const MusicFileName: string; Track: Integer);
@@ -317,7 +320,14 @@ begin
     TCapturePaintBox(PianoRollPaintBox).MouseCapture := True;
     PianoRollPaintBox.Cursor := crSizeWE;
     PianoRollPaintBox.Invalidate;
+    Exit;
   end;
+
+  FDraggingView := True;
+  FViewDragStartX := X;
+  FViewDragStartOffsetSeconds := FViewStartOffsetSeconds;
+  TCapturePaintBox(PianoRollPaintBox).MouseCapture := True;
+  PianoRollPaintBox.Cursor := crSizeWE;
 end;
 
 procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxMouseMove(
@@ -327,6 +337,7 @@ var
   DragStepPixels: Integer;
   LinePosition: Integer;
   PreDisplayHitMargin: Integer;
+  TimeWidth: Integer;
 begin
   if FDraggingPreDisplay then
   begin
@@ -352,6 +363,19 @@ begin
     PianoRollPaintBox.Cursor := crSizeWE;
     Exit;
   end;
+  if FDraggingView then
+  begin
+    TimeWidth := Max(1, PianoRollPaintBox.ClientWidth -
+      MusicSyncKeyboardWidth(CurrentPPI));
+    FViewStartOffsetSeconds := EnsureRange(
+      FViewDragStartOffsetSeconds -
+      (X - FViewDragStartX) / TimeWidth * FDisplaySeconds,
+      0.0, Max(0.0, FLastTrackNoteEndSeconds -
+      FAnchorSeconds - FDisplaySeconds));
+    PianoRollPaintBox.Cursor := crSizeWE;
+    PianoRollPaintBox.Invalidate;
+    Exit;
+  end;
 
   LinePosition := GetPreDisplayLinePosition;
   PreDisplayHitMargin := ScaleMusicSyncMetric(
@@ -362,7 +386,7 @@ begin
   else if HitTestFilterLyric(X, Y) >= 0 then
     PianoRollPaintBox.Cursor := crSizeWE
   else
-    PianoRollPaintBox.Cursor := crDefault;
+    PianoRollPaintBox.Cursor := crSizeWE;
 end;
 
 procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxMouseUp(
@@ -381,6 +405,11 @@ begin
   begin
     FDraggingLyric := False;
     FEditModel.EndDrag;
+    TCapturePaintBox(PianoRollPaintBox).MouseCapture := False;
+  end
+  else if FDraggingView then
+  begin
+    FDraggingView := False;
     TCapturePaintBox(PianoRollPaintBox).MouseCapture := False;
   end
   else

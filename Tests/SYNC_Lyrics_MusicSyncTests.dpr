@@ -29,8 +29,12 @@ uses
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
+  SYNC_Lyrics_SyncSourceKind in
+    'Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas',
   SYNC_Lyrics_ManualSync in
     'Source\Common\Sync\SYNC_Lyrics_ManualSync.pas',
+  SYNC_Lyrics_ManualSyncEditModel in
+    'Source\Common\Sync\SYNC_Lyrics_ManualSyncEditModel.pas',
   SYNC_Lyrics_MusicSyncAnchor in
     'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
@@ -381,6 +385,21 @@ begin
   end;
 end;
 
+procedure TestSyncSourceKind;
+begin
+  Check(IsMusicScoreFileName('song.mid'), 'MIDI was not classified as score');
+  Check(IsMusicScoreFileName('SONG.MUSICXML'),
+    'MusicXML classification was case-sensitive');
+  Check(IsMusicScoreFileName('archive.mscz'),
+    'MSCZ was not classified as score');
+  Check(not IsMusicScoreFileName('voice.wav'),
+    'WAV was unexpectedly classified as score');
+  Check(not IsMusicScoreFileName('voice.flac'),
+    'FLAC was unexpectedly classified as score');
+  Check(not IsMusicScoreFileName('unknown.bin'),
+    'unknown file was unexpectedly classified as score');
+end;
+
 procedure TestUnassignedLyrics;
 var
   Model: TMusicSyncEditModel;
@@ -430,7 +449,49 @@ begin
   end;
 end;
 
+procedure TestManualSyncEditModel;
+var
+  Model: TManualSyncEditModel;
 begin
+  Model := TManualSyncEditModel.Create;
+  try
+    Model.Initialize(3, 30.0, '', 10.0);
+    Check(Abs(Model.BoundarySeconds(3) - 10.0) < 0.0001,
+      'manual sync defaults were placed outside the initial view');
+    Model.Initialize(3, 12.0, '');
+    Check(Model.Complete and (Model.BoundaryCount = 4),
+      'manual sync default boundaries were not generated');
+    Check(Abs(Model.BoundarySeconds(1) - 4.0) < 0.0001,
+      'manual sync default interval mismatch');
+    Check(Model.AddTimingBoundary(1.25) and
+      Model.TimingInputStarted and (Model.BoundaryCount = 1),
+      'first timing key did not clear defaults and record the first point');
+    Check(Model.AddTimingBoundary(2.5) and
+      (Model.BoundaryCount = 2),
+      'second timing point was not appended');
+    Model.RearmTimingInput;
+    Check(Model.BoundaryCount = 2,
+      'rearming timing input unexpectedly deleted data');
+    Check(Model.AddTimingBoundary(3.0) and
+      (Model.BoundaryCount = 1) and
+      (Abs(Model.BoundarySeconds(0) - 3.0) < 0.0001),
+      'first timing key after rearm did not restart input');
+    Check(Model.AddTimingBoundary(5.0) and
+      Model.AddTimingBoundary(7.0) and
+      Model.AddTimingBoundary(9.0) and Model.Complete,
+      'manual timing input did not complete');
+    Check(Model.MoveBoundary(1, 6.0) and
+      (Model.BoundarySeconds(1) < Model.BoundarySeconds(2)),
+      'manual boundary drag did not preserve ordering');
+    Check(Pos('mode=manual', Model.SerializeSyncText) > 0,
+      'manual sync serialization failed');
+  finally
+    Model.Free;
+  end;
+end;
+
+begin
+  TestSyncSourceKind;
   TestSongReaderAndConsumption;
   TestExpandedRubyUnitCharacterNotes;
   TestNonSoundingLyricsAreAttached;
@@ -439,5 +500,6 @@ begin
   TestMusicSyncDpiLayout;
   TestUnassignedLyrics;
   TestMusicSyncAnchorPerObject;
+  TestManualSyncEditModel;
   Writeln('PASS');
 end.
