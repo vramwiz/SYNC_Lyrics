@@ -125,6 +125,10 @@
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas">
             <Form>FormLyricsFontSettings</Form>
         </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas">
             <Form>FormLyricsMusicSyncSettings</Form>
         </DCCReference>

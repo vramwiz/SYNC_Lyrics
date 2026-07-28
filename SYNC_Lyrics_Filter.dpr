@@ -34,6 +34,10 @@ uses
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas',
   SYNC_Lyrics_FontSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas' {FormLyricsFontSettings},
+  SYNC_Lyrics_MusicSyncEditModel in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',
+  SYNC_Lyrics_MusicSyncPianoRoll in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
+  SYNC_Lyrics_MusicSyncNoteLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas',
+  SYNC_Lyrics_MusicSyncFixedLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas',
   SYNC_Lyrics_MusicSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas' {FormLyricsMusicSyncSettings},
   SYNC_Lyrics_FilterPlugin in 'Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas';
 

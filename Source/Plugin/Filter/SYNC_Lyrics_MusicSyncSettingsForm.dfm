@@ -42,22 +42,32 @@
     object LyricsEdit: TEdit
       Left = 56
       Top = 14
-      Width = 612
+      Width = 472
       Height = 23
       Anchors = [akLeft, akTop, akRight]
       TabOrder = 0
       OnChange = LyricsEditChange
     end
-    object ApplyButton: TButton
-      Left = 684
+    object ResetSyncButton: TButton
+      Left = 540
       Top = 12
-      Width = 88
+      Width = 120
+      Height = 28
+      Anchors = [akTop, akRight]
+      Caption = #21516#26399#12434#21021#26399#21270
+      TabOrder = 1
+      OnClick = ResetSyncButtonClick
+    end
+    object ApplyButton: TButton
+      Left = 672
+      Top = 12
+      Width = 100
       Height = 28
       Anchors = [akTop, akRight]
       Caption = #36969#29992
       Default = True
       ModalResult = 1
-      TabOrder = 1
+      TabOrder = 2
     end
     object CloseButton: TButton
       Left = 796
@@ -68,7 +78,7 @@
       Cancel = True
       Caption = #38281#12376#12427
       ModalResult = 2
-      TabOrder = 2
+      TabOrder = 3
     end
   end
 end

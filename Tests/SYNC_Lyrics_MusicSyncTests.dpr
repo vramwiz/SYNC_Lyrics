@@ -25,8 +25,11 @@ uses
   SongReaderMusicMSC in 'Source\Lib\SongReader\SongReaderMusicMSC.pas',
   SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
+  SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
-  SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas';
+  SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
+  SYNC_Lyrics_MusicSyncEditModel in
+    'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas';
 
 const
   TEST_MIDI: array[0..50] of Byte = (
@@ -155,7 +158,32 @@ begin
   end;
 end;
 
+procedure TestExpandedRubyUnitCharacterNotes;
+var
+  Model: TMusicSyncEditModel;
+  NoteIndex: Integer;
+begin
+  Model := TMusicSyncEditModel.Create;
+  try
+    Model.SetLyrics('[漢字](かんじ)を読む');
+    Check(Length(Model.Units) = 4, 'ruby lyric unit count mismatch');
+    Check(not Model.TryGetExpandedCharacterNoteIndex(0, 1, NoteIndex),
+      'one-note ruby unit unexpectedly split its characters');
+
+    Model.LoadSyncText(SerializeMusicSyncText([1, 0, 0, 0]));
+    Check(Model.TryGetExpandedCharacterNoteIndex(0, 0, NoteIndex) and
+      (NoteIndex = 0), 'first ruby character did not remain on first note');
+    Check(Model.TryGetExpandedCharacterNoteIndex(0, 1, NoteIndex) and
+      (NoteIndex = 1), 'second ruby character did not move to second note');
+    Check(Model.UnitNoteIndexes[1] = 2,
+      'unit after expanded ruby unit did not move past both notes');
+  finally
+    Model.Free;
+  end;
+end;
+
 begin
   TestSongReaderAndConsumption;
+  TestExpandedRubyUnitCharacterNotes;
   Writeln('PASS');
 end.
