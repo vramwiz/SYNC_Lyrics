@@ -34,6 +34,9 @@ type
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PianoRollPaintBoxPaint(Sender: TObject);
     procedure ResetSyncButtonClick(Sender: TObject);
+  protected
+    procedure ChangeScale(M, D: Integer;
+      isDpiChange: Boolean); override;
   private
     FAnchorAvailable: Boolean;
     FAnchorSeconds: Double;
@@ -41,6 +44,7 @@ type
     FDraggingPreDisplay: Boolean;
     FEditModel: TMusicSyncEditModel;
     FFilterLyricHitRects: TArray<TRect>;
+    FFixedLyricHitRects: TArray<TRect>;
     FLoadMessage: string;
     FLyricDragStartX: Integer;
     FLyricDragStep: Integer;
@@ -77,8 +81,8 @@ uses
 {$R *.dfm}
 
 const
-  LYRIC_DRAG_STEP_PIXELS = 36;
-  PRE_DISPLAY_HIT_MARGIN = 6;
+  LYRIC_DRAG_STEP_PIXELS_96 = 36;
+  PRE_DISPLAY_HIT_MARGIN_96 = 6;
 
 type
   TCapturePaintBox = class(TPaintBox)
@@ -101,16 +105,27 @@ begin
   inherited Destroy;
 end;
 
+procedure TFormLyricsMusicSyncSettings.ChangeScale(M, D: Integer;
+  isDpiChange: Boolean);
+begin
+  inherited ChangeScale(M, D, isDpiChange);
+  if FPianoRollBuffer <> nil then
+    FPianoRollBuffer.SetSize(0, 0);
+  if PianoRollPaintBox <> nil then
+    PianoRollPaintBox.Invalidate;
+end;
+
 function TFormLyricsMusicSyncSettings.GetPreDisplayLinePosition: Integer;
 var
   TimeWidth: Integer;
 begin
   Result := -1;
-  TimeWidth := PianoRollPaintBox.ClientWidth - MUSIC_SYNC_KEYBOARD_WIDTH;
+  TimeWidth := PianoRollPaintBox.ClientWidth -
+    MusicSyncKeyboardWidth(CurrentPPI);
   if (TimeWidth <= 0) or
     (FPreDisplaySeconds > MUSIC_SYNC_DISPLAY_SECONDS) then
     Exit;
-  Result := MUSIC_SYNC_KEYBOARD_WIDTH +
+  Result := MusicSyncKeyboardWidth(CurrentPPI) +
     Round(FPreDisplaySeconds / MUSIC_SYNC_DISPLAY_SECONDS * TimeWidth);
 end;
 
@@ -118,6 +133,8 @@ function TFormLyricsMusicSyncSettings.HitTestFilterLyric(
   X, Y: Integer): Integer;
 begin
   Result := HitTestNoteFollowingLyrics(FFilterLyricHitRects, X, Y);
+  if Result < 0 then
+    Result := HitTestFixedLyrics(FFixedLyricHitRects, X, Y);
 end;
 
 procedure TFormLyricsMusicSyncSettings.LoadPianoRoll(
@@ -186,12 +203,15 @@ procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxMouseDown(
 var
   LinePosition: Integer;
   LyricIndex: Integer;
+  PreDisplayHitMargin: Integer;
 begin
   if Button <> mbLeft then
     Exit;
   LinePosition := GetPreDisplayLinePosition;
+  PreDisplayHitMargin := ScaleMusicSyncMetric(
+    PRE_DISPLAY_HIT_MARGIN_96, CurrentPPI);
   if (LinePosition >= 0) and
-    (Abs(X - LinePosition) <= PRE_DISPLAY_HIT_MARGIN) then
+    (Abs(X - LinePosition) <= PreDisplayHitMargin) then
   begin
     FDraggingPreDisplay := True;
     TCapturePaintBox(PianoRollPaintBox).MouseCapture := True;
@@ -216,7 +236,9 @@ procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxMouseMove(
   Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
   DragStep: Integer;
+  DragStepPixels: Integer;
   LinePosition: Integer;
+  PreDisplayHitMargin: Integer;
 begin
   if FDraggingPreDisplay then
   begin
@@ -226,11 +248,13 @@ begin
   end;
   if FDraggingLyric then
   begin
+    DragStepPixels := Max(1, ScaleMusicSyncMetric(
+      LYRIC_DRAG_STEP_PIXELS_96, CurrentPPI));
     if X >= FLyricDragStartX then
-      DragStep := (X - FLyricDragStartX) div LYRIC_DRAG_STEP_PIXELS
+      DragStep := (X - FLyricDragStartX) div DragStepPixels
     else
       DragStep := -((FLyricDragStartX - X) div
-        LYRIC_DRAG_STEP_PIXELS);
+        DragStepPixels);
     if DragStep <> FLyricDragStep then
     begin
       FLyricDragStep := DragStep;
@@ -242,8 +266,10 @@ begin
   end;
 
   LinePosition := GetPreDisplayLinePosition;
+  PreDisplayHitMargin := ScaleMusicSyncMetric(
+    PRE_DISPLAY_HIT_MARGIN_96, CurrentPPI);
   if (LinePosition >= 0) and
-    (Abs(X - LinePosition) <= PRE_DISPLAY_HIT_MARGIN) then
+    (Abs(X - LinePosition) <= PreDisplayHitMargin) then
     PianoRollPaintBox.Cursor := crSizeWE
   else if HitTestFilterLyric(X, Y) >= 0 then
     PianoRollPaintBox.Cursor := crSizeWE
@@ -278,12 +304,14 @@ procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxPaint(
   Sender: TObject);
 var
   Canvas: TCanvas;
+  Dpi: Integer;
   Layout: TPianoRollLayout;
   PianoHeight: Integer;
   PianoWidth: Integer;
   TextHeight: Integer;
   TextWidth: Integer;
 begin
+  Dpi := CurrentPPI;
   PianoWidth := PianoRollPaintBox.ClientWidth;
   PianoHeight := PianoRollPaintBox.ClientHeight;
   if (PianoWidth <= 0) or (PianoHeight <= 0) or
@@ -295,23 +323,24 @@ begin
   Canvas := FPianoRollBuffer.Canvas;
   try
     DrawMusicSyncPianoRoll(Canvas, PianoWidth, PianoHeight, FNotes,
-      FAnchorSeconds, FPreDisplaySeconds, Layout);
+      FAnchorSeconds, FPreDisplaySeconds, Dpi, Layout);
     DrawNoteFollowingLyrics(Canvas, FEditModel, Layout, PianoWidth,
       FFilterLyricHitRects);
-    DrawFixedLyrics(Canvas, PianoWidth, PianoHeight, FEditModel, Layout);
+    DrawFixedLyrics(Canvas, PianoWidth, PianoHeight, FEditModel, Layout,
+      FFixedLyricHitRects);
     DrawMusicSyncMarkers(Canvas, PianoHeight, PianoWidth,
-      FPreDisplaySeconds);
+      FPreDisplaySeconds, Layout);
 
     if FLoadMessage <> '' then
     begin
       Canvas.Brush.Style := bsClear;
       Canvas.Font.Name := 'Segoe UI';
-      Canvas.Font.Height := -14;
+      Canvas.Font.Height := -ScaleMusicSyncMetric(14, Dpi);
       Canvas.Font.Style := [];
       Canvas.Font.Color := RGB(210, 215, 224);
       TextWidth := Canvas.TextWidth(FLoadMessage);
       TextHeight := Canvas.TextHeight(FLoadMessage);
-      Canvas.TextOut(MUSIC_SYNC_KEYBOARD_WIDTH +
+      Canvas.TextOut(Layout.KeyboardWidth +
         (Layout.TimeWidth - TextWidth) div 2,
         (Layout.RollHeight - TextHeight) div 2, FLoadMessage);
       Canvas.Brush.Style := bsSolid;
@@ -326,6 +355,7 @@ procedure TFormLyricsMusicSyncSettings.RebuildFilterLyricUnits;
 begin
   FEditModel.SetLyrics(LyricsEdit.Text);
   SetLength(FFilterLyricHitRects, Length(FEditModel.Units));
+  SetLength(FFixedLyricHitRects, Length(FEditModel.Units));
 end;
 
 procedure TFormLyricsMusicSyncSettings.ResetSyncButtonClick(
@@ -340,11 +370,12 @@ procedure TFormLyricsMusicSyncSettings.SetPreDisplayFromMouse(X: Integer);
 var
   TimeWidth: Integer;
 begin
-  TimeWidth := PianoRollPaintBox.ClientWidth - MUSIC_SYNC_KEYBOARD_WIDTH;
+  TimeWidth := PianoRollPaintBox.ClientWidth -
+    MusicSyncKeyboardWidth(CurrentPPI);
   if TimeWidth <= 0 then
     Exit;
   FPreDisplaySeconds := EnsureRange(
-    (X - MUSIC_SYNC_KEYBOARD_WIDTH) / TimeWidth *
+    (X - MusicSyncKeyboardWidth(CurrentPPI)) / TimeWidth *
       MUSIC_SYNC_DISPLAY_SECONDS,
     0.0, MUSIC_SYNC_DISPLAY_SECONDS);
   PianoRollPaintBox.Invalidate;

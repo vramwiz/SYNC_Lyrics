@@ -7,6 +7,8 @@
 uses
   System.IOUtils,
   System.SysUtils,
+  Vcl.Graphics,
+  Winapi.Windows,
   RTTIPersistent in 'Source\Lib\SongReader\RTTIPersistent.pas',
   RTTIPersistentIni in 'Source\Lib\SongReader\RTTIPersistentIni.pas',
   SectionFileManager in 'Source\Lib\SongReader\SectionFileManager.pas',
@@ -28,6 +30,8 @@ uses
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
+  SYNC_Lyrics_MusicSyncPianoRoll in
+    'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
   SYNC_Lyrics_MusicSyncEditModel in
     'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas';
 
@@ -182,8 +186,171 @@ begin
   end;
 end;
 
+procedure TestNonSoundingLyricsAreAttached;
+var
+  Model: TMusicSyncEditModel;
+begin
+  Model := TMusicSyncEditModel.Create;
+  try
+    Model.SetLyrics('「歌、 空。」');
+    Check(Length(Model.Units) = 2,
+      'non-sounding characters created editable sync units');
+    Check((Model.Units[0].PrefixText = '「') and
+      (Model.Units[0].Text = '歌') and
+      (Model.Units[0].SuffixText = '、 '),
+      'leading or middle punctuation attachment mismatch');
+    Check((Model.Units[1].Text = '空') and
+      (Model.Units[1].SuffixText = '。」'),
+      'trailing punctuation attachment mismatch');
+    Check((Length(Model.Groups) = 2) and
+      (Model.UnitNoteIndexes[0] = 0) and
+      (Model.UnitNoteIndexes[1] = 1),
+      'attached punctuation changed editable note indexes');
+  finally
+    Model.Free;
+  end;
+end;
+
+procedure TestDefaultSyncGeneration;
+var
+  Model: TMusicSyncEditModel;
+begin
+  Model := TMusicSyncEditModel.Create;
+  try
+    Model.SetLyrics('「[漢字](かんじ)、 を!');
+    Check(Length(Model.Units) = 2,
+      'default sync did not use sounding display units');
+    Model.LoadSyncText('');
+    Check(Model.DefaultSyncGenerated,
+      'missing sync text was not recognized as generated defaults');
+    Check((Length(Model.Groups) = 2) and
+      (Model.Groups[0].UnitCount = 1) and
+      (Model.Groups[0].NoteCount = 1) and
+      (Model.Groups[1].UnitCount = 1) and
+      (Model.Groups[1].NoteCount = 1),
+      'missing sync text did not create one-unit one-note defaults');
+    Check(Model.SerializeSyncText = DEFAULT_MUSIC_SYNC_TEXT,
+      'generated defaults were not serialized in canonical form');
+
+    Model.LoadSyncText(SerializeMusicSyncText([1, 0]));
+    Check(not Model.DefaultSyncGenerated,
+      'explicit sync stages were mistaken for generated defaults');
+  finally
+    Model.Free;
+  end;
+end;
+
+procedure TestSyncPreservedAcrossLyricsEdits;
+var
+  Model: TMusicSyncEditModel;
+begin
+  Model := TMusicSyncEditModel.Create;
+  try
+    Model.SetLyrics('あいう');
+    Model.LoadSyncText(SerializeMusicSyncText([0, 1, 0]));
+    Model.SelectedUnitIndex := 1;
+    Model.SetLyrics('あえいう');
+    Check((Length(Model.Groups) = 4) and
+      (Model.Groups[0].NoteCount = 1) and
+      (Model.Groups[1].NoteCount = 1) and
+      (Model.Groups[2].NoteCount = 2) and
+      (Model.Groups[3].NoteCount = 1),
+      'insertion did not preserve matching multi-note unit');
+    Check((Model.UnitNoteIndexes[0] = 0) and
+      (Model.UnitNoteIndexes[1] = 1) and
+      (Model.UnitNoteIndexes[2] = 2) and
+      (Model.UnitNoteIndexes[3] = 4),
+      'inserted unit note indexes mismatch');
+    Check(Model.SelectedUnitIndex = 2,
+      'selection did not follow matching unit after insertion');
+
+    Model.SetLyrics('「あえいう、」');
+    Check((Length(Model.Groups) = 4) and
+      (Model.Groups[2].NoteCount = 2),
+      'punctuation edit changed preserved sync');
+
+    Model.SetLyrics('かきく');
+    Model.LoadSyncText(SerializeMusicSyncText([-1, 0]));
+    Model.SetLyrics('かきけく');
+    Check((Length(Model.Groups) = 3) and
+      (Model.Groups[0].UnitCount = 2) and
+      (Model.Groups[0].NoteCount = 1) and
+      (Model.Groups[1].UnitCount = 1) and
+      (Model.Groups[2].UnitCount = 1),
+      'insertion after shared group did not preserve the group');
+
+    Model.SetLyrics('かきく');
+    Model.LoadSyncText(SerializeMusicSyncText([-1, 0]));
+    Model.SetLyrics('かけきく');
+    Check((Length(Model.Groups) = 4) and
+      (Model.Groups[0].UnitCount = 1) and
+      (Model.Groups[1].UnitCount = 1) and
+      (Model.Groups[2].UnitCount = 1),
+      'edit inside shared group preserved an invalid group');
+
+    Model.SetLyrics('[漢字](かんじ)を');
+    Model.LoadSyncText(SerializeMusicSyncText([1, 0]));
+    Model.SetLyrics('「[漢字](カンジ)、を」');
+    Check((Length(Model.Groups) = 2) and
+      (Model.Groups[0].NoteCount = 2),
+      'ruby or attached punctuation edit changed base-text sync');
+  finally
+    Model.Free;
+  end;
+end;
+
+procedure TestMusicSyncDpiLayout;
+var
+  Bitmap: Vcl.Graphics.TBitmap;
+  BlackKeyY: Integer;
+  Layout: TPianoRollLayout;
+  Notes: TMusicNoteStarts;
+  PixelColor: COLORREF;
+begin
+  Check(ScaleMusicSyncMetric(76, 96) = 76,
+    '96 DPI metric changed its base size');
+  Check(ScaleMusicSyncMetric(76, 192) = 152,
+    '200 percent DPI metric mismatch');
+  Check(MusicSyncKeyboardWidth(192) = 152,
+    '200 percent keyboard width mismatch');
+
+  Bitmap := Vcl.Graphics.TBitmap.Create;
+  try
+    Bitmap.PixelFormat := pf32bit;
+    Bitmap.SetSize(1800, 1240);
+    SetLength(Notes, 0);
+    DrawMusicSyncPianoRoll(Bitmap.Canvas, Bitmap.Width, Bitmap.Height,
+      Notes, 0, 0, 192, Layout);
+    Check((Layout.Dpi = 192) and
+      (Layout.KeyboardWidth = 152) and
+      (Layout.RollHeight = 1124) and
+      (Layout.TimeWidth = 1648),
+      '200 percent piano-roll layout mismatch');
+    // ノートなしの既定範囲はMIDI 48..71。黒鍵49の中心付近で、
+    // 黒鍵幅62%より右側が白鍵ベースとして残ることを確認する。
+    BlackKeyY := Round(Layout.RollHeight * 0.5 -
+      (49 - 59.5) * (Layout.RollHeight / 24));
+    PixelColor := GetPixel(Bitmap.Canvas.Handle, 40, BlackKeyY);
+    Check((GetRValue(PixelColor) < 80) and
+      (GetGValue(PixelColor) < 80) and
+      (GetBValue(PixelColor) < 80),
+      'black key itself was not painted dark');
+    PixelColor := GetPixel(Bitmap.Canvas.Handle, 120, BlackKeyY);
+    Check((GetRValue(PixelColor) > 100) and
+      (GetGValue(PixelColor) > 100) and
+      (GetBValue(PixelColor) > 100),
+      'black key remainder was not painted with the white-key base');
+  finally
+    Bitmap.Free;
+  end;
+end;
+
 begin
   TestSongReaderAndConsumption;
   TestExpandedRubyUnitCharacterNotes;
+  TestNonSoundingLyricsAreAttached;
+  TestDefaultSyncGeneration;
+  TestSyncPreservedAcrossLyricsEdits;
+  TestMusicSyncDpiLayout;
   Writeln('PASS');
 end.

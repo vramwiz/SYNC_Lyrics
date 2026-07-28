@@ -138,8 +138,32 @@ begin
     (Units[0].RubyIndex = 0), 'bracket ruby display unit mismatch');
   Check((Units[2].BaseStart = 4) and (Units[2].BaseLength = 1) and
     (Units[2].RubyIndex = 1), 'short ruby display unit mismatch');
+  Check(Units[0].ConsumesNote and Units[1].ConsumesNote and
+    Units[2].ConsumesNote and Units[3].ConsumesNote,
+    'sounding lyric unit classification mismatch');
   Check(CountLyricsDisplayUnits('[漢字](かんじ)を読(よ)む') = 4,
     'display unit count mismatch');
+
+  ParseLyrics('「歌、 空。」', PlainText, RubySpans);
+  BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
+  Check((Length(Units) = 7) and not Units[0].ConsumesNote and
+    Units[1].ConsumesNote and not Units[2].ConsumesNote and
+    not Units[3].ConsumesNote and Units[4].ConsumesNote and
+    not Units[5].ConsumesNote and not Units[6].ConsumesNote,
+    'space and punctuation classification mismatch');
+  Check((Units[0].SyncUnitIndex = 0) and
+    (Units[1].SyncUnitIndex = 0) and
+    (Units[2].SyncUnitIndex = 0) and
+    (Units[3].SyncUnitIndex = 0) and
+    (Units[4].SyncUnitIndex = 1) and
+    (Units[5].SyncUnitIndex = 1) and
+    (Units[6].SyncUnitIndex = 1),
+    'space and punctuation attachment mismatch');
+  Check(CountLyricsDisplayUnits('「歌、 空。」') = 2,
+    'non-sounding characters consumed sync units');
+  Check(IsSoundingLyricsText('ー') and IsSoundingLyricsText('々') and
+    not IsSoundingLyricsText('、 '),
+    'Japanese sounding mark classification mismatch');
 
   ParseLyrics('[世界](せかい', PlainText, RubySpans);
   Check(PlainText = '[世界](せかい', 'broken syntax was not preserved');

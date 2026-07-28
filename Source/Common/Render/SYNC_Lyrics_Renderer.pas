@@ -164,7 +164,10 @@ function GetDisplayUnitProgress(const Units: TLyricsDisplayUnits; UnitIndex: Int
 begin
   if (UnitIndex < 0) or (UnitIndex >= Length(Units)) then
     Exit(0);
-  Result := EnsureRange(ProgressUnits - UnitIndex, 0.0, 1.0);
+  if Units[UnitIndex].SyncUnitIndex < 0 then
+    Exit(0);
+  Result := EnsureRange(ProgressUnits -
+    Units[UnitIndex].SyncUnitIndex, 0.0, 1.0);
 end;
 
 function FindRubyUnitIndex(const Units: TLyricsDisplayUnits; RubyIndex: Integer): Integer;

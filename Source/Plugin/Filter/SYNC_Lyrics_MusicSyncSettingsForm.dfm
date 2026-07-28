@@ -11,7 +11,9 @@
   Font.Name = 'Segoe UI'
   Font.Style = []
   DoubleBuffered = True
+  PixelsPerInch = 96
   Position = poScreenCenter
+  Scaled = True
   TextHeight = 15
   object PianoRollPaintBox: TPaintBox
     Left = 0

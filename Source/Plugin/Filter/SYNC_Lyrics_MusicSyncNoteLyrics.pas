@@ -27,7 +27,7 @@ uses
   Winapi.Windows;
 
 const
-  NOTE_LYRIC_MARGIN = 5;
+  NOTE_LYRIC_MARGIN_96 = 5;
 
 procedure DrawNoteFollowingLyrics(Canvas: TCanvas;
   const Model: TMusicSyncEditModel; const Layout: TPianoRollLayout;
@@ -58,32 +58,44 @@ begin
       if (UnitIndex < Length(Model.UnitNoteIndexes)) and
         (Model.UnitNoteIndexes[UnitIndex] = NoteIndex) then
       begin
-        LyricText := Model.Units[UnitIndex].Text;
+        LyricText := Model.Units[UnitIndex].PrefixText +
+          Model.Units[UnitIndex].Text +
+          Model.Units[UnitIndex].SuffixText;
         if LyricText = '' then
           Continue;
         Canvas.Brush.Style := bsClear;
         Canvas.Font.Name := 'Segoe UI';
-        Canvas.Font.Height := -13;
+        Canvas.Font.Height :=
+          -ScaleMusicSyncMetric(13, Layout.Dpi);
         Canvas.Font.Style := [];
         Canvas.Font.Color := RGB(238, 242, 248);
         TextHeight := Canvas.TextHeight(LyricText);
         TextWidth := Canvas.TextWidth(LyricText);
-        TextY := NoteRect.Bottom + NOTE_LYRIC_MARGIN;
+        TextY := NoteRect.Bottom +
+          ScaleMusicSyncMetric(NOTE_LYRIC_MARGIN_96, Layout.Dpi);
         TextRect := Rect(FilterTextX, TextY,
-          Min(PianoWidth, FilterTextX + TextWidth + 2),
-          Min(Layout.RollHeight, TextY + TextHeight + 1));
+          Min(PianoWidth, FilterTextX + TextWidth +
+            ScaleMusicSyncMetric(2, Layout.Dpi)),
+          Min(Layout.RollHeight, TextY + TextHeight +
+            ScaleMusicSyncMetric(1, Layout.Dpi)));
         Canvas.TextRect(TextRect, FilterTextX, TextY, LyricText);
-        HitRects[UnitIndex] := Rect(TextRect.Left - 3,
-          TextRect.Top - 2, TextRect.Right + 2,
-          Min(Layout.RollHeight, TextRect.Bottom + 2));
+        HitRects[UnitIndex] := Rect(TextRect.Left -
+          ScaleMusicSyncMetric(3, Layout.Dpi),
+          TextRect.Top - ScaleMusicSyncMetric(2, Layout.Dpi),
+          TextRect.Right + ScaleMusicSyncMetric(2, Layout.Dpi),
+          Min(Layout.RollHeight, TextRect.Bottom +
+            ScaleMusicSyncMetric(2, Layout.Dpi)));
         if UnitIndex = Model.SelectedUnitIndex then
         begin
-          Canvas.Pen.Width := 2;
+          Canvas.Pen.Width :=
+            ScaleMusicSyncMetric(2, Layout.Dpi);
           Canvas.Pen.Color := RGB(255, 210, 70);
           Canvas.Rectangle(HitRects[UnitIndex]);
-          Canvas.Pen.Width := 1;
+          Canvas.Pen.Width :=
+            ScaleMusicSyncMetric(1, Layout.Dpi);
         end;
-        Inc(FilterTextX, TextWidth + 2);
+        Inc(FilterTextX, TextWidth +
+          ScaleMusicSyncMetric(2, Layout.Dpi));
       end;
   end;
   Canvas.Brush.Style := bsSolid;

@@ -7,8 +7,11 @@ interface
 
 type
   TLyricEditUnit = record
+    PrefixText: string;
     Text: string;
+    SuffixText: string;
     RubyText: string;
+    ConsumesNote: Boolean;
   end;
   TLyricEditUnits = TArray<TLyricEditUnit>;
 
@@ -26,13 +29,17 @@ type
     FDragGroupNoteCount: Integer;
     FDragGroupStart: Integer;
     FDragOriginalGroups: TMusicSyncEditGroups;
+    FDefaultSyncGenerated: Boolean;
     FSelectedUnitIndex: Integer;
     procedure AppendGroup(var Target: TMusicSyncEditGroups;
       UnitCount, NoteCount: Integer);
     procedure AppendPreservedGroups(const Source: TMusicSyncEditGroups;
       FirstUnit, LastUnit: Integer; var Target: TMusicSyncEditGroups);
+    procedure BuildDefaultGroups;
     procedure RebuildIndexes;
-    procedure ResizeGroups(UnitCount: Integer);
+    procedure RebuildGroupsAfterLyricsEdit(
+      const OldUnits: TLyricEditUnits;
+      const OldGroups: TMusicSyncEditGroups);
   public
     Groups: TMusicSyncEditGroups;
     UnitGroupIndexes: TArray<Integer>;
@@ -55,6 +62,7 @@ type
       CharacterIndex: Integer; out NoteIndex: Integer): Boolean;
     // 編集グループをFilterが使用するstages形式へ圧縮する。
     function SerializeSyncText: string;
+    property DefaultSyncGenerated: Boolean read FDefaultSyncGenerated;
     property SelectedUnitIndex: Integer read FSelectedUnitIndex
       write FSelectedUnitIndex;
   end;
@@ -66,10 +74,23 @@ uses
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_SyncFormat;
 
+type
+  TIntegerMatrix = TArray<TArray<Integer>>;
+
 constructor TMusicSyncEditModel.Create;
 begin
   inherited Create;
   FSelectedUnitIndex := -1;
+end;
+
+procedure TMusicSyncEditModel.BuildDefaultGroups;
+var
+  UnitIndex: Integer;
+begin
+  SetLength(Groups, 0);
+  for UnitIndex := 0 to High(Units) do
+    AppendGroup(Groups, 1, 1);
+  RebuildIndexes;
 end;
 
 procedure TMusicSyncEditModel.AppendGroup(
@@ -147,50 +168,169 @@ begin
   end;
 end;
 
-procedure TMusicSyncEditModel.ResizeGroups(UnitCount: Integer);
+procedure TMusicSyncEditModel.RebuildGroupsAfterLyricsEdit(
+  const OldUnits: TLyricEditUnits;
+  const OldGroups: TMusicSyncEditGroups);
 var
+  CanPreserve: Boolean;
+  GroupIndex: Integer;
+  I: Integer;
+  J: Integer;
+  MatchLengths: TIntegerMatrix;
   NewGroups: TMusicSyncEditGroups;
-  PreservedCount: Integer;
+  NewIndex: Integer;
+  NewToOld: TArray<Integer>;
+  OldIndex: Integer;
+  OldStartGroupIndexes: TArray<Integer>;
+  OldToNew: TArray<Integer>;
+  PreservedGroupIndex: Integer;
 begin
+  SetLength(NewToOld, Length(Units));
+  for I := 0 to High(NewToOld) do
+    NewToOld[I] := -1;
+  SetLength(OldToNew, Length(OldUnits));
+  for I := 0 to High(OldToNew) do
+    OldToNew[I] := -1;
+
+  // 本文が一致する発音単位の最長共通部分列を求める。
+  // ルビや付随記号だけの編集では同期を維持できるよう、本文だけを比較する。
+  SetLength(MatchLengths, Length(OldUnits) + 1);
+  for I := 0 to High(MatchLengths) do
+    SetLength(MatchLengths[I], Length(Units) + 1);
+  for I := High(OldUnits) downto 0 do
+    for J := High(Units) downto 0 do
+      if OldUnits[I].Text = Units[J].Text then
+        MatchLengths[I][J] := MatchLengths[I + 1][J + 1] + 1
+      else
+        MatchLengths[I][J] := Max(MatchLengths[I + 1][J],
+          MatchLengths[I][J + 1]);
+  I := 0;
+  J := 0;
+  while (I < Length(OldUnits)) and (J < Length(Units)) do
+    if OldUnits[I].Text = Units[J].Text then
+    begin
+      OldToNew[I] := J;
+      NewToOld[J] := I;
+      Inc(I);
+      Inc(J);
+    end
+    else if MatchLengths[I + 1][J] >= MatchLengths[I][J + 1] then
+      Inc(I)
+    else
+      Inc(J);
+
+  SetLength(OldStartGroupIndexes, Length(OldUnits));
+  for I := 0 to High(OldStartGroupIndexes) do
+    OldStartGroupIndexes[I] := -1;
+  for GroupIndex := 0 to High(OldGroups) do
+    if (OldGroups[GroupIndex].UnitStart >= 0) and
+      (OldGroups[GroupIndex].UnitStart <
+        Length(OldStartGroupIndexes)) then
+      OldStartGroupIndexes[OldGroups[GroupIndex].UnitStart] :=
+        GroupIndex;
+
   SetLength(NewGroups, 0);
-  PreservedCount := Min(UnitCount, Length(UnitGroupIndexes));
-  if PreservedCount > 0 then
-    AppendPreservedGroups(Groups, 0, PreservedCount - 1, NewGroups);
-  while PreservedCount < UnitCount do
+  NewIndex := 0;
+  while NewIndex < Length(Units) do
   begin
-    AppendGroup(NewGroups, 1, 1);
-    Inc(PreservedCount);
+    CanPreserve := False;
+    PreservedGroupIndex := -1;
+    OldIndex := NewToOld[NewIndex];
+    if (OldIndex >= 0) and
+      (OldIndex < Length(OldStartGroupIndexes)) then
+    begin
+      PreservedGroupIndex := OldStartGroupIndexes[OldIndex];
+      if PreservedGroupIndex >= 0 then
+      begin
+        CanPreserve :=
+          NewIndex + OldGroups[PreservedGroupIndex].UnitCount <=
+            Length(Units);
+        if CanPreserve then
+          for I := 0 to OldGroups[PreservedGroupIndex].UnitCount - 1 do
+            if (OldIndex + I >= Length(OldToNew)) or
+              (OldToNew[OldIndex + I] <> NewIndex + I) then
+            begin
+              CanPreserve := False;
+              Break;
+            end;
+      end;
+    end;
+    if CanPreserve then
+    begin
+      AppendGroup(NewGroups,
+        OldGroups[PreservedGroupIndex].UnitCount,
+        OldGroups[PreservedGroupIndex].NoteCount);
+      Inc(NewIndex, OldGroups[PreservedGroupIndex].UnitCount);
+    end
+    else
+    begin
+      AppendGroup(NewGroups, 1, 1);
+      Inc(NewIndex);
+    end;
   end;
   Groups := NewGroups;
   RebuildIndexes;
+
+  if Length(Units) = 0 then
+    FSelectedUnitIndex := -1
+  else if (FSelectedUnitIndex >= 0) and
+    (FSelectedUnitIndex < Length(OldToNew)) and
+    (OldToNew[FSelectedUnitIndex] >= 0) then
+    FSelectedUnitIndex := OldToNew[FSelectedUnitIndex]
+  else if FSelectedUnitIndex < 0 then
+    FSelectedUnitIndex := 0
+  else
+    FSelectedUnitIndex := Min(FSelectedUnitIndex, High(Units));
 end;
 
 procedure TMusicSyncEditModel.SetLyrics(const Lyrics: string);
 var
   I: Integer;
+  NewUnits: TLyricEditUnits;
+  OldGroups: TMusicSyncEditGroups;
+  OldUnits: TLyricEditUnits;
+  PendingPrefix: string;
   PlainText: string;
   RubySpans: TLyricsRubySpans;
   ParsedUnits: TLyricsDisplayUnits;
+  ParsedText: string;
+  UnitIndex: Integer;
 begin
+  OldUnits := Copy(Units);
+  OldGroups := Copy(Groups);
   ParseLyrics(Lyrics, PlainText, RubySpans);
   BuildLyricsDisplayUnits(PlainText, RubySpans, ParsedUnits);
-  SetLength(Units, Length(ParsedUnits));
+  SetLength(NewUnits, 0);
+  PendingPrefix := '';
   for I := 0 to High(ParsedUnits) do
   begin
-    Units[I].Text := Copy(PlainText, ParsedUnits[I].BaseStart,
+    ParsedText := Copy(PlainText, ParsedUnits[I].BaseStart,
       ParsedUnits[I].BaseLength);
+    if not ParsedUnits[I].ConsumesNote then
+    begin
+      if Length(NewUnits) = 0 then
+        PendingPrefix := PendingPrefix + ParsedText
+      else
+        NewUnits[High(NewUnits)].SuffixText :=
+          NewUnits[High(NewUnits)].SuffixText + ParsedText;
+      Continue;
+    end;
+
+    UnitIndex := Length(NewUnits);
+    SetLength(NewUnits, UnitIndex + 1);
+    NewUnits[UnitIndex].PrefixText := PendingPrefix;
+    PendingPrefix := '';
+    NewUnits[UnitIndex].Text := ParsedText;
+    NewUnits[UnitIndex].SuffixText := '';
+    NewUnits[UnitIndex].ConsumesNote := True;
     if ParsedUnits[I].RubyIndex >= 0 then
-      Units[I].RubyText := RubySpans[ParsedUnits[I].RubyIndex].RubyText
+      NewUnits[UnitIndex].RubyText :=
+        RubySpans[ParsedUnits[I].RubyIndex].RubyText
     else
-      Units[I].RubyText := '';
+      NewUnits[UnitIndex].RubyText := '';
   end;
-  ResizeGroups(Length(Units));
-  if Length(Units) = 0 then
-    FSelectedUnitIndex := -1
-  else if FSelectedUnitIndex < 0 then
-    FSelectedUnitIndex := 0
-  else
-    FSelectedUnitIndex := Min(FSelectedUnitIndex, High(Units));
+  Units := NewUnits;
+  RebuildGroupsAfterLyricsEdit(OldUnits, OldGroups);
 end;
 
 procedure TMusicSyncEditModel.LoadSyncText(const SyncText: string);
@@ -206,6 +346,12 @@ begin
   if not TryParseSyncText(SyncText, Data) or
     (Data.Mode <> smMusic) then
     SetLength(Data.MusicStages, 0);
+  FDefaultSyncGenerated := Length(Data.MusicStages) = 0;
+  if FDefaultSyncGenerated then
+  begin
+    BuildDefaultGroups;
+    Exit;
+  end;
   StageIndex := 0;
   UnitIndex := 0;
   while UnitIndex < Length(Units) do
@@ -233,14 +379,10 @@ begin
 end;
 
 procedure TMusicSyncEditModel.Reset;
-var
-  UnitIndex: Integer;
 begin
-  SetLength(Groups, 0);
-  for UnitIndex := 0 to High(Units) do
-    AppendGroup(Groups, 1, 1);
+  FDefaultSyncGenerated := True;
   SetLength(FDragOriginalGroups, 0);
-  RebuildIndexes;
+  BuildDefaultGroups;
 end;
 
 function TMusicSyncEditModel.BeginDrag(UnitIndex: Integer): Boolean;
