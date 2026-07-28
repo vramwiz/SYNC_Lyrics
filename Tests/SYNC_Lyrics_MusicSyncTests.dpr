@@ -29,6 +29,10 @@ uses
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
+  SYNC_Lyrics_ManualSync in
+    'Source\Common\Sync\SYNC_Lyrics_ManualSync.pas',
+  SYNC_Lyrics_MusicSyncAnchor in
+    'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
   SYNC_Lyrics_MusicSyncPianoRoll in
     'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
@@ -154,6 +158,35 @@ begin
       Check(not TryParseSyncText(
         'SYNC_LYRICS_SYNC/1;mode=music;stages=64', SyncData),
         'out-of-range music sync stage was accepted');
+      SyncText := SerializeManualSyncText([0.25, 0.75, 1.5]);
+      Check(TryParseSyncText(SyncText, SyncData) and
+        (SyncData.Mode = smManual) and
+        (Length(SyncData.ManualBoundaries) = 3),
+        'serialized manual sync text could not be parsed');
+      Check(Abs(SyncData.ManualBoundaries[1] - 0.75) < 0.000001,
+        'manual sync boundary mismatch');
+      Check(ResolveManualSyncProgress(0.0, 2,
+        SyncData.ManualBoundaries, ProgressUnits) and
+        (Abs(ProgressUnits) < 0.000001),
+        'manual sync pre-roll mismatch');
+      Check(ResolveManualSyncProgress(0.5, 2,
+        SyncData.ManualBoundaries, ProgressUnits) and
+        (Abs(ProgressUnits - 0.5) < 0.000001),
+        'manual sync first unit mismatch');
+      Check(ResolveManualSyncProgress(1.125, 2,
+        SyncData.ManualBoundaries, ProgressUnits) and
+        (Abs(ProgressUnits - 1.5) < 0.000001),
+        'manual sync second unit mismatch');
+      Check(ResolveManualSyncProgress(2.0, 2,
+        SyncData.ManualBoundaries, ProgressUnits) and
+        (Abs(ProgressUnits - 2.0) < 0.000001),
+        'manual sync completion mismatch');
+      Check(not ResolveManualSyncProgress(0.5, 3,
+        SyncData.ManualBoundaries, ProgressUnits),
+        'manual sync accepted a lyric/boundary count mismatch');
+      Check(not TryParseSyncText(
+        'SYNC_LYRICS_SYNC/1;mode=manual;boundaries=0.5,0.5', SyncData),
+        'duplicate manual boundaries were accepted');
     finally
       FinalizeMusicSync;
     end;
@@ -320,11 +353,14 @@ begin
     Bitmap.SetSize(1800, 1240);
     SetLength(Notes, 0);
     DrawMusicSyncPianoRoll(Bitmap.Canvas, Bitmap.Width, Bitmap.Height,
-      Notes, 0, 0, 192, Layout);
+      Notes, 0, 0, 0, MUSIC_SYNC_DISPLAY_SECONDS, 192, Layout);
     Check((Layout.Dpi = 192) and
       (Layout.KeyboardWidth = 152) and
       (Layout.RollHeight = 1124) and
-      (Layout.TimeWidth = 1648),
+      (Layout.TimeWidth = 1648) and
+      (Abs(Layout.ViewStartSeconds) < 0.000001) and
+      (Abs(Layout.DisplaySeconds -
+        MUSIC_SYNC_DISPLAY_SECONDS) < 0.000001),
       '200 percent piano-roll layout mismatch');
     // ノートなしの既定範囲はMIDI 48..71。黒鍵49の中心付近で、
     // 黒鍵幅62%より右側が白鍵ベースとして残ることを確認する。
@@ -345,6 +381,55 @@ begin
   end;
 end;
 
+procedure TestUnassignedLyrics;
+var
+  Model: TMusicSyncEditModel;
+begin
+  Model := TMusicSyncEditModel.Create;
+  try
+    Model.SetLyrics('あいう');
+    Check(Model.FirstUnassignedUnitIndex(3) = -1,
+      'fully assigned lyrics were reported as unassigned');
+    Check(Model.FirstUnassignedUnitIndex(2) = 2,
+      'remaining lyric unit index mismatch');
+    Model.LoadSyncText(SerializeMusicSyncText([1, 0, 0]));
+    Check(Model.FirstUnassignedUnitIndex(1) = 0,
+      'partially supplied multi-note unit was not reported');
+    Check(Model.FirstUnassignedUnitIndex(2) = 1,
+      'unit after completed multi-note unit mismatch');
+  finally
+    Model.Free;
+  end;
+end;
+
+procedure TestMusicSyncAnchorPerObject;
+var
+  Anchor: TMusicSyncAnchor;
+begin
+  InitializeMusicSyncAnchor;
+  try
+    RecordMusicSyncAnchor(101, 1001, 1, 0, 99, 300, 30, 1);
+    RecordMusicSyncAnchor(102, 1002, 1, 100, 199, 600, 30, 1);
+    Check(TryGetMusicSyncAnchor(1, 0, 99, Anchor) and
+      (Anchor.ObjectID = 101) and (Anchor.Frame = 300),
+      'first object music-sync anchor mismatch');
+    Check(TryGetMusicSyncAnchor(1, 100, 199, Anchor) and
+      (Anchor.ObjectID = 102) and (Anchor.Frame = 600),
+      'second object music-sync anchor mismatch');
+    Check(not TryGetMusicSyncAnchor(1, 200, 299, Anchor),
+      'unexpected anchor found for unknown object');
+
+    RecordMusicSyncAnchor(102, 1002, 2, 200, 299, 900, 30, 1);
+    Check(not TryGetMusicSyncAnchor(1, 100, 199, Anchor),
+      'moved object retained its stale anchor');
+    Check(TryGetMusicSyncAnchor(2, 200, 299, Anchor) and
+      (Anchor.ObjectID = 102) and (Anchor.Frame = 900),
+      'moved object music-sync anchor mismatch');
+  finally
+    FinalizeMusicSyncAnchor;
+  end;
+end;
+
 begin
   TestSongReaderAndConsumption;
   TestExpandedRubyUnitCharacterNotes;
@@ -352,5 +437,7 @@ begin
   TestDefaultSyncGeneration;
   TestSyncPreservedAcrossLyricsEdits;
   TestMusicSyncDpiLayout;
+  TestUnassignedLyrics;
+  TestMusicSyncAnchorPerObject;
   Writeln('PASS');
 end.

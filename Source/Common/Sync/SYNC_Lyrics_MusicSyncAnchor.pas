@@ -6,9 +6,14 @@ interface
 
 type
   TMusicSyncAnchor = record
-    Frame: Integer;  // InputとFilterから解決した絶対フレーム
-    Rate: Integer;   // フレームレートの分子
-    Scale: Integer;  // フレームレートの分母
+    ObjectID: Int64;       // Filter描画時のオブジェクト識別値
+    EffectID: Int64;       // 同一オブジェクト内のFilter識別値
+    Layer: Integer;        // タイムライン上のレイヤー
+    StartFrame: Integer;   // タイムライン上のオブジェクト開始フレーム
+    EndFrame: Integer;     // タイムライン上のオブジェクト終了フレーム
+    Frame: Integer;        // Input素材上のオブジェクト先頭絶対フレーム
+    Rate: Integer;         // フレームレートの分子
+    Scale: Integer;        // フレームレートの分母
   end;
 
 // Filter読込時に基準位置の排他資源を初期化する。
@@ -17,64 +22,91 @@ procedure InitializeMusicSyncAnchor;
 // Filter解放時に基準位置の排他資源を解放する。
 procedure FinalizeMusicSyncAnchor;
 
-// Filterが正常に発火した絶対フレーム位置を、GUIから取得できる最新値として記録する。
-procedure RecordMusicSyncAnchor(Frame, Rate, Scale: Integer);
+// Filterが正常に発火した素材先頭位置を、オブジェクト配置ごとに記録する。
+procedure RecordMusicSyncAnchor(ObjectID, EffectID: Int64;
+  Layer, StartFrame, EndFrame, Frame, Rate, Scale: Integer);
 
-// 最後に記録した基準位置を返す。未発火または無効値の場合はFalseを返す。
-function TryGetMusicSyncAnchor(out Anchor: TMusicSyncAnchor): Boolean;
+// 選択オブジェクトの配置に一致する基準位置を返す。
+function TryGetMusicSyncAnchor(Layer, StartFrame, EndFrame: Integer;
+  out Anchor: TMusicSyncAnchor): Boolean;
 
 implementation
 
 uses
+  System.Generics.Collections,
   System.SyncObjs,
   System.SysUtils;
 
 var
   AnchorLock: TCriticalSection;
-  LastAnchor: TMusicSyncAnchor;
-  HasLastAnchor: Boolean;
+  Anchors: TList<TMusicSyncAnchor>;
 
 procedure InitializeMusicSyncAnchor;
 begin
   if AnchorLock <> nil then
     Exit;
   AnchorLock := TCriticalSection.Create;
-  HasLastAnchor := False;
-  FillChar(LastAnchor, SizeOf(LastAnchor), 0);
+  Anchors := TList<TMusicSyncAnchor>.Create;
 end;
 
 procedure FinalizeMusicSyncAnchor;
 begin
+  FreeAndNil(Anchors);
   FreeAndNil(AnchorLock);
-  HasLastAnchor := False;
-  FillChar(LastAnchor, SizeOf(LastAnchor), 0);
 end;
 
-procedure RecordMusicSyncAnchor(Frame, Rate, Scale: Integer);
+procedure RecordMusicSyncAnchor(ObjectID, EffectID: Int64;
+  Layer, StartFrame, EndFrame, Frame, Rate, Scale: Integer);
+var
+  Anchor: TMusicSyncAnchor;
+  I: Integer;
 begin
   if (Rate <= 0) or (Scale <= 0) then
     Exit;
   InitializeMusicSyncAnchor;
   AnchorLock.Acquire;
   try
-    LastAnchor.Frame := Frame;
-    LastAnchor.Rate := Rate;
-    LastAnchor.Scale := Scale;
-    HasLastAnchor := True;
+    // 移動・長さ変更後の古い配置キーを同じオブジェクトIDで残さない。
+    for I := Anchors.Count - 1 downto 0 do
+      if ((Anchors[I].ObjectID = ObjectID) and
+        (Anchors[I].EffectID = EffectID)) or
+        ((Anchors[I].Layer = Layer) and
+        (Anchors[I].StartFrame = StartFrame) and
+        (Anchors[I].EndFrame = EndFrame)) then
+        Anchors.Delete(I);
+
+    Anchor.ObjectID := ObjectID;
+    Anchor.EffectID := EffectID;
+    Anchor.Layer := Layer;
+    Anchor.StartFrame := StartFrame;
+    Anchor.EndFrame := EndFrame;
+    Anchor.Frame := Frame;
+    Anchor.Rate := Rate;
+    Anchor.Scale := Scale;
+    Anchors.Add(Anchor);
   finally
     AnchorLock.Release;
   end;
 end;
 
-function TryGetMusicSyncAnchor(out Anchor: TMusicSyncAnchor): Boolean;
+function TryGetMusicSyncAnchor(Layer, StartFrame, EndFrame: Integer;
+  out Anchor: TMusicSyncAnchor): Boolean;
+var
+  I: Integer;
 begin
   FillChar(Anchor, SizeOf(Anchor), 0);
   InitializeMusicSyncAnchor;
   AnchorLock.Acquire;
   try
-    Result := HasLastAnchor;
-    if Result then
-      Anchor := LastAnchor;
+    Result := False;
+    for I := Anchors.Count - 1 downto 0 do
+      if (Anchors[I].Layer = Layer) and
+        (Anchors[I].StartFrame = StartFrame) and
+        (Anchors[I].EndFrame = EndFrame) then
+      begin
+        Anchor := Anchors[I];
+        Exit(True);
+      end;
   finally
     AnchorLock.Release;
   end;

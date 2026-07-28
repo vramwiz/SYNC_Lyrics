@@ -12,6 +12,7 @@ object FormLyricsMusicSyncSettings: TFormLyricsMusicSyncSettings
   Font.Name = 'Segoe UI'
   Font.Style = []
   Position = poScreenCenter
+  OnMouseWheel = FormMouseWheel
   TextHeight = 15
   object PianoRollPaintBox: TPaintBox
     Left = 0

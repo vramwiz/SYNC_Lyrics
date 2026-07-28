@@ -14,6 +14,13 @@ type
   TFilterItemButtonCallback = procedure(Edit: PEDIT_SECTION); cdecl;
   TCountObjectEffectFunc = function(Obj: OBJECT_HANDLE;
     Effect: LPCWSTR): Integer; cdecl;
+  TOBJECT_LAYER_FRAME = record
+    Layer: Integer;
+    StartFrame: Integer;
+    EndFrame: Integer;
+  end;
+  TGetObjectLayerFrameFunc = function(
+    Obj: OBJECT_HANDLE): TOBJECT_LAYER_FRAME; cdecl;
   TSetObjectItemValueFunc = function(Obj: OBJECT_HANDLE; Effect: LPCWSTR;
     Item: LPCWSTR; Value: PAnsiChar): LongBool; cdecl;
   TGetFocusObjectFunc = function: OBJECT_HANDLE; cdecl;
@@ -24,7 +31,7 @@ type
     CreateObjectFromAlias: Pointer;
     FindObject: Pointer;
     CountObjectEffect: TCountObjectEffectFunc;
-    GetObjectLayerFrame: Pointer;
+    GetObjectLayerFrame: TGetObjectLayerFrameFunc;
     GetObjectAlias: Pointer;
     GetObjectItemValue: Pointer;
     SetObjectItemValue: TSetObjectItemValueFunc;

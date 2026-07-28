@@ -8,6 +8,8 @@ uses
   System.SysUtils,
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
+  SYNC_Lyrics_Animation in
+    'Source\Common\Render\SYNC_Lyrics_Animation.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas';
 
 const
@@ -46,6 +48,16 @@ begin
   for I := 0 to High(CapturedPixels) do
     if CapturedPixels[I].A <> 0 then
       Inc(Result);
+end;
+
+function MaximumAlpha: Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to High(CapturedPixels) do
+    if CapturedPixels[I].A > Result then
+      Result := CapturedPixels[I].A;
 end;
 
 function CapturedPixelHash: UInt64;
@@ -467,6 +479,88 @@ begin
     'configured underline style did not change rendered pixels');
 end;
 
+procedure TestDisplayTypes;
+var
+  KaraokeAfterPixels: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Settings.DisplayType := ldtKaraoke;
+  Check(RenderLyrics(@Video, 'AB', 0.1, Settings, 0, 0),
+    'karaoke display-type render failed');
+  KaraokeAfterPixels := CountAfterColorPixels;
+
+  Settings.DisplayType := ldtUnitEmphasis;
+  Check(RenderLyrics(@Video, 'AB', 0.1, Settings, 0, 0),
+    'unit-emphasis display-type render failed');
+  Check(CountAfterColorPixels > KaraokeAfterPixels,
+    'unit emphasis did not color the whole active unit');
+
+  Settings.DisplayType := ldtUnitReveal;
+  Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+    'unit-reveal initial render failed');
+  Check(CountVisiblePixels = 0,
+    'unit reveal displayed lyrics before the first unit');
+  Check(RenderLyrics(@Video, 'AB', 0.1, Settings, 0, 0),
+    'unit-reveal active render failed');
+  Check(CountVisiblePixels > 0,
+    'unit reveal did not display the active unit');
+end;
+
+procedure TestLyricsAnimations;
+var
+  AnimationOffsetY: Integer;
+  AnimationOpacity: Double;
+  AnimationSettings: TLyricsAnimationSettings;
+  FullAlpha: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  AnimationSettings.SyncAnimation := lsaBounce;
+  AnimationSettings.StartAnimation := leaFade;
+  AnimationSettings.EndAnimation := leaFade;
+  AnimationSettings.StartDurationSeconds := 0.4;
+  AnimationSettings.EndDurationSeconds := 0.2;
+  AnimationSettings.BaseFontHeight := 100;
+  ResolveLyricsAnimation(AnimationSettings, 0.2, 1.0, 0.5,
+    AnimationOpacity, AnimationOffsetY);
+  Check(Abs(AnimationOpacity - 0.5) < 0.000001,
+    'start fade opacity mismatch');
+  Check(AnimationOffsetY < 0, 'sync bounce did not move lyrics upward');
+  ResolveLyricsAnimation(AnimationSettings, 1.0, 0.1, 1.0,
+    AnimationOpacity, AnimationOffsetY);
+  Check(Abs(AnimationOpacity - 0.5) < 0.000001,
+    'end fade opacity mismatch');
+  Check(AnimationOffsetY = 0,
+    'sync bounce moved lyrics outside active progress');
+
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, 'Fade', 0, Settings, 0, 0),
+    'full-opacity render failed');
+  FullAlpha := MaximumAlpha;
+  Settings.Opacity := 0.5;
+  Check(RenderLyrics(@Video, 'Fade', 0, Settings, 0, 0),
+    'half-opacity render failed');
+  Check((MaximumAlpha > 0) and (MaximumAlpha < FullAlpha),
+    'configured opacity did not reduce rendered alpha');
+end;
+
 procedure TestRubyGapAdjustmentChangesRowDistance;
 var
   BaseBottom: Integer;
@@ -513,6 +607,8 @@ begin
     TestConfiguredFontSizesChangeBounds;
     TestConfiguredCharacterSpacingChangesWidth;
     TestConfiguredFontStylesAreUsed;
+    TestDisplayTypes;
+    TestLyricsAnimations;
     TestRubyGapAdjustmentChangesRowDistance;
     TestEmptyLyricsIsTransparent;
     Writeln('PASS');

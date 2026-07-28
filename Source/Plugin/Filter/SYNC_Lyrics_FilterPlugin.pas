@@ -29,6 +29,7 @@ uses
   SYNC_Lyrics_MusicSync,
   SYNC_Lyrics_MusicSyncAnchor,
   SYNC_Lyrics_MusicSyncSettingsForm,
+  SYNC_Lyrics_Animation,
   SYNC_Lyrics_Renderer,
   SYNC_Lyrics_SyncFormat,
   SYNC_Lyrics_Time,
@@ -148,6 +149,62 @@ var
     R: 0;
     X: 0
   );
+  DisplayTypeList: array[0..3] of TFILTER_ITEM_SELECT_ITEM = (
+    (Name: '通常カラオケ'; Value: 0),
+    (Name: '文字単位強調'; Value: 1),
+    (Name: '1文字ずつ出現'; Value: 2),
+    (Name: nil; Value: 0)
+  );
+  DisplayTypeItem: TFILTER_ITEM_SELECT = (
+    ItemType: 'select';
+    Name: 'タイプ';
+    Value: 0;
+    List: @DisplayTypeList[0]
+  );
+  SyncAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
+    (Name: 'なし'; Value: 0),
+    (Name: 'バウンド'; Value: 1),
+    (Name: nil; Value: 0)
+  );
+  SyncAnimationItem: TFILTER_ITEM_SELECT = (
+    ItemType: 'select';
+    Name: '同期演出';
+    Value: 0;
+    List: @SyncAnimationList[0]
+  );
+  EdgeAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
+    (Name: 'なし'; Value: 0),
+    (Name: 'フェード'; Value: 1),
+    (Name: nil; Value: 0)
+  );
+  StartAnimationItem: TFILTER_ITEM_SELECT = (
+    ItemType: 'select';
+    Name: '開始演出';
+    Value: 0;
+    List: @EdgeAnimationList[0]
+  );
+  StartAnimationTimeItem: TFILTER_ITEM_TRACK = (
+    ItemType: 'track';
+    Name: '開始演出時間 (秒)';
+    Value: 0.3;
+    S: 0.01;
+    E: 10;
+    Step: 0.01
+  );
+  EndAnimationItem: TFILTER_ITEM_SELECT = (
+    ItemType: 'select';
+    Name: '終了演出';
+    Value: 0;
+    List: @EdgeAnimationList[0]
+  );
+  EndAnimationTimeItem: TFILTER_ITEM_TRACK = (
+    ItemType: 'track';
+    Name: '終了演出時間 (秒)';
+    Value: 0.3;
+    S: 0.01;
+    E: 10;
+    Step: 0.01
+  );
   BaseFontSizeItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track';
     Name: '歌詞サイズ';
@@ -198,7 +255,7 @@ var
     Name: '同期データ';
     Value: DEFAULT_MUSIC_SYNC_TEXT
   );
-  PluginItems: array[0..25] of Pointer;
+  PluginItems: array[0..31] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -228,6 +285,7 @@ var
   CurrentSyncText: string;
   LyricsChanged: Boolean;
   Obj: OBJECT_HANDLE;
+  ObjectLayerFrame: TOBJECT_LAYER_FRAME;
   SelectedLyrics: string;
   SelectedPreDisplaySeconds: Double;
   SelectedSyncText: string;
@@ -241,6 +299,10 @@ var
   Utf8PreDisplay: UTF8String;
   Utf8SyncText: UTF8String;
 begin
+  Obj := nil;
+  if (Edit <> nil) and Assigned(Edit^.GetFocusObject) then
+    Obj := Edit^.GetFocusObject();
+
   CurrentLyrics := '';
   if Assigned(LyricsItem.Value) then
     CurrentLyrics := string(LyricsItem.Value);
@@ -254,8 +316,15 @@ begin
 
   SyncForm := TFormLyricsMusicSyncSettings.Create(nil);
   try
-    if TryGetMusicSyncAnchor(Anchor) then
-      SyncForm.SetAnchor(Anchor.Frame, Anchor.Rate, Anchor.Scale)
+    if (Obj <> nil) and Assigned(Edit^.GetObjectLayerFrame) then
+    begin
+      ObjectLayerFrame := Edit^.GetObjectLayerFrame(Obj);
+      if TryGetMusicSyncAnchor(ObjectLayerFrame.Layer,
+        ObjectLayerFrame.StartFrame, ObjectLayerFrame.EndFrame, Anchor) then
+        SyncForm.SetAnchor(Anchor.Frame, Anchor.Rate, Anchor.Scale)
+      else
+        SyncForm.SetAnchorUnavailable;
+    end
     else
       SyncForm.SetAnchorUnavailable;
     SyncForm.LoadSettings(CurrentMusicFileName, Round(TrackItem.Value),
@@ -281,7 +350,6 @@ begin
     ShowFontSettingsError('歌詞を反映するための編集情報を取得できませんでした。');
     Exit;
   end;
-  Obj := Edit^.GetFocusObject();
   if Obj = nil then
   begin
     ShowFontSettingsError('対象の歌詞テロップオブジェクトを取得できませんでした。');
@@ -441,19 +509,30 @@ end;
 
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
 var
+  AnimationOffsetY: Integer;
+  AnimationOpacity: Double;
+  AnimationSettings: TLyricsAnimationSettings;
   DisplayUnitCount: Integer;
   FrameState: TSyncLyricsFrameState;
   LyricsText: string;
   MusicFileName: string;
+  LocalSeconds: Double;
+  ObjectStartFrame: Integer;
   ObjectStartSeconds: Double;
   RenderSettings: TLyricsRenderSettings;
+  RemainingSeconds: Double;
   SyncData: TSyncTextData;
   SyncStartSeconds: Double;
   SyncProgress: Double;
   Track: Integer;
 begin
   try
+    AnimationOffsetY := 0;
+    AnimationOpacity := 1;
     RenderSettings := DefaultLyricsRenderSettings;
+    RenderSettings.DisplayType := TLyricsDisplayType(EnsureRange(
+      DisplayTypeItem.Value, Ord(Low(TLyricsDisplayType)),
+      Ord(High(TLyricsDisplayType))));
     if Assigned(BaseFontItem.Value) then
       RenderSettings.BaseFontName := string(BaseFontItem.Value);
     if Assigned(RubyFontItem.Value) then
@@ -483,16 +562,21 @@ begin
     SyncProgress := 0;
     if TryGetLyricsFrameState(Video, FrameState) then
     begin
-      RecordMusicSyncAnchor(FrameState.Frame, FrameState.Rate,
-        FrameState.Scale);
       MusicFileName := '';
       if Assigned(MusicFileItem.Value) then
         MusicFileName := string(MusicFileItem.Value);
       Track := Round(TrackItem.Value);
       ObjectStartSeconds := FrameState.TimeSeconds;
       if (Video <> nil) and (Video^.Object_ <> nil) and (FrameState.Rate > 0) then
+      begin
+        ObjectStartFrame := FrameState.Frame - Video^.Object_^.Frame;
         ObjectStartSeconds := ObjectStartSeconds -
           Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate;
+        RecordMusicSyncAnchor(Video^.Object_^.ID, Video^.Object_^.EffectID,
+          Video^.Object_^.Layer, Video^.Object_^.FrameS,
+          Video^.Object_^.FrameE, ObjectStartFrame, FrameState.Rate,
+          FrameState.Scale);
+      end;
       SyncStartSeconds := ObjectStartSeconds +
         Max(0.0, PreDisplayTimeItem.Value);
       if Assigned(SyncDataItem.Value) and
@@ -501,9 +585,41 @@ begin
         ResolveAdjustedMusicSyncProgress(MusicFileName, Track, SyncStartSeconds,
           FrameState.TimeSeconds, DisplayUnitCount, SyncData.MusicStages,
           SyncProgress);
+      if (Video <> nil) and (Video^.Object_ <> nil) and
+        (FrameState.Rate > 0) then
+      begin
+        LocalSeconds := Video^.Object_^.Frame *
+          FrameState.Scale / FrameState.Rate;
+        RemainingSeconds := Max(0,
+          Video^.Object_^.FrameTotal - 1 - Video^.Object_^.Frame) *
+          FrameState.Scale / FrameState.Rate;
+        AnimationSettings.SyncAnimation := TLyricsSyncAnimation(
+          EnsureRange(SyncAnimationItem.Value,
+            Ord(Low(TLyricsSyncAnimation)),
+            Ord(High(TLyricsSyncAnimation))));
+        AnimationSettings.StartAnimation := TLyricsEdgeAnimation(
+          EnsureRange(StartAnimationItem.Value,
+            Ord(Low(TLyricsEdgeAnimation)),
+            Ord(High(TLyricsEdgeAnimation))));
+        AnimationSettings.EndAnimation := TLyricsEdgeAnimation(
+          EnsureRange(EndAnimationItem.Value,
+            Ord(Low(TLyricsEdgeAnimation)),
+            Ord(High(TLyricsEdgeAnimation))));
+        AnimationSettings.StartDurationSeconds :=
+          Max(0.01, StartAnimationTimeItem.Value);
+        AnimationSettings.EndDurationSeconds :=
+          Max(0.01, EndAnimationTimeItem.Value);
+        AnimationSettings.BaseFontHeight :=
+          RenderSettings.BaseFontHeight;
+        ResolveLyricsAnimation(AnimationSettings, LocalSeconds,
+          RemainingSeconds, SyncProgress, AnimationOpacity,
+          AnimationOffsetY);
+      end;
     end;
+    RenderSettings.Opacity := AnimationOpacity;
     RenderLyrics(Video, PWideChar(LyricsText), SyncProgress, RenderSettings,
-      Round(PositionXItem.Value), Round(PositionYItem.Value));
+      Round(PositionXItem.Value),
+      Round(PositionYItem.Value) + AnimationOffsetY);
   except
     // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
   end;
@@ -534,13 +650,19 @@ begin
     PluginItems[16] := @RubyStrikeOutItem;
     PluginItems[17] := @BeforeColorItem;
     PluginItems[18] := @AfterColorItem;
-    PluginItems[19] := @BaseFontSizeItem;
-    PluginItems[20] := @RubyFontSizeItem;
-    PluginItems[21] := @RubyGapAdjustmentItem;
-    PluginItems[22] := @BaseCharacterSpacingItem;
-    PluginItems[23] := @PreDisplayTimeItem;
-    PluginItems[24] := @SyncDataItem;
-    PluginItems[25] := nil;
+    PluginItems[19] := @DisplayTypeItem;
+    PluginItems[20] := @SyncAnimationItem;
+    PluginItems[21] := @StartAnimationItem;
+    PluginItems[22] := @StartAnimationTimeItem;
+    PluginItems[23] := @EndAnimationItem;
+    PluginItems[24] := @EndAnimationTimeItem;
+    PluginItems[25] := @BaseFontSizeItem;
+    PluginItems[26] := @RubyFontSizeItem;
+    PluginItems[27] := @RubyGapAdjustmentItem;
+    PluginItems[28] := @BaseCharacterSpacingItem;
+    PluginItems[29] := @PreDisplayTimeItem;
+    PluginItems[30] := @SyncDataItem;
+    PluginItems[31] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

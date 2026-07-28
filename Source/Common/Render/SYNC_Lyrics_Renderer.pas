@@ -8,6 +8,12 @@ uses
   AviUtl2FilterTypes;
 
 type
+  TLyricsDisplayType = (
+    ldtKaraoke,
+    ldtUnitEmphasis,
+    ldtUnitReveal
+  );
+
   // AviUtl2の色項目から独立して描画処理へ渡す不透明RGB色。
   TLyricsRenderColor = record
     R: Byte;
@@ -17,6 +23,8 @@ type
 
   // 1行の本文とルビに適用する基本表示設定。
   TLyricsRenderSettings = record
+    DisplayType: TLyricsDisplayType;
+    Opacity: Double;
     BaseFontName: string;
     RubyFontName: string;
     BaseBold: Boolean;
@@ -95,7 +103,7 @@ begin
 end;
 
 procedure ConvertDibToRgba(ColorBits, MaskBits: Pointer;
-  Buffer: PPIXEL_RGBA; PixelCount: NativeInt);
+  Buffer: PPIXEL_RGBA; PixelCount: NativeInt; Opacity: Double);
 var
   Coverage: Byte;
   CoverageSrc: PByte;
@@ -103,6 +111,7 @@ var
   ColorSrc: PByte;
   I: NativeInt;
 begin
+  Opacity := EnsureRange(Opacity, 0.0, 1.0);
   ColorSrc := ColorBits;
   CoverageSrc := MaskBits;
   Dst := Buffer;
@@ -113,7 +122,7 @@ begin
     Dst^.R := ColorSrc[2];
     Dst^.G := ColorSrc[1];
     Dst^.B := ColorSrc[0];
-    Dst^.A := Coverage;
+    Dst^.A := Round(Coverage * Opacity);
     Inc(ColorSrc, 4);
     Inc(CoverageSrc, 4);
     Inc(Dst);
@@ -122,6 +131,8 @@ end;
 
 function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 begin
+  Result.DisplayType := ldtKaraoke;
+  Result.Opacity := 1;
   Result.BaseFontName := 'Yu Gothic UI';
   Result.RubyFontName := 'Yu Gothic UI';
   Result.BaseBold := True;
@@ -203,7 +214,8 @@ begin
 end;
 
 function MeasureBaseProgressWidth(DC: HDC; const PlainText: string;
-  const Units: TLyricsDisplayUnits; ProgressUnits: Double): Integer;
+  const Units: TLyricsDisplayUnits; ProgressUnits: Double;
+  DisplayType: TLyricsDisplayType): Integer;
 var
   PrefixText: string;
   Progress: Double;
@@ -216,6 +228,8 @@ begin
     Progress := GetDisplayUnitProgress(Units, UnitIndex, ProgressUnits);
     if Progress <= 0 then
       Break;
+    if DisplayType <> ldtKaraoke then
+      Progress := 1;
     PrefixText := Copy(PlainText, 1, Units[UnitIndex].BaseStart - 1);
     UnitText := Copy(PlainText, Units[UnitIndex].BaseStart, Units[UnitIndex].BaseLength);
     Result := MeasureTextWidth(DC, PrefixText) +
@@ -254,6 +268,7 @@ var
   SpanWidth: Integer;
   UnitIndex: Integer;
   UnitProgress: Double;
+  UnitOverlayProgress: Double;
   Units: TLyricsDisplayUnits;
 begin
   ParseLyrics(Source, PlainText, RubySpans);
@@ -292,8 +307,11 @@ begin
     else
       BaseY := (Height - (RubyFontHeight + RubyGap + BaseFontHeight)) div 2 +
         RubyFontHeight + RubyGap + PositionY;
-    SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
-    TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
+    if Settings.DisplayType <> ldtUnitReveal then
+    begin
+      SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
+      TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
+    end;
 
     if Length(RubySpans) > 0 then
     begin
@@ -312,18 +330,26 @@ begin
         SetTextCharacterExtra(DC, 0);
         RubyWidth := MeasureTextWidth(DC, RubySpans[I].RubyText);
         RubyX := BaseX + PrefixWidth + (SpanWidth - RubyWidth) div 2;
-        SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
-        TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
-          Length(RubySpans[I].RubyText));
+        if Settings.DisplayType <> ldtUnitReveal then
+        begin
+          SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
+          TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
+            Length(RubySpans[I].RubyText));
+        end;
 
         UnitIndex := FindRubyUnitIndex(Units, I);
         UnitProgress := GetDisplayUnitProgress(Units, UnitIndex, ProgressUnits);
+        UnitOverlayProgress := UnitProgress;
+        if (Settings.DisplayType <> ldtKaraoke) and
+          (UnitOverlayProgress > 0) then
+          UnitOverlayProgress := 1;
         if UnitProgress > 0 then
         begin
           ClipState := SaveDC(DC);
           try
             IntersectClipRect(DC, RubyX, RubyY,
-              RubyX + Round(RubyWidth * UnitProgress), RubyY + RubyFontHeight);
+              RubyX + Round(RubyWidth * UnitOverlayProgress),
+              RubyY + RubyFontHeight);
             SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
             TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
               Length(RubySpans[I].RubyText));
@@ -336,7 +362,8 @@ begin
 
     SelectObject(DC, BaseFont);
     SetTextCharacterExtra(DC, BaseCharacterSpacing);
-    BaseProgressWidth := MeasureBaseProgressWidth(DC, PlainText, Units, ProgressUnits);
+    BaseProgressWidth := MeasureBaseProgressWidth(DC, PlainText, Units,
+      ProgressUnits, Settings.DisplayType);
     if BaseProgressWidth > 0 then
     begin
       ClipState := SaveDC(DC);
@@ -439,7 +466,8 @@ begin
           DeleteDC(DC);
         end;
 
-        ConvertDibToRgba(Bits, MaskBits, Buffer, PixelCount);
+        ConvertDibToRgba(Bits, MaskBits, Buffer, PixelCount,
+          Settings.Opacity);
         Video^.SetImageData(Buffer, Width, Height);
         Result := True;
       finally

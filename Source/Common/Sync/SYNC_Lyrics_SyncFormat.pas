@@ -7,11 +7,13 @@ interface
 type
   TSyncMode = (smUnknown, smMusic, smManual);
   TSyncIntegerArray = array of Integer;
+  TSyncDoubleArray = array of Double;
 
   TSyncTextData = record
     Version: Integer;               // テキスト形式のバージョン
     Mode: TSyncMode;                // 同期元の種類
     MusicStages: TSyncIntegerArray; // 曲同期で順番に適用する音数・表示単位数の対応値
+    ManualBoundaries: TSyncDoubleArray; // 手動同期の各表示単位を囲むWAV先頭基準秒
   end;
 
 const
@@ -24,9 +26,13 @@ function TryParseSyncText(const Text: string; out Data: TSyncTextData): Boolean;
 // 曲同期の段階値を、現在の形式バージョンを持つ共通テキストへ変換する。
 function SerializeMusicSyncText(const Stages: array of Integer): string;
 
+// 手動同期の境界秒列を、現在の形式バージョンを持つ共通テキストへ変換する。
+function SerializeManualSyncText(const Boundaries: array of Double): string;
+
 implementation
 
 uses
+  System.Math,
   System.StrUtils,
   System.SysUtils;
 
@@ -34,12 +40,15 @@ const
   SYNC_TEXT_HEADER = 'SYNC_LYRICS_SYNC/';
   MIN_MUSIC_STAGE_VALUE = -63;
   MAX_MUSIC_STAGE_VALUE = 63;
+  MAX_MANUAL_BOUNDARY_COUNT = 65536;
+  MANUAL_TIME_EPSILON = 0.000001;
 
 procedure ClearSyncTextData(out Data: TSyncTextData);
 begin
   Data.Version := 0;
   Data.Mode := smUnknown;
   SetLength(Data.MusicStages, 0);
+  SetLength(Data.ManualBoundaries, 0);
 end;
 
 function ParseMusicStages(const Value: string;
@@ -69,8 +78,40 @@ begin
   Result := True;
 end;
 
+function ParseManualBoundaries(const Value: string;
+  out Boundaries: TSyncDoubleArray): Boolean;
+var
+  Boundary: Double;
+  I: Integer;
+  Parts: TArray<string>;
+begin
+  SetLength(Boundaries, 0);
+  if Value = '' then
+    Exit(True);
+
+  Parts := Value.Split([',']);
+  if Length(Parts) > MAX_MANUAL_BOUNDARY_COUNT then
+    Exit(False);
+  SetLength(Boundaries, Length(Parts));
+  for I := 0 to High(Parts) do
+  begin
+    if not TryStrToFloat(Trim(Parts[I]), Boundary,
+      TFormatSettings.Invariant) or IsNan(Boundary) or IsInfinite(Boundary) or
+      (Boundary < 0) or
+      ((I > 0) and
+      (Boundary <= Boundaries[I - 1] + MANUAL_TIME_EPSILON)) then
+    begin
+      SetLength(Boundaries, 0);
+      Exit(False);
+    end;
+    Boundaries[I] := Boundary;
+  end;
+  Result := True;
+end;
+
 function TryParseSyncText(const Text: string; out Data: TSyncTextData): Boolean;
 var
+  BoundariesFound: Boolean;
   HeaderVersion: Integer;
   I: Integer;
   Key: string;
@@ -90,6 +131,7 @@ begin
     Exit(False);
 
   Data.Version := HeaderVersion;
+  BoundariesFound := False;
   ModeFound := False;
   StagesFound := False;
   for I := 1 to High(Parts) do
@@ -129,6 +171,16 @@ begin
       end;
       StagesFound := True;
     end
+    else if Key = 'boundaries' then
+    begin
+      if BoundariesFound or
+        not ParseManualBoundaries(Value, Data.ManualBoundaries) then
+      begin
+        ClearSyncTextData(Data);
+        Exit(False);
+      end;
+      BoundariesFound := True;
+    end
     else
     begin
       ClearSyncTextData(Data);
@@ -137,8 +189,8 @@ begin
   end;
 
   Result := ModeFound and
-    (((Data.Mode = smMusic) and StagesFound) or
-    ((Data.Mode = smManual) and not StagesFound));
+    (((Data.Mode = smMusic) and StagesFound and not BoundariesFound) or
+    ((Data.Mode = smManual) and BoundariesFound and not StagesFound));
   if not Result then
     ClearSyncTextData(Data);
 end;
@@ -159,6 +211,28 @@ begin
     else if StageValue > MAX_MUSIC_STAGE_VALUE then
       StageValue := MAX_MUSIC_STAGE_VALUE;
     Result := Result + IntToStr(StageValue);
+  end;
+end;
+
+function SerializeManualSyncText(const Boundaries: array of Double): string;
+var
+  Boundary: Double;
+  I: Integer;
+  Previous: Double;
+begin
+  Result := 'SYNC_LYRICS_SYNC/1;mode=manual;boundaries=';
+  Previous := -1;
+  for I := 0 to High(Boundaries) do
+  begin
+    Boundary := Boundaries[I];
+    if IsNan(Boundary) or IsInfinite(Boundary) or (Boundary < 0) or
+      ((I > 0) and (Boundary <= Previous + MANUAL_TIME_EPSILON)) then
+      raise EArgumentException.Create(
+        'Manual sync boundaries must be finite, non-negative and increasing');
+    if I > 0 then
+      Result := Result + ',';
+    Result := Result + FloatToStr(Boundary, TFormatSettings.Invariant);
+    Previous := Boundary;
   end;
 end;
 

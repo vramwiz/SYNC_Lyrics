@@ -16,6 +16,11 @@ procedure DrawFixedLyrics(Canvas: TCanvas; PianoWidth,
   PianoHeight: Integer; const Model: TMusicSyncEditModel;
   const Layout: TPianoRollLayout; var HitRects: TArray<TRect>);
 
+// 音数不足で同期先を持てない歌詞を、右端へ警告色で表示する。
+procedure DrawUnassignedLyrics(Canvas: TCanvas; PianoWidth: Integer;
+  const Model: TMusicSyncEditModel; const Layout: TPianoRollLayout;
+  AvailableNoteCount: Integer);
+
 // 描画時に作成した矩形から、固定レーン上の歌詞単位を返す。
 function HitTestFixedLyrics(const HitRects: TArray<TRect>;
   X, Y: Integer): Integer;
@@ -24,6 +29,7 @@ implementation
 
 uses
   System.Math,
+  System.SysUtils,
   Winapi.Windows;
 
 procedure DrawFixedLyrics(Canvas: TCanvas; PianoWidth,
@@ -181,6 +187,57 @@ begin
       end;
     end;
   end;
+  Canvas.Brush.Style := bsSolid;
+end;
+
+procedure DrawUnassignedLyrics(Canvas: TCanvas; PianoWidth: Integer;
+  const Model: TMusicSyncEditModel; const Layout: TPianoRollLayout;
+  AvailableNoteCount: Integer);
+const
+  WARNING_PREFIX = '未割当: ';
+var
+  FirstUnitIndex: Integer;
+  I: Integer;
+  LabelRect: TRect;
+  LabelText: string;
+  Margin: Integer;
+  MaximumWidth: Integer;
+  TextHeight: Integer;
+  TextWidth: Integer;
+begin
+  FirstUnitIndex := Model.FirstUnassignedUnitIndex(AvailableNoteCount);
+  if FirstUnitIndex < 0 then
+    Exit;
+
+  LabelText := '';
+  for I := FirstUnitIndex to High(Model.Units) do
+    LabelText := LabelText + Model.Units[I].PrefixText +
+      Model.Units[I].Text + Model.Units[I].SuffixText;
+  if LabelText = '' then
+    Exit;
+  LabelText := WARNING_PREFIX + LabelText;
+
+  Margin := ScaleMusicSyncMetric(8, Layout.Dpi);
+  MaximumWidth := Max(ScaleMusicSyncMetric(120, Layout.Dpi),
+    Layout.TimeWidth div 2);
+  Canvas.Font.Name := 'Segoe UI';
+  Canvas.Font.Height := -ScaleMusicSyncMetric(14, Layout.Dpi);
+  Canvas.Font.Style := [fsBold];
+  TextHeight := Canvas.TextHeight(LabelText);
+  TextWidth := Min(MaximumWidth, Canvas.TextWidth(LabelText) +
+    Margin * 2);
+  LabelRect := Rect(PianoWidth - TextWidth - Margin,
+    Margin, PianoWidth - Margin, Margin + TextHeight + Margin);
+
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := RGB(82, 30, 38);
+  Canvas.Pen.Color := RGB(235, 94, 108);
+  Canvas.Rectangle(LabelRect);
+  InflateRect(LabelRect, -Margin, 0);
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Color := RGB(255, 178, 186);
+  DrawText(Canvas.Handle, PChar(LabelText), Length(LabelText), LabelRect,
+    DT_LEFT or DT_VCENTER or DT_SINGLELINE or DT_END_ELLIPSIS);
   Canvas.Brush.Style := bsSolid;
 end;
 

@@ -33,6 +33,8 @@ type
     procedure PianoRollPaintBoxMouseUp(Sender: TObject;
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PianoRollPaintBoxPaint(Sender: TObject);
+    procedure FormMouseWheel(Sender: TObject; Shift: TShiftState;
+      WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
     procedure ResetSyncButtonClick(Sender: TObject);
   protected
     procedure ChangeScale(M, D: Integer;
@@ -40,22 +42,29 @@ type
   private
     FAnchorAvailable: Boolean;
     FAnchorSeconds: Double;
+    FAvailableNoteCount: Integer;
     FDraggingLyric: Boolean;
     FDraggingPreDisplay: Boolean;
+    FDisplaySeconds: Double;
     FEditModel: TMusicSyncEditModel;
     FFilterLyricHitRects: TArray<TRect>;
     FFixedLyricHitRects: TArray<TRect>;
+    FHasTrackNotes: Boolean;
+    FLastTrackNoteEndSeconds: Double;
     FLoadMessage: string;
     FLyricDragStartX: Integer;
     FLyricDragStep: Integer;
     FNotes: TMusicNoteStarts;
     FPianoRollBuffer: TBitmap;
     FPreDisplaySeconds: Double;
+    FMusicLoaded: Boolean;
+    FViewStartOffsetSeconds: Double;
     function GetPreDisplayLinePosition: Integer;
     function HitTestFilterLyric(X, Y: Integer): Integer;
     procedure LoadPianoRoll(const MusicFileName: string; Track: Integer);
     procedure RebuildFilterLyricUnits;
     procedure SetPreDisplayFromMouse(X: Integer);
+    procedure UpdateNoteAvailabilityMessage;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -74,6 +83,7 @@ implementation
 
 uses
   System.Math,
+  System.SysUtils,
   Winapi.Windows,
   SYNC_Lyrics_MusicSyncFixedLyrics,
   SYNC_Lyrics_MusicSyncNoteLyrics,
@@ -83,6 +93,8 @@ uses
 
 const
   LYRIC_DRAG_STEP_PIXELS_96 = 36;
+  MAX_DISPLAY_SECONDS = 60.0;
+  MIN_DISPLAY_SECONDS = 1.0;
   PRE_DISPLAY_HIT_MARGIN_96 = 6;
 
 type
@@ -94,6 +106,7 @@ type
 constructor TFormLyricsMusicSyncSettings.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  FDisplaySeconds := MUSIC_SYNC_DISPLAY_SECONDS;
   FEditModel := TMusicSyncEditModel.Create;
   FPianoRollBuffer := Vcl.Graphics.TBitmap.Create;
   FPianoRollBuffer.PixelFormat := pf32bit;
@@ -118,16 +131,71 @@ end;
 
 function TFormLyricsMusicSyncSettings.GetPreDisplayLinePosition: Integer;
 var
+  RelativeSeconds: Double;
   TimeWidth: Integer;
 begin
   Result := -1;
   TimeWidth := PianoRollPaintBox.ClientWidth -
     MusicSyncKeyboardWidth(CurrentPPI);
   if (TimeWidth <= 0) or
-    (FPreDisplaySeconds > MUSIC_SYNC_DISPLAY_SECONDS) then
+    (FPreDisplaySeconds < FViewStartOffsetSeconds) or
+    (FPreDisplaySeconds >
+      FViewStartOffsetSeconds + FDisplaySeconds) then
     Exit;
+  RelativeSeconds := FPreDisplaySeconds - FViewStartOffsetSeconds;
   Result := MusicSyncKeyboardWidth(CurrentPPI) +
-    Round(FPreDisplaySeconds / MUSIC_SYNC_DISPLAY_SECONDS * TimeWidth);
+    Round(RelativeSeconds / FDisplaySeconds * TimeWidth);
+end;
+
+procedure TFormLyricsMusicSyncSettings.FormMouseWheel(Sender: TObject;
+  Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
+  var Handled: Boolean);
+var
+  ClientPoint: TPoint;
+  CursorRatio: Double;
+  CursorSeconds: Double;
+  MaxViewOffset: Double;
+  NewDisplaySeconds: Double;
+  TimeWidth: Integer;
+  WheelSteps: Double;
+begin
+  ClientPoint := PianoRollPaintBox.ScreenToClient(MousePos);
+  if not PtInRect(PianoRollPaintBox.ClientRect, ClientPoint) then
+    Exit;
+  TimeWidth := PianoRollPaintBox.ClientWidth -
+    MusicSyncKeyboardWidth(CurrentPPI);
+  if TimeWidth <= 0 then
+    Exit;
+
+  WheelSteps := WheelDelta / 120;
+  MaxViewOffset := Max(0.0, FLastTrackNoteEndSeconds -
+    FAnchorSeconds - FDisplaySeconds);
+  if ssShift in Shift then
+    FViewStartOffsetSeconds := EnsureRange(
+      FViewStartOffsetSeconds - WheelSteps *
+        FDisplaySeconds * 0.25, 0.0, MaxViewOffset)
+  else
+  begin
+    CursorRatio := EnsureRange(
+      (ClientPoint.X - MusicSyncKeyboardWidth(CurrentPPI)) /
+        TimeWidth, 0.0, 1.0);
+    CursorSeconds := FViewStartOffsetSeconds +
+      CursorRatio * FDisplaySeconds;
+    if WheelDelta > 0 then
+      NewDisplaySeconds := FDisplaySeconds * 0.8
+    else
+      NewDisplaySeconds := FDisplaySeconds * 1.25;
+    NewDisplaySeconds := EnsureRange(NewDisplaySeconds,
+      MIN_DISPLAY_SECONDS, MAX_DISPLAY_SECONDS);
+    MaxViewOffset := Max(0.0, FLastTrackNoteEndSeconds -
+      FAnchorSeconds - NewDisplaySeconds);
+    FViewStartOffsetSeconds := EnsureRange(
+      CursorSeconds - CursorRatio * NewDisplaySeconds,
+      0.0, MaxViewOffset);
+    FDisplaySeconds := NewDisplaySeconds;
+  end;
+  Handled := True;
+  PianoRollPaintBox.Invalidate;
 end;
 
 function TFormLyricsMusicSyncSettings.HitTestFilterLyric(
@@ -143,9 +211,14 @@ procedure TFormLyricsMusicSyncSettings.LoadPianoRoll(
 var
   AllNotes: TMusicNoteStarts;
   I: Integer;
+  LastTrackNoteEndSeconds: Double;
   NoteCount: Integer;
 begin
   SetLength(FNotes, 0);
+  FMusicLoaded := False;
+  FHasTrackNotes := False;
+  FAvailableNoteCount := 0;
+  FLastTrackNoteEndSeconds := 0;
   FLoadMessage := '';
   if not FAnchorAvailable then
     FLoadMessage := '基準位置を取得できません。'
@@ -155,18 +228,25 @@ begin
     FLoadMessage := '音楽ファイルを読み込めませんでした。'
   else
   begin
+    FMusicLoaded := True;
     SetLength(FNotes, Length(AllNotes));
     NoteCount := 0;
+    LastTrackNoteEndSeconds := 0;
     for I := 0 to High(AllNotes) do
     begin
       if (Track >= 0) and (AllNotes[I].TrackIndex <> Track) then
         Continue;
+      FHasTrackNotes := True;
+      LastTrackNoteEndSeconds := Max(LastTrackNoteEndSeconds,
+        AllNotes[I].EndSeconds);
       if AllNotes[I].EndSeconds < FAnchorSeconds then
         Continue;
       FNotes[NoteCount] := AllNotes[I];
       Inc(NoteCount);
     end;
     SetLength(FNotes, NoteCount);
+    FLastTrackNoteEndSeconds := LastTrackNoteEndSeconds;
+    UpdateNoteAvailabilityMessage;
   end;
   PianoRollPaintBox.Invalidate;
 end;
@@ -176,6 +256,8 @@ procedure TFormLyricsMusicSyncSettings.LoadSettings(
   const FilterLyrics, SyncText: string);
 begin
   FPreDisplaySeconds := Max(0.0, PreDisplaySeconds);
+  FDisplaySeconds := MUSIC_SYNC_DISPLAY_SECONDS;
+  FViewStartOffsetSeconds := 0;
   LyricsEdit.Text := FilterLyrics;
   RebuildFilterLyricUnits;
   FEditModel.LoadSyncText(SyncText);
@@ -329,11 +411,15 @@ begin
   Canvas := FPianoRollBuffer.Canvas;
   try
     DrawMusicSyncPianoRoll(Canvas, PianoWidth, PianoHeight, FNotes,
-      FAnchorSeconds, FPreDisplaySeconds, Dpi, Layout);
+      FAnchorSeconds, FPreDisplaySeconds,
+      FAnchorSeconds + FViewStartOffsetSeconds,
+      FDisplaySeconds, Dpi, Layout);
     DrawNoteFollowingLyrics(Canvas, FEditModel, Layout, PianoWidth,
       FFilterLyricHitRects);
     DrawFixedLyrics(Canvas, PianoWidth, PianoHeight, FEditModel, Layout,
       FFixedLyricHitRects);
+    DrawUnassignedLyrics(Canvas, PianoWidth, FEditModel, Layout,
+      FAvailableNoteCount);
     DrawMusicSyncMarkers(Canvas, PianoHeight, PianoWidth,
       FPreDisplaySeconds, Layout);
 
@@ -381,10 +467,45 @@ begin
   if TimeWidth <= 0 then
     Exit;
   FPreDisplaySeconds := Round(EnsureRange(
-    (X - MusicSyncKeyboardWidth(CurrentPPI)) / TimeWidth *
-      MUSIC_SYNC_DISPLAY_SECONDS,
-    0.0, MUSIC_SYNC_DISPLAY_SECONDS) * 100) / 100;
+    FViewStartOffsetSeconds +
+      (X - MusicSyncKeyboardWidth(CurrentPPI)) / TimeWidth *
+        FDisplaySeconds,
+    0.0, MAX_DISPLAY_SECONDS) * 100) / 100;
+  UpdateNoteAvailabilityMessage;
   PianoRollPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsMusicSyncSettings.UpdateNoteAvailabilityMessage;
+const
+  TIME_EPSILON = 0.000000001;
+var
+  HasEligibleNote: Boolean;
+  I: Integer;
+  SyncStartSeconds: Double;
+begin
+  if not FMusicLoaded then
+    Exit;
+  FLoadMessage := '';
+  if not FHasTrackNotes then
+  begin
+    FLoadMessage := '指定トラックにノートがありません。';
+    Exit;
+  end;
+
+  SyncStartSeconds := FAnchorSeconds + FPreDisplaySeconds;
+  HasEligibleNote := False;
+  FAvailableNoteCount := 0;
+  for I := 0 to High(FNotes) do
+    if FNotes[I].Seconds >= SyncStartSeconds - TIME_EPSILON then
+    begin
+      HasEligibleNote := True;
+      Inc(FAvailableNoteCount);
+    end;
+  if not HasEligibleNote then
+    FLoadMessage := Format(
+      '同期開始 %.3f 秒以降に対象ノートがありません（曲データ最終 %.3f 秒）。',
+      [SyncStartSeconds, FLastTrackNoteEndSeconds],
+      TFormatSettings.Invariant);
 end;
 
 procedure TFormLyricsMusicSyncSettings.SetAnchor(Frame, Rate,

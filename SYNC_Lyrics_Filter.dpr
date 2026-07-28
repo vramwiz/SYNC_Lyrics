@@ -32,6 +32,7 @@ uses
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_MusicSyncAnchor in 'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
+  SYNC_Lyrics_Animation in 'Source\Common\Render\SYNC_Lyrics_Animation.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas',
   SYNC_Lyrics_FontSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas' {FormLyricsFontSettings},
   SYNC_Lyrics_MusicSyncEditModel in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',

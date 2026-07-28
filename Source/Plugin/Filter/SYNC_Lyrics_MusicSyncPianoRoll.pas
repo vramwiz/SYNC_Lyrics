@@ -16,10 +16,13 @@ const
 
 type
   TPianoRollLayout = record
+    AnchorSeconds: Double;
+    DisplaySeconds: Double;
     Dpi: Integer;
     KeyboardWidth: Integer;
     RollHeight: Integer;
     TimeWidth: Integer;
+    ViewStartSeconds: Double;
     SyncNoteRects: TArray<TRect>;
   end;
 
@@ -30,7 +33,8 @@ function MusicSyncKeyboardWidth(Dpi: Integer): Integer;
 // ピアノロール本体を描画し、歌詞層が使用する時間・ノート座標を返す。
 procedure DrawMusicSyncPianoRoll(Canvas: TCanvas; PianoWidth,
   PianoHeight: Integer; const Notes: TMusicNoteStarts;
-  AnchorSeconds, PreDisplaySeconds: Double; Dpi: Integer;
+  AnchorSeconds, PreDisplaySeconds, ViewStartSeconds,
+  DisplaySeconds: Double; Dpi: Integer;
   out Layout: TPianoRollLayout);
 
 // 歌詞層の後から基準線と事前表示線を重ねる。
@@ -87,7 +91,8 @@ begin
 end;
 
 procedure ResolvePitchRange(const Notes: TMusicNoteStarts;
-  AnchorSeconds: Double; out LowestKey, HighestKey: Integer);
+  ViewStartSeconds, DisplaySeconds: Double;
+  out LowestKey, HighestKey: Integer);
 var
   CenterKey: Integer;
   HasVisibleNote: Boolean;
@@ -97,7 +102,8 @@ begin
   HighestKey := 60;
   HasVisibleNote := False;
   for I := 0 to High(Notes) do
-    if Notes[I].Seconds <= AnchorSeconds + MUSIC_SYNC_DISPLAY_SECONDS then
+    if (Notes[I].EndSeconds >= ViewStartSeconds) and
+      (Notes[I].Seconds <= ViewStartSeconds + DisplaySeconds) then
     begin
       if not HasVisibleNote then
       begin
@@ -216,7 +222,8 @@ end;
 
 procedure DrawMusicSyncPianoRoll(Canvas: TCanvas; PianoWidth,
   PianoHeight: Integer; const Notes: TMusicNoteStarts;
-  AnchorSeconds, PreDisplaySeconds: Double; Dpi: Integer;
+  AnchorSeconds, PreDisplaySeconds, ViewStartSeconds,
+  DisplaySeconds: Double; Dpi: Integer;
   out Layout: TPianoRollLayout);
 var
   BottomPosition: Integer;
@@ -236,11 +243,15 @@ var
   TopPosition: Integer;
   X: Integer;
 begin
+  DisplaySeconds := EnsureRange(DisplaySeconds, 0.1, 3600.0);
+  Layout.AnchorSeconds := AnchorSeconds;
+  Layout.DisplaySeconds := DisplaySeconds;
   Layout.Dpi := Max(1, Dpi);
   Layout.KeyboardWidth := MusicSyncKeyboardWidth(Layout.Dpi);
   Layout.RollHeight := Max(1, PianoHeight -
     ScaleMusicSyncMetric(MUSIC_SYNC_FIXED_LYRIC_HEIGHT_96, Layout.Dpi));
   Layout.TimeWidth := Max(0, PianoWidth - Layout.KeyboardWidth);
+  Layout.ViewStartSeconds := ViewStartSeconds;
   SetLength(Layout.SyncNoteRects, Length(Notes));
   for I := 0 to High(Layout.SyncNoteRects) do
     Layout.SyncNoteRects[I] := Rect(0, 0, 0, 0);
@@ -257,7 +268,8 @@ begin
   Canvas.FillRect(Rect(0, 0, Layout.KeyboardWidth,
     Layout.RollHeight));
 
-  ResolvePitchRange(Notes, AnchorSeconds, LowestKey, HighestKey);
+  ResolvePitchRange(Notes, ViewStartSeconds, DisplaySeconds,
+    LowestKey, HighestKey);
   KeyThickness := Layout.RollHeight /
     Max(1, HighestKey - LowestKey + 1);
 
@@ -274,10 +286,12 @@ begin
   end;
 
   Canvas.Pen.Color := RGB(82, 89, 104);
-  for SecondIndex := 1 to Trunc(MUSIC_SYNC_DISPLAY_SECONDS) do
+  for SecondIndex := Ceil(ViewStartSeconds) to
+    Floor(ViewStartSeconds + DisplaySeconds) do
   begin
     X := Layout.KeyboardWidth +
-      Round(SecondIndex / MUSIC_SYNC_DISPLAY_SECONDS * Layout.TimeWidth);
+      Round((SecondIndex - ViewStartSeconds) /
+        DisplaySeconds * Layout.TimeWidth);
     Canvas.MoveTo(X, 0);
     Canvas.LineTo(X, Layout.RollHeight);
   end;
@@ -313,14 +327,15 @@ begin
       SyncNoteIndexForNote := SyncNoteIndex;
       Inc(SyncNoteIndex);
     end;
-    if Note.Seconds > AnchorSeconds + MUSIC_SYNC_DISPLAY_SECONDS then
+    if (Note.EndSeconds < ViewStartSeconds) or
+      (Note.Seconds > ViewStartSeconds + DisplaySeconds) then
       Continue;
     LeftPosition := Layout.KeyboardWidth +
-      Round((Max(Note.Seconds, AnchorSeconds) - AnchorSeconds) /
-        MUSIC_SYNC_DISPLAY_SECONDS * Layout.TimeWidth);
+      Round((Max(Note.Seconds, ViewStartSeconds) - ViewStartSeconds) /
+        DisplaySeconds * Layout.TimeWidth);
     RightPosition := Layout.KeyboardWidth +
-      Round((Max(Note.EndSeconds, Note.Seconds + 0.05) - AnchorSeconds) /
-        MUSIC_SYNC_DISPLAY_SECONDS * Layout.TimeWidth);
+      Round((Max(Note.EndSeconds, Note.Seconds + 0.05) -
+        ViewStartSeconds) / DisplaySeconds * Layout.TimeWidth);
     RightPosition := Min(PianoWidth, Max(LeftPosition +
       ScaleMusicSyncMetric(2, Layout.Dpi), RightPosition));
     if SyncNoteIndexForNote >= 0 then
@@ -373,19 +388,33 @@ procedure DrawMusicSyncMarkers(Canvas: TCanvas; PianoHeight,
   PianoWidth: Integer; PreDisplaySeconds: Double;
   const Layout: TPianoRollLayout);
 var
+  AnchorPosition: Integer;
   PreDisplayPosition: Integer;
   TimeWidth: Integer;
 begin
   TimeWidth := PianoWidth - Layout.KeyboardWidth;
   Canvas.Pen.Width := ScaleMusicSyncMetric(2, Layout.Dpi);
-  Canvas.Pen.Color := RGB(255, 210, 70);
-  Canvas.MoveTo(Layout.KeyboardWidth, 0);
-  Canvas.LineTo(Layout.KeyboardWidth, PianoHeight);
   if (TimeWidth > 0) and
-    (PreDisplaySeconds <= MUSIC_SYNC_DISPLAY_SECONDS) then
+    (Layout.AnchorSeconds >= Layout.ViewStartSeconds) and
+    (Layout.AnchorSeconds <=
+      Layout.ViewStartSeconds + Layout.DisplaySeconds) then
   begin
-    PreDisplayPosition := Layout.KeyboardWidth +
-      Round(PreDisplaySeconds / MUSIC_SYNC_DISPLAY_SECONDS * TimeWidth);
+    AnchorPosition := Layout.KeyboardWidth + Round(
+      (Layout.AnchorSeconds - Layout.ViewStartSeconds) /
+      Layout.DisplaySeconds * TimeWidth);
+    Canvas.Pen.Color := RGB(255, 210, 70);
+    Canvas.MoveTo(AnchorPosition, 0);
+    Canvas.LineTo(AnchorPosition, PianoHeight);
+  end;
+  if (TimeWidth > 0) and
+    (Layout.AnchorSeconds + PreDisplaySeconds >=
+      Layout.ViewStartSeconds) and
+    (Layout.AnchorSeconds + PreDisplaySeconds <=
+      Layout.ViewStartSeconds + Layout.DisplaySeconds) then
+  begin
+    PreDisplayPosition := Layout.KeyboardWidth + Round(
+      (Layout.AnchorSeconds + PreDisplaySeconds -
+        Layout.ViewStartSeconds) / Layout.DisplaySeconds * TimeWidth);
     Canvas.Pen.Color := RGB(255, 105, 180);
     Canvas.MoveTo(PreDisplayPosition, 0);
     Canvas.LineTo(PreDisplayPosition, PianoHeight);

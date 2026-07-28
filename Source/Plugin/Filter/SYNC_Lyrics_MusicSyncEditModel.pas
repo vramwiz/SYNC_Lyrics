@@ -60,6 +60,8 @@ type
     // 1表示単位が複数音を使う場合だけ、本文中の文字が移る同期ノート番号を返す。
     function TryGetExpandedCharacterNoteIndex(UnitIndex,
       CharacterIndex: Integer; out NoteIndex: Integer): Boolean;
+    // 利用可能な同期ノートでは必要音数を満たせない最初の歌詞単位を返す。
+    function FirstUnassignedUnitIndex(AvailableNoteCount: Integer): Integer;
     // 編集グループをFilterが使用するstages形式へ圧縮する。
     function SerializeSyncText: string;
     property DefaultSyncGenerated: Boolean read FDefaultSyncGenerated;
@@ -498,6 +500,26 @@ begin
     Groups[GroupIndex].NoteCount - 1);
   NoteIndex := UnitNoteIndexes[UnitIndex] + NoteOffset;
   Result := True;
+end;
+
+function TMusicSyncEditModel.FirstUnassignedUnitIndex(
+  AvailableNoteCount: Integer): Integer;
+var
+  GroupIndex: Integer;
+  RequiredEndNote: Integer;
+begin
+  AvailableNoteCount := Max(0, AvailableNoteCount);
+  for GroupIndex := 0 to High(Groups) do
+  begin
+    RequiredEndNote := 0;
+    if (Groups[GroupIndex].UnitStart >= 0) and
+      (Groups[GroupIndex].UnitStart < Length(UnitNoteIndexes)) then
+      RequiredEndNote := UnitNoteIndexes[
+        Groups[GroupIndex].UnitStart] + Groups[GroupIndex].NoteCount;
+    if RequiredEndNote > AvailableNoteCount then
+      Exit(Groups[GroupIndex].UnitStart);
+  end;
+  Result := -1;
 end;
 
 function TMusicSyncEditModel.SerializeSyncText: string;
