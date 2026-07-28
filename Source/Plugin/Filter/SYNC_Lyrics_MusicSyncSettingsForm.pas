@@ -66,6 +66,7 @@ type
     procedure LoadSettings(const MusicFileName: string; Track: Integer;
       PreDisplaySeconds: Double; const FilterLyrics, SyncText: string);
     function LyricsText: string;
+    function PreDisplaySeconds: Double;
     function SyncText: string;
   end;
 
@@ -190,6 +191,11 @@ end;
 function TFormLyricsMusicSyncSettings.LyricsText: string;
 begin
   Result := LyricsEdit.Text;
+end;
+
+function TFormLyricsMusicSyncSettings.PreDisplaySeconds: Double;
+begin
+  Result := FPreDisplaySeconds;
 end;
 
 function TFormLyricsMusicSyncSettings.SyncText: string;
@@ -374,10 +380,10 @@ begin
     MusicSyncKeyboardWidth(CurrentPPI);
   if TimeWidth <= 0 then
     Exit;
-  FPreDisplaySeconds := EnsureRange(
+  FPreDisplaySeconds := Round(EnsureRange(
     (X - MusicSyncKeyboardWidth(CurrentPPI)) / TimeWidth *
       MUSIC_SYNC_DISPLAY_SECONDS,
-    0.0, MUSIC_SYNC_DISPLAY_SECONDS);
+    0.0, MUSIC_SYNC_DISPLAY_SECONDS) * 100) / 100;
   PianoRollPaintBox.Invalidate;
 end;
 

@@ -87,10 +87,50 @@ var
     Name: 'フォント名';
     Value: 'Yu Gothic UI'
   );
+  BaseBoldItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '太字';
+    Value: 1
+  );
+  BaseItalicItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '斜体';
+    Value: 0
+  );
+  BaseUnderlineItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '下線';
+    Value: 0
+  );
+  BaseStrikeOutItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '取り消し線';
+    Value: 0
+  );
   RubyFontItem: TFILTER_ITEM_STRING = (
     ItemType: 'string';
     Name: 'フォント名（ルビ）';
     Value: 'Yu Gothic UI'
+  );
+  RubyBoldItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '太字（ルビ）';
+    Value: 1
+  );
+  RubyItalicItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '斜体（ルビ）';
+    Value: 0
+  );
+  RubyUnderlineItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '下線（ルビ）';
+    Value: 0
+  );
+  RubyStrikeOutItem: TFILTER_ITEM_CHECK = (
+    ItemType: 'check';
+    Name: '取り消し線（ルビ）';
+    Value: 0
   );
   BeforeColorItem: TFILTER_ITEM_COLOR = (
     ItemType: 'color';
@@ -158,7 +198,7 @@ var
     Name: '同期データ';
     Value: DEFAULT_MUSIC_SYNC_TEXT
   );
-  PluginItems: array[0..17] of Pointer;
+  PluginItems: array[0..25] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -184,15 +224,21 @@ var
   Anchor: TMusicSyncAnchor;
   CurrentLyrics: string;
   CurrentMusicFileName: string;
+  CurrentPreDisplaySeconds: Double;
   CurrentSyncText: string;
   LyricsChanged: Boolean;
   Obj: OBJECT_HANDLE;
   SelectedLyrics: string;
+  SelectedPreDisplaySeconds: Double;
   SelectedSyncText: string;
+  PreDisplayChanged: Boolean;
   SyncChanged: Boolean;
   SyncForm: TFormLyricsMusicSyncSettings;
   Utf8Lyrics: UTF8String;
   Utf8OriginalLyrics: UTF8String;
+  Utf8OriginalPreDisplay: UTF8String;
+  Utf8OriginalSyncText: UTF8String;
+  Utf8PreDisplay: UTF8String;
   Utf8SyncText: UTF8String;
 begin
   CurrentLyrics := '';
@@ -204,6 +250,7 @@ begin
   CurrentSyncText := DEFAULT_MUSIC_SYNC_TEXT;
   if Assigned(SyncDataItem.Value) then
     CurrentSyncText := string(SyncDataItem.Value);
+  CurrentPreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
 
   SyncForm := TFormLyricsMusicSyncSettings.Create(nil);
   try
@@ -216,14 +263,17 @@ begin
     if SyncForm.ShowModal <> mrOk then
       Exit;
     SelectedLyrics := SyncForm.LyricsText;
+    SelectedPreDisplaySeconds := SyncForm.PreDisplaySeconds;
     SelectedSyncText := SyncForm.SyncText;
   finally
     SyncForm.Free;
   end;
 
   LyricsChanged := SelectedLyrics <> CurrentLyrics;
+  PreDisplayChanged :=
+    Abs(SelectedPreDisplaySeconds - CurrentPreDisplaySeconds) >= 0.005;
   SyncChanged := SelectedSyncText <> CurrentSyncText;
-  if not LyricsChanged and not SyncChanged then
+  if not LyricsChanged and not SyncChanged and not PreDisplayChanged then
     Exit;
   if (Edit = nil) or not Assigned(Edit^.GetFocusObject) or
     not Assigned(Edit^.SetObjectItemValue) then
@@ -260,6 +310,33 @@ begin
           '歌詞', PAnsiChar(Utf8OriginalLyrics));
       end;
       ShowFontSettingsError('同期データを歌詞テロップへ反映できませんでした。');
+      Exit;
+    end;
+  end;
+  if PreDisplayChanged then
+  begin
+    Utf8PreDisplay := UTF8String(FormatFloat('0.00',
+      SelectedPreDisplaySeconds, TFormatSettings.Invariant));
+    if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+      '事前表示 (秒)', PAnsiChar(Utf8PreDisplay)) then
+    begin
+      if SyncChanged then
+      begin
+        Utf8OriginalSyncText := UTF8String(CurrentSyncText);
+        Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+          '同期データ', PAnsiChar(Utf8OriginalSyncText));
+      end;
+      if LyricsChanged then
+      begin
+        Utf8OriginalLyrics := UTF8String(CurrentLyrics);
+        Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+          '歌詞', PAnsiChar(Utf8OriginalLyrics));
+      end;
+      Utf8OriginalPreDisplay := UTF8String(FormatFloat('0.00',
+        CurrentPreDisplaySeconds, TFormatSettings.Invariant));
+      Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+        '事前表示 (秒)', PAnsiChar(Utf8OriginalPreDisplay));
+      ShowFontSettingsError('事前表示時間を歌詞テロップへ反映できませんでした。');
     end;
   end;
 end;
@@ -381,6 +458,14 @@ begin
       RenderSettings.BaseFontName := string(BaseFontItem.Value);
     if Assigned(RubyFontItem.Value) then
       RenderSettings.RubyFontName := string(RubyFontItem.Value);
+    RenderSettings.BaseBold := BaseBoldItem.Value <> 0;
+    RenderSettings.BaseItalic := BaseItalicItem.Value <> 0;
+    RenderSettings.BaseUnderline := BaseUnderlineItem.Value <> 0;
+    RenderSettings.BaseStrikeOut := BaseStrikeOutItem.Value <> 0;
+    RenderSettings.RubyBold := RubyBoldItem.Value <> 0;
+    RenderSettings.RubyItalic := RubyItalicItem.Value <> 0;
+    RenderSettings.RubyUnderline := RubyUnderlineItem.Value <> 0;
+    RenderSettings.RubyStrikeOut := RubyStrikeOutItem.Value <> 0;
     RenderSettings.BaseFontHeight := Round(BaseFontSizeItem.Value);
     RenderSettings.RubyFontHeight := Round(RubyFontSizeItem.Value);
     RenderSettings.RubyGapAdjustment := Round(RubyGapAdjustmentItem.Value);
@@ -430,24 +515,32 @@ begin
   if Plugin.Items = nil then
   begin
     // AviUtl2はnil終端された項目ポインター配列を参照する。
-    PluginItems[0] := @LyricsItem;
-    PluginItems[1] := @MusicFileItem;
-    PluginItems[2] := @TrackItem;
-    PluginItems[3] := @PositionXItem;
-    PluginItems[4] := @PositionYItem;
-    PluginItems[5] := @FontSettingsButton;
-    PluginItems[6] := @BaseFontItem;
-    PluginItems[7] := @RubyFontItem;
-    PluginItems[8] := @BeforeColorItem;
-    PluginItems[9] := @AfterColorItem;
-    PluginItems[10] := @BaseFontSizeItem;
-    PluginItems[11] := @RubyFontSizeItem;
-    PluginItems[12] := @RubyGapAdjustmentItem;
-    PluginItems[13] := @BaseCharacterSpacingItem;
-    PluginItems[14] := @PreDisplayTimeItem;
-    PluginItems[15] := @MusicSyncSettingsButton;
-    PluginItems[16] := @SyncDataItem;
-    PluginItems[17] := nil;
+    PluginItems[0] := @MusicSyncSettingsButton;
+    PluginItems[1] := @LyricsItem;
+    PluginItems[2] := @MusicFileItem;
+    PluginItems[3] := @TrackItem;
+    PluginItems[4] := @PositionXItem;
+    PluginItems[5] := @PositionYItem;
+    PluginItems[6] := @FontSettingsButton;
+    PluginItems[7] := @BaseFontItem;
+    PluginItems[8] := @BaseBoldItem;
+    PluginItems[9] := @BaseItalicItem;
+    PluginItems[10] := @BaseUnderlineItem;
+    PluginItems[11] := @BaseStrikeOutItem;
+    PluginItems[12] := @RubyFontItem;
+    PluginItems[13] := @RubyBoldItem;
+    PluginItems[14] := @RubyItalicItem;
+    PluginItems[15] := @RubyUnderlineItem;
+    PluginItems[16] := @RubyStrikeOutItem;
+    PluginItems[17] := @BeforeColorItem;
+    PluginItems[18] := @AfterColorItem;
+    PluginItems[19] := @BaseFontSizeItem;
+    PluginItems[20] := @RubyFontSizeItem;
+    PluginItems[21] := @RubyGapAdjustmentItem;
+    PluginItems[22] := @BaseCharacterSpacingItem;
+    PluginItems[23] := @PreDisplayTimeItem;
+    PluginItems[24] := @SyncDataItem;
+    PluginItems[25] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

@@ -99,6 +99,14 @@ type
     Step     : Double;  // GUI上の変更単位。
   end;
 
+  // オン／オフを保持するチェックボックス項目。
+  PFILTER_ITEM_CHECK = ^TFILTER_ITEM_CHECK;
+  TFILTER_ITEM_CHECK = record
+    ItemType: LPCWSTR; // SDK項目種別の固定値 `check`。
+    Name    : LPCWSTR; // GUI表示名兼、設定取得時の項目識別名。
+    Value   : Byte;    // 0=False、1=True。
+  end;
+
   // 列挙値から1つを選ぶ選択項目。ListはName=nilの要素で終端する。
   PFILTER_ITEM_SELECT = ^TFILTER_ITEM_SELECT;
   TFILTER_ITEM_SELECT_ITEM = record

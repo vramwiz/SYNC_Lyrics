@@ -1,19 +1,17 @@
-﻿object FormLyricsMusicSyncSettings: TFormLyricsMusicSyncSettings
+object FormLyricsMusicSyncSettings: TFormLyricsMusicSyncSettings
   Left = 0
   Top = 0
   Caption = #26354#21516#26399#35373#23450
   ClientHeight = 620
   ClientWidth = 900
   Color = clBtnFace
+  DoubleBuffered = True
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
   Font.Height = -12
   Font.Name = 'Segoe UI'
   Font.Style = []
-  DoubleBuffered = True
-  PixelsPerInch = 96
   Position = poScreenCenter
-  Scaled = True
   TextHeight = 15
   object PianoRollPaintBox: TPaintBox
     Left = 0
@@ -34,10 +32,13 @@
     Align = alBottom
     BevelOuter = bvNone
     TabOrder = 0
+    DesignSize = (
+      900
+      52)
     object LyricsLabel: TLabel
       Left = 16
       Top = 19
-      Width = 28
+      Width = 26
       Height = 15
       Caption = #27468#35422
     end

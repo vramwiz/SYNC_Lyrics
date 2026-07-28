@@ -48,6 +48,20 @@ begin
       Inc(Result);
 end;
 
+function CapturedPixelHash: UInt64;
+var
+  I: Integer;
+begin
+  Result := UInt64($CBF29CE484222325);
+  for I := 0 to High(CapturedPixels) do
+  begin
+    Result := (Result xor CapturedPixels[I].R) * UInt64($100000001B3);
+    Result := (Result xor CapturedPixels[I].G) * UInt64($100000001B3);
+    Result := (Result xor CapturedPixels[I].B) * UInt64($100000001B3);
+    Result := (Result xor CapturedPixels[I].A) * UInt64($100000001B3);
+  end;
+end;
+
 procedure FindVisibleBounds(out Left, Top, Right, Bottom: Integer);
 var
   X: Integer;
@@ -414,6 +428,45 @@ begin
     'configured character spacing did not increase text width');
 end;
 
+procedure TestConfiguredFontStylesAreUsed;
+var
+  BaseHash: UInt64;
+  ItalicHash: UInt64;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Settings.BaseBold := False;
+  Settings.BaseItalic := False;
+  Settings.BaseUnderline := False;
+  Settings.BaseStrikeOut := False;
+  Check(RenderLyrics(@Video, 'Font Style', 0, Settings, 0, 0),
+    'plain font-style render failed');
+  BaseHash := CapturedPixelHash;
+
+  Settings.BaseItalic := True;
+  Check(RenderLyrics(@Video, 'Font Style', 0, Settings, 0, 0),
+    'italic font-style render failed');
+  ItalicHash := CapturedPixelHash;
+  Check(ItalicHash <> BaseHash,
+    'configured italic style did not change rendered pixels');
+
+  Settings.BaseItalic := False;
+  Settings.BaseUnderline := True;
+  Check(RenderLyrics(@Video, 'Font Style', 0, Settings, 0, 0),
+    'underline font-style render failed');
+  Check(CapturedPixelHash <> BaseHash,
+    'configured underline style did not change rendered pixels');
+end;
+
 procedure TestRubyGapAdjustmentChangesRowDistance;
 var
   BaseBottom: Integer;
@@ -459,6 +512,7 @@ begin
     TestConfiguredColorsAreUsed;
     TestConfiguredFontSizesChangeBounds;
     TestConfiguredCharacterSpacingChangesWidth;
+    TestConfiguredFontStylesAreUsed;
     TestRubyGapAdjustmentChangesRowDistance;
     TestEmptyLyricsIsTransparent;
     Writeln('PASS');

@@ -19,6 +19,14 @@ type
   TLyricsRenderSettings = record
     BaseFontName: string;
     RubyFontName: string;
+    BaseBold: Boolean;
+    BaseItalic: Boolean;
+    BaseUnderline: Boolean;
+    BaseStrikeOut: Boolean;
+    RubyBold: Boolean;
+    RubyItalic: Boolean;
+    RubyUnderline: Boolean;
+    RubyStrikeOut: Boolean;
     BaseFontHeight: Integer;
     RubyFontHeight: Integer;
     RubyGapAdjustment: Integer;
@@ -116,6 +124,14 @@ function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 begin
   Result.BaseFontName := 'Yu Gothic UI';
   Result.RubyFontName := 'Yu Gothic UI';
+  Result.BaseBold := True;
+  Result.BaseItalic := False;
+  Result.BaseUnderline := False;
+  Result.BaseStrikeOut := False;
+  Result.RubyBold := True;
+  Result.RubyItalic := False;
+  Result.RubyUnderline := False;
+  Result.RubyStrikeOut := False;
   Result.BaseFontHeight := DEFAULT_LYRIC_FONT_HEIGHT;
   Result.RubyFontHeight := DEFAULT_RUBY_FONT_HEIGHT;
   Result.RubyGapAdjustment := 0;
@@ -134,15 +150,21 @@ begin
     (Cardinal(Color.B) shl 16);
 end;
 
-function CreateLyricsFont(const FontName: string; FontHeight: Integer): HFONT;
+function CreateLyricsFont(const FontName: string; FontHeight: Integer;
+  Bold, Italic, Underline, StrikeOut: Boolean): HFONT;
 var
+  FontWeight: Integer;
   ResolvedFontName: string;
 begin
   ResolvedFontName := FontName;
   if ResolvedFontName = '' then
     ResolvedFontName := 'Yu Gothic UI';
   FontHeight := EnsureRange(FontHeight, MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-  Result := CreateFontW(FontHeight, 0, 0, 0, FW_BOLD, 0, 0, 0,
+  FontWeight := FW_NORMAL;
+  if Bold then
+    FontWeight := FW_BOLD;
+  Result := CreateFontW(FontHeight, 0, 0, 0, FontWeight,
+    Ord(Italic), Ord(Underline), Ord(StrikeOut),
     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
     ANTIALIASED_QUALITY, DEFAULT_PITCH or FF_DONTCARE,
     PWideChar(ResolvedFontName));
@@ -244,8 +266,12 @@ begin
     MIN_RUBY_GAP, MAX_RUBY_GAP);
   BaseCharacterSpacing := EnsureRange(Settings.BaseCharacterSpacing,
     MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-  BaseFont := CreateLyricsFont(Settings.BaseFontName, BaseFontHeight);
-  RubyFont := CreateLyricsFont(Settings.RubyFontName, RubyFontHeight);
+  BaseFont := CreateLyricsFont(Settings.BaseFontName, BaseFontHeight,
+    Settings.BaseBold, Settings.BaseItalic, Settings.BaseUnderline,
+    Settings.BaseStrikeOut);
+  RubyFont := CreateLyricsFont(Settings.RubyFontName, RubyFontHeight,
+    Settings.RubyBold, Settings.RubyItalic, Settings.RubyUnderline,
+    Settings.RubyStrikeOut);
   if (BaseFont = 0) or (RubyFont = 0) then
   begin
     if BaseFont <> 0 then
