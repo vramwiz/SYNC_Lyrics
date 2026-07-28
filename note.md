@@ -859,3 +859,9 @@ EXEの実行パスと引数、コピー元とコピー先の指定には上記�
   1表示単位へ複数音を割り当てたグループは必要音数を一部しか満たさない場合も未割当とする。
   全歌詞へ割り当て可能な場合は警告を表示しない。判定テストは成功し、FilterもDebug Win64で
   警告0、エラー0のビルドに成功した。
+- 2026-07-28: WAV手動同期の速度変更再生準備として、VideoMinerが使用するGyan.dev版
+  FFmpeg 8.1.1 full shared buildの必要DLL 6個と、Delphi用`FFmpegApi`／
+  `FFmpegAudioTempo`をコピーした。DLLは`ThirdParty/FFmpeg/bin`へ置き、GitHubの
+  単一ファイル上限を超える`avfilter-11.dll`を含むためGit LFS対象とした。プロジェクトの
+  ルートライセンスをGitHubが検出可能な正式GPLv3全文とし、FFmpegの版、配布元、対応ソース、
+  ビルド情報、同梱DLLを`THIRD_PARTY_NOTICES.md`へ記録した。

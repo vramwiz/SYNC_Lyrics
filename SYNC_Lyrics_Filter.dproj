@@ -96,6 +96,8 @@
         </DelphiCompile>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SharedMemoryBase.pas"/>
+        <DCCReference Include="Source\Lib\FFmpeg\FFmpegApi.pas"/>
+        <DCCReference Include="Source\Lib\FFmpeg\FFmpegAudioTempo.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_FrameShared.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_Time.pas"/>

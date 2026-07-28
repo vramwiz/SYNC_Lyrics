@@ -14,3 +14,6 @@
 *.wav binary
 *.res binary
 *.aup2 binary
+
+# FFmpeg shared libraries exceed GitHub's normal binary size limit.
+ThirdParty/FFmpeg/bin/*.dll filter=lfs diff=lfs merge=lfs -text
