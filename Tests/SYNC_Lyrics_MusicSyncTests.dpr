@@ -67,6 +67,7 @@ begin
     Check(Length(Notes) = 2, 'SongReader note count mismatch');
     Check(Abs(Notes[0].Seconds) < 0.000001, 'first note time mismatch');
     Check(Notes[0].Key = 60, 'first note key mismatch');
+    Check(Notes[0].Lyric = '', 'unexpected first note lyric');
     Check(Abs(Notes[1].Seconds - 0.5) < 0.000001, 'second note time mismatch');
     Check(Notes[1].Key = 62, 'second note key mismatch');
     Check(Abs(Notes[0].EndSeconds - 0.5) < 0.000001, 'first note end time mismatch');

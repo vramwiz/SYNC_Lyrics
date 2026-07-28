@@ -10,6 +10,7 @@ type
     Seconds   : Double;  // 曲先頭からのノート開始秒。
     EndSeconds: Double;  // 曲先頭からのノート終了秒。
     Key       : Integer; // ピアノロール表示に使うMIDIキー番号。
+    Lyric     : string;  // 音楽データでノートへ割り当てられた歌詞。
   end;
   TMusicNoteStarts = TArray<TMusicNoteStart>;
 
@@ -127,6 +128,7 @@ begin
         Notes[I].Seconds := Song.Notes[I].StartSec;
         Notes[I].EndSeconds := Song.Notes[I].EndSec;
         Notes[I].Key := Song.Notes[I].Key;
+        Notes[I].Lyric := Song.Notes[I].Lyric;
       end;
       SortNoteStarts(Notes);
       Result := True;

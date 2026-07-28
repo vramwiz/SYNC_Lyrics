@@ -182,12 +182,28 @@ end;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
 var
   Anchor: TMusicSyncAnchor;
+  CurrentLyrics: string;
   CurrentMusicFileName: string;
+  CurrentSyncText: string;
+  LyricsChanged: Boolean;
+  Obj: OBJECT_HANDLE;
+  SelectedLyrics: string;
+  SelectedSyncText: string;
+  SyncChanged: Boolean;
   SyncForm: TFormLyricsMusicSyncSettings;
+  Utf8Lyrics: UTF8String;
+  Utf8OriginalLyrics: UTF8String;
+  Utf8SyncText: UTF8String;
 begin
+  CurrentLyrics := '';
+  if Assigned(LyricsItem.Value) then
+    CurrentLyrics := string(LyricsItem.Value);
   CurrentMusicFileName := '';
   if Assigned(MusicFileItem.Value) then
     CurrentMusicFileName := string(MusicFileItem.Value);
+  CurrentSyncText := DEFAULT_MUSIC_SYNC_TEXT;
+  if Assigned(SyncDataItem.Value) then
+    CurrentSyncText := string(SyncDataItem.Value);
 
   SyncForm := TFormLyricsMusicSyncSettings.Create(nil);
   try
@@ -195,10 +211,56 @@ begin
       SyncForm.SetAnchor(Anchor.Frame, Anchor.Rate, Anchor.Scale)
     else
       SyncForm.SetAnchorUnavailable;
-    SyncForm.LoadSettings(CurrentMusicFileName, Round(TrackItem.Value));
-    SyncForm.ShowModal;
+    SyncForm.LoadSettings(CurrentMusicFileName, Round(TrackItem.Value),
+      Max(0.0, PreDisplayTimeItem.Value), CurrentLyrics, CurrentSyncText);
+    if SyncForm.ShowModal <> mrOk then
+      Exit;
+    SelectedLyrics := SyncForm.LyricsText;
+    SelectedSyncText := SyncForm.SyncText;
   finally
     SyncForm.Free;
+  end;
+
+  LyricsChanged := SelectedLyrics <> CurrentLyrics;
+  SyncChanged := SelectedSyncText <> CurrentSyncText;
+  if not LyricsChanged and not SyncChanged then
+    Exit;
+  if (Edit = nil) or not Assigned(Edit^.GetFocusObject) or
+    not Assigned(Edit^.SetObjectItemValue) then
+  begin
+    ShowFontSettingsError('歌詞を反映するための編集情報を取得できませんでした。');
+    Exit;
+  end;
+  Obj := Edit^.GetFocusObject();
+  if Obj = nil then
+  begin
+    ShowFontSettingsError('対象の歌詞テロップオブジェクトを取得できませんでした。');
+    Exit;
+  end;
+  if LyricsChanged then
+  begin
+    Utf8Lyrics := UTF8String(SelectedLyrics);
+    if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+      '歌詞', PAnsiChar(Utf8Lyrics)) then
+    begin
+      ShowFontSettingsError('歌詞を歌詞テロップへ反映できませんでした。');
+      Exit;
+    end;
+  end;
+  if SyncChanged then
+  begin
+    Utf8SyncText := UTF8String(SelectedSyncText);
+    if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+      '同期データ', PAnsiChar(Utf8SyncText)) then
+    begin
+      if LyricsChanged then
+      begin
+        Utf8OriginalLyrics := UTF8String(CurrentLyrics);
+        Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+          '歌詞', PAnsiChar(Utf8OriginalLyrics));
+      end;
+      ShowFontSettingsError('同期データを歌詞テロップへ反映できませんでした。');
+    end;
   end;
 end;
 
