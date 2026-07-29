@@ -11,6 +11,7 @@ uses
   Winapi.Windows,
   Vcl.Graphics,
   Vcl.Controls,
+  Vcl.ComCtrls,
   Vcl.ExtCtrls,
   Vcl.Forms,
   Vcl.StdCtrls,
@@ -20,6 +21,7 @@ uses
 type
   TPlacementDragMode = (
     pdmNone,
+    pdmPan,
     pdmMove,
     pdmResizeLeft,
     pdmResizeRight,
@@ -37,15 +39,46 @@ type
     ButtonPanel: TPanel;
     ButtonOK: TButton;
     ButtonCancel: TButton;
+    ElementPanel: TPanel;
+    ElementListLabel: TLabel;
+    ElementListView: TListView;
+    ButtonMoveToCenter: TButton;
+    ButtonResetSelected: TButton;
+    ButtonResetAll: TButton;
+    ButtonAlignHorizontal: TButton;
+    ButtonDistributeHorizontal: TButton;
+    SelectedSettingsGroup: TGroupBox;
+    LabelPositionX: TLabel;
+    LabelPositionY: TLabel;
+    LabelScaleX: TLabel;
+    LabelScaleY: TLabel;
+    EditPositionX: TEdit;
+    EditPositionY: TEdit;
+    EditScaleX: TEdit;
+    EditScaleY: TEdit;
+    ButtonApplySelectedSettings: TButton;
+    ButtonFont: TButton;
     procedure BackgroundPaintBoxMouseDown(Sender: TObject;
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure BackgroundPaintBoxMouseMove(Sender: TObject;
       Shift: TShiftState; X, Y: Integer);
     procedure BackgroundPaintBoxMouseUp(Sender: TObject;
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure BackgroundPaintBoxMouseWheel(Sender: TObject;
+      Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint;
+      var Handled: Boolean);
     procedure BackgroundPaintBoxPaint(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure ElementListViewSelectItem(Sender: TObject; Item: TListItem;
+      Selected: Boolean);
+    procedure ButtonMoveToCenterClick(Sender: TObject);
+    procedure ButtonResetSelectedClick(Sender: TObject);
+    procedure ButtonResetAllClick(Sender: TObject);
+    procedure ButtonAlignHorizontalClick(Sender: TObject);
+    procedure ButtonDistributeHorizontalClick(Sender: TObject);
+    procedure ButtonApplySelectedSettingsClick(Sender: TObject);
+    procedure ButtonFontClick(Sender: TObject);
   private
     FBackground: TBitmap;
     FBaseFontHeight: Integer;
@@ -68,14 +101,23 @@ type
     FSelectionStart: TPoint;
     FSelectingRectangle: Boolean;
     FUnits: TLyricsDisplayUnits;
+    FUpdatingElementList: Boolean;
+    FUpdatingSelectedSettings: Boolean;
+    FViewPan: TPointF;
+    FViewZoom: Double;
+    FDragStartViewPan: TPointF;
     function BackgroundDestinationRect: TRect;
     function BackgroundScale: Double;
     procedure BuildInitialPlacements;
+    procedure BuildDefaultPlacements(out Placements: TDisplayPlacementItems);
     procedure ClearSelection;
     function DisplayUnitBaseText(Index: Integer): string;
+    function DisplayUnitBaseFontName(Index: Integer): string;
     function DisplayUnitBounds(Index: Integer): TRect;
     function DisplayUnitNaturalBounds(Index: Integer): TRectF;
+    function DisplayUnitSceneBounds(Index: Integer): TRectF;
     function DisplayUnitRubyText(Index: Integer): string;
+    function DisplayUnitRubyFontName(Index: Integer): string;
     procedure DrawResizeHandles(const Bounds: TRect);
     procedure DrawSelectionRectangle;
     function GroupSelectionBounds: TRect;
@@ -83,11 +125,14 @@ type
     function HitTestDisplayUnit(X, Y: Integer): Integer;
     function HitTestResizeHandle(X, Y: Integer): TPlacementDragMode;
     procedure PaintDisplayUnit(Index: Integer);
+    procedure PopulateElementList;
     procedure ResizeSelectedElement(X, Y: Integer);
     procedure ResizeSelection(X, Y: Integer);
     procedure SelectOnly(Index: Integer);
     function SelectionCount: Integer;
     function ScenePointToScreen(X, Y: Single): TPoint;
+    procedure UpdateElementListSelection;
+    procedure UpdateSelectedSettings;
   public
     procedure Configure(const Lyrics, BaseFontName, RubyFontName: string;
       BaseFontHeight, RubyFontHeight, RubyGapAdjustment: Integer;
@@ -101,7 +146,8 @@ type
 implementation
 
 uses
-  System.Math;
+  System.Math,
+  SYNC_Lyrics_FontSettingsForm;
 
 {$R *.dfm}
 
@@ -111,6 +157,9 @@ begin
   FBackground.PixelFormat := pf32bit;
   FSelectedIndex := -1;
   FDragMode := pdmNone;
+  FViewPan := TPointF.Zero;
+  FViewZoom := 1;
+  OnMouseWheel := BackgroundPaintBoxMouseWheel;
   DoubleBuffered := True;
 end;
 
@@ -126,6 +175,124 @@ begin
   for I := 0 to High(FSelected) do
     FSelected[I] := False;
   FSelectedIndex := -1;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.UpdateElementListSelection;
+var
+  I: Integer;
+begin
+  if FUpdatingElementList then
+    Exit;
+  FUpdatingElementList := True;
+  try
+    for I := 0 to ElementListView.Items.Count - 1 do
+      ElementListView.Items[I].Selected :=
+        (I < Length(FSelected)) and FSelected[I];
+  finally
+    FUpdatingElementList := False;
+  end;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.UpdateSelectedSettings;
+var
+  CommonScaleX: Single;
+  CommonScaleY: Single;
+  Count: Integer;
+  I: Integer;
+  SameScaleX: Boolean;
+  SameScaleY: Boolean;
+begin
+  if FUpdatingSelectedSettings then
+    Exit;
+  FUpdatingSelectedSettings := True;
+  try
+    Count := SelectionCount;
+    EditPositionX.Enabled := Count = 1;
+    EditPositionY.Enabled := Count = 1;
+    EditScaleX.Enabled := Count > 0;
+    EditScaleY.Enabled := Count > 0;
+    ButtonApplySelectedSettings.Enabled := Count > 0;
+    ButtonFont.Enabled := Count > 0;
+    EditPositionX.Text := '';
+    EditPositionY.Text := '';
+    EditScaleX.Text := '';
+    EditScaleY.Text := '';
+    if Count = 0 then
+      Exit;
+    if Count = 1 then
+    begin
+      EditPositionX.Text := FormatFloat('0.###',
+        FPlacements[FSelectedIndex].X);
+      EditPositionY.Text := FormatFloat('0.###',
+        FPlacements[FSelectedIndex].Y);
+    end;
+    CommonScaleX := FPlacements[FSelectedIndex].ScaleX;
+    CommonScaleY := FPlacements[FSelectedIndex].ScaleY;
+    SameScaleX := True;
+    SameScaleY := True;
+    for I := 0 to High(FSelected) do
+      if FSelected[I] then
+      begin
+        SameScaleX := SameScaleX and SameValue(
+          FPlacements[I].ScaleX, CommonScaleX, 0.0005);
+        SameScaleY := SameScaleY and SameValue(
+          FPlacements[I].ScaleY, CommonScaleY, 0.0005);
+      end;
+    if SameScaleX then
+      EditScaleX.Text := FormatFloat('0.###', CommonScaleX * 100);
+    if SameScaleY then
+      EditScaleY.Text := FormatFloat('0.###', CommonScaleY * 100);
+  finally
+    FUpdatingSelectedSettings := False;
+  end;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.PopulateElementList;
+var
+  BaseText: string;
+  I: Integer;
+  Item: TListItem;
+  RubyText: string;
+begin
+  FUpdatingElementList := True;
+  ElementListView.Items.BeginUpdate;
+  try
+    ElementListView.Items.Clear;
+    for I := 0 to High(FUnits) do
+    begin
+      BaseText := DisplayUnitBaseText(I);
+      RubyText := DisplayUnitRubyText(I);
+      Item := ElementListView.Items.Add;
+      Item.Caption := IntToStr(I + 1);
+      if RubyText <> '' then
+        Item.SubItems.Add(Format('[%s](%s)', [BaseText, RubyText]))
+      else
+        Item.SubItems.Add(BaseText);
+    end;
+  finally
+    ElementListView.Items.EndUpdate;
+    FUpdatingElementList := False;
+  end;
+  UpdateElementListSelection;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ElementListViewSelectItem(
+  Sender: TObject; Item: TListItem; Selected: Boolean);
+var
+  I: Integer;
+begin
+  if FUpdatingElementList then
+    Exit;
+  ClearSelection;
+  for I := 0 to ElementListView.Items.Count - 1 do
+    if ElementListView.Items[I].Selected and
+      (I < Length(FSelected)) then
+    begin
+      FSelected[I] := True;
+      FSelectedIndex := I;
+    end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
 end;
 
 procedure TFormLyricsDisplaySettingsDebug.SelectOnly(Index: Integer);
@@ -158,11 +325,13 @@ begin
   if (FBackground.Width <= 0) or (FBackground.Height <= 0) then
     Exit;
   Scale := Min(BackgroundPaintBox.ClientWidth / FBackground.Width,
-    BackgroundPaintBox.ClientHeight / FBackground.Height);
+    BackgroundPaintBox.ClientHeight / FBackground.Height) * FViewZoom;
   DrawWidth := Max(1, Round(FBackground.Width * Scale));
   DrawHeight := Max(1, Round(FBackground.Height * Scale));
-  Result.Left := (BackgroundPaintBox.ClientWidth - DrawWidth) div 2;
-  Result.Top := (BackgroundPaintBox.ClientHeight - DrawHeight) div 2;
+  Result.Left := (BackgroundPaintBox.ClientWidth - DrawWidth) div 2 +
+    Round(FViewPan.X);
+  Result.Top := (BackgroundPaintBox.ClientHeight - DrawHeight) div 2 +
+    Round(FViewPan.Y);
   Result.Right := Result.Left + DrawWidth;
   Result.Bottom := Result.Top + DrawHeight;
 end;
@@ -185,6 +354,14 @@ begin
     FUnits[Index].BaseLength);
 end;
 
+function TFormLyricsDisplaySettingsDebug.DisplayUnitBaseFontName(
+  Index: Integer): string;
+begin
+  Result := FPlacements[Index].BaseFontName;
+  if Result = '' then
+    Result := FBaseFontName;
+end;
+
 function TFormLyricsDisplaySettingsDebug.DisplayUnitRubyText(
   Index: Integer): string;
 var
@@ -194,6 +371,14 @@ begin
   RubyIndex := FUnits[Index].RubyIndex;
   if (RubyIndex >= 0) and (RubyIndex < Length(FRubySpans)) then
     Result := FRubySpans[RubyIndex].RubyText;
+end;
+
+function TFormLyricsDisplaySettingsDebug.DisplayUnitRubyFontName(
+  Index: Integer): string;
+begin
+  Result := FPlacements[Index].RubyFontName;
+  if Result = '' then
+    Result := FRubyFontName;
 end;
 
 function TFormLyricsDisplaySettingsDebug.ScenePointToScreen(
@@ -243,7 +428,7 @@ var
   BaseSize: TSize;
   RubySize: TSize;
 begin
-  BackgroundPaintBox.Canvas.Font.Name := FBaseFontName;
+  BackgroundPaintBox.Canvas.Font.Name := DisplayUnitBaseFontName(Index);
   BackgroundPaintBox.Canvas.Font.Height := -Max(1, FBaseFontHeight);
   BackgroundPaintBox.Canvas.Font.Style := [];
   BaseSize := BackgroundPaintBox.Canvas.TextExtent(
@@ -252,7 +437,7 @@ begin
   RubySize.cy := 0;
   if DisplayUnitRubyText(Index) <> '' then
   begin
-    BackgroundPaintBox.Canvas.Font.Name := FRubyFontName;
+    BackgroundPaintBox.Canvas.Font.Name := DisplayUnitRubyFontName(Index);
     BackgroundPaintBox.Canvas.Font.Height := -Max(1, FRubyFontHeight);
     RubySize := BackgroundPaintBox.Canvas.TextExtent(
       DisplayUnitRubyText(Index));
@@ -263,6 +448,22 @@ begin
   if RubySize.cy > 0 then
     Result.Top := Result.Top - RubySize.cy - FRubyGap;
   Result.Bottom := -BaseSize.cy * 0.5 + BaseSize.cy;
+end;
+
+function TFormLyricsDisplaySettingsDebug.DisplayUnitSceneBounds(
+  Index: Integer): TRectF;
+var
+  Natural: TRectF;
+begin
+  Natural := DisplayUnitNaturalBounds(Index);
+  Result.Left := FPlacements[Index].X +
+    Natural.Left * FPlacements[Index].ScaleX;
+  Result.Right := FPlacements[Index].X +
+    Natural.Right * FPlacements[Index].ScaleX;
+  Result.Top := FPlacements[Index].Y +
+    Natural.Top * FPlacements[Index].ScaleY;
+  Result.Bottom := FPlacements[Index].Y +
+    Natural.Bottom * FPlacements[Index].ScaleY;
 end;
 
 procedure TFormLyricsDisplaySettingsDebug.PaintDisplayUnit(
@@ -302,7 +503,7 @@ begin
   BaseText := DisplayUnitBaseText(Index);
   RubyText := DisplayUnitRubyText(Index);
 
-  Canvas.Font.Name := FBaseFontName;
+  Canvas.Font.Name := DisplayUnitBaseFontName(Index);
   Canvas.Font.Height := -Max(1, FBaseFontHeight);
   Canvas.Font.Style := [];
   BaseSize := Canvas.TextExtent(BaseText);
@@ -310,7 +511,7 @@ begin
   RubySize.cy := 0;
   if RubyText <> '' then
   begin
-    Canvas.Font.Name := FRubyFontName;
+    Canvas.Font.Name := DisplayUnitRubyFontName(Index);
     Canvas.Font.Height := -Max(1, FRubyFontHeight);
     RubySize := Canvas.TextExtent(RubyText);
   end;
@@ -327,12 +528,12 @@ begin
     begin
       if RubyText <> '' then
       begin
-        Canvas.Font.Name := FRubyFontName;
+        Canvas.Font.Name := DisplayUnitRubyFontName(Index);
         Canvas.Font.Height := -Max(1, FRubyFontHeight);
         DrawOutlinedText(-RubySize.cx div 2,
           TextTop - RubySize.cy - FRubyGap, RubyText);
       end;
-      Canvas.Font.Name := FBaseFontName;
+      Canvas.Font.Name := DisplayUnitBaseFontName(Index);
       Canvas.Font.Height := -Max(1, FBaseFontHeight);
       DrawOutlinedText(-BaseSize.cx div 2, TextTop, BaseText);
     end;
@@ -420,15 +621,7 @@ begin
   for I := 0 to High(FSelected) do
     if FSelected[I] then
     begin
-      Natural := DisplayUnitNaturalBounds(I);
-      Natural.Left := FPlacements[I].X +
-        Natural.Left * FPlacements[I].ScaleX;
-      Natural.Right := FPlacements[I].X +
-        Natural.Right * FPlacements[I].ScaleX;
-      Natural.Top := FPlacements[I].Y +
-        Natural.Top * FPlacements[I].ScaleY;
-      Natural.Bottom := FPlacements[I].Y +
-        Natural.Bottom * FPlacements[I].ScaleY;
+      Natural := DisplayUnitSceneBounds(I);
       if not Initialized then
       begin
         Result := Natural;
@@ -586,7 +779,12 @@ begin
       end;
     end
     else if HitIndex < 0 then
-      ClearSelection
+    begin
+      ClearSelection;
+      FDragMode := pdmPan;
+      FDragStartMouse := Point(X, Y);
+      FDragStartViewPan := FViewPan;
+    end
     else if not FSelected[HitIndex] then
       SelectOnly(HitIndex)
     else
@@ -601,6 +799,8 @@ begin
     FDragStartPlacements := Copy(FPlacements);
     FDragStartGroupBounds := GroupSelectionSceneBounds;
   end;
+  UpdateElementListSelection;
+  UpdateSelectedSettings;
   BackgroundPaintBox.Invalidate;
 end;
 
@@ -613,6 +813,14 @@ begin
   if FSelectingRectangle then
   begin
     FSelectionCurrent := Point(X, Y);
+    BackgroundPaintBox.Invalidate;
+    Exit;
+  end;
+  if FDragMode = pdmPan then
+  begin
+    FViewPan.X := FDragStartViewPan.X + X - FDragStartMouse.X;
+    FViewPan.Y := FDragStartViewPan.Y + Y - FDragStartMouse.Y;
+    BackgroundPaintBox.Cursor := crSizeAll;
     BackgroundPaintBox.Invalidate;
     Exit;
   end;
@@ -676,11 +884,65 @@ begin
         FSelectedIndex := I;
       end;
     FSelectingRectangle := False;
+    UpdateElementListSelection;
+    UpdateSelectedSettings;
     BackgroundPaintBox.Invalidate;
     Exit;
   end;
   if Button = mbLeft then
+  begin
     FDragMode := pdmNone;
+    BackgroundPaintBox.Cursor := crDefault;
+    UpdateSelectedSettings;
+  end;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.BackgroundPaintBoxMouseWheel(
+  Sender: TObject; Shift: TShiftState; WheelDelta: Integer;
+  MousePos: TPoint; var Handled: Boolean);
+const
+  MAX_ZOOM = 8.0;
+  MIN_ZOOM = 0.25;
+  ZOOM_STEP = 1.2;
+var
+  ClientPoint: TPoint;
+  ImageX: Double;
+  ImageY: Double;
+  NewDestination: TRect;
+  NewScale: Double;
+  NewZoom: Double;
+  OldDestination: TRect;
+  OldScale: Double;
+begin
+  Handled := False;
+  ClientPoint := BackgroundPaintBox.ScreenToClient(MousePos);
+  if not PtInRect(BackgroundPaintBox.ClientRect, ClientPoint) then
+    Exit;
+  Handled := True;
+  if (FBackground.Width <= 0) or (FBackground.Height <= 0) then
+    Exit;
+  OldDestination := BackgroundDestinationRect;
+  OldScale := BackgroundScale;
+  if OldScale <= 0 then
+    Exit;
+  ImageX := (ClientPoint.X - OldDestination.Left) / OldScale;
+  ImageY := (ClientPoint.Y - OldDestination.Top) / OldScale;
+  if WheelDelta > 0 then
+    NewZoom := FViewZoom * ZOOM_STEP
+  else
+    NewZoom := FViewZoom / ZOOM_STEP;
+  NewZoom := EnsureRange(NewZoom, MIN_ZOOM, MAX_ZOOM);
+  if SameValue(NewZoom, FViewZoom) then
+    Exit;
+  FViewZoom := NewZoom;
+  FViewPan := TPointF.Zero;
+  NewDestination := BackgroundDestinationRect;
+  NewScale := BackgroundScale;
+  FViewPan.X := ClientPoint.X - ImageX * NewScale -
+    NewDestination.Left;
+  FViewPan.Y := ClientPoint.Y - ImageY * NewScale -
+    NewDestination.Top;
+  BackgroundPaintBox.Invalidate;
 end;
 
 procedure TFormLyricsDisplaySettingsDebug.ResizeSelectedElement(
@@ -880,7 +1142,8 @@ begin
     end;
 end;
 
-procedure TFormLyricsDisplaySettingsDebug.BuildInitialPlacements;
+procedure TFormLyricsDisplaySettingsDebug.BuildDefaultPlacements(
+  out Placements: TDisplayPlacementItems);
 const
   ITEM_SPACING = 12;
 var
@@ -891,7 +1154,7 @@ var
   RubySize: TSize;
   TotalWidth: Integer;
 begin
-  SetLength(FPlacements, Length(FUnits));
+  SetLength(Placements, Length(FUnits));
   SetLength(ItemWidths, Length(FUnits));
   TotalWidth := 0;
   FBackground.Canvas.Font.Style := [];
@@ -914,15 +1177,273 @@ begin
   end;
 
   CursorX := -TotalWidth * 0.5;
-  for I := 0 to High(FPlacements) do
+  for I := 0 to High(Placements) do
   begin
-    FPlacements[I].Index := I;
-    FPlacements[I].X := CursorX + ItemWidths[I] * 0.5;
-    FPlacements[I].Y := 0;
-    FPlacements[I].ScaleX := 1;
-    FPlacements[I].ScaleY := 1;
+    Placements[I].Index := I;
+    Placements[I].X := CursorX + ItemWidths[I] * 0.5;
+    Placements[I].Y := 0;
+    Placements[I].ScaleX := 1;
+    Placements[I].ScaleY := 1;
+    Placements[I].BaseFontName := '';
+    Placements[I].RubyFontName := '';
     CursorX := CursorX + ItemWidths[I] + ITEM_SPACING;
   end;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.BuildInitialPlacements;
+begin
+  BuildDefaultPlacements(FPlacements);
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonMoveToCenterClick(
+  Sender: TObject);
+var
+  Bounds: TRectF;
+  DeltaX: Single;
+  DeltaY: Single;
+  I: Integer;
+begin
+  if SelectionCount = 0 then
+    Exit;
+  Bounds := GroupSelectionSceneBounds;
+  DeltaX := -(Bounds.Left + Bounds.Right) * 0.5;
+  DeltaY := -(Bounds.Top + Bounds.Bottom) * 0.5;
+  for I := 0 to High(FSelected) do
+    if FSelected[I] then
+    begin
+      FPlacements[I].X := FPlacements[I].X + DeltaX;
+      FPlacements[I].Y := FPlacements[I].Y + DeltaY;
+    end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonResetSelectedClick(
+  Sender: TObject);
+var
+  Defaults: TDisplayPlacementItems;
+  I: Integer;
+begin
+  if SelectionCount = 0 then
+    Exit;
+  BuildDefaultPlacements(Defaults);
+  for I := 0 to High(FSelected) do
+    if FSelected[I] and (I < Length(Defaults)) then
+      FPlacements[I] := Defaults[I];
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonResetAllClick(
+  Sender: TObject);
+begin
+  BuildInitialPlacements;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonAlignHorizontalClick(
+  Sender: TObject);
+var
+  BottomSum: Double;
+  Bounds: TRectF;
+  Count: Integer;
+  I: Integer;
+  Natural: TRectF;
+  TargetBottom: Double;
+begin
+  Count := SelectionCount;
+  if Count < 2 then
+    Exit;
+  BottomSum := 0;
+  for I := 0 to High(FSelected) do
+    if FSelected[I] then
+    begin
+      Bounds := DisplayUnitSceneBounds(I);
+      BottomSum := BottomSum + Bounds.Bottom;
+    end;
+  TargetBottom := BottomSum / Count;
+  for I := 0 to High(FSelected) do
+    if FSelected[I] then
+    begin
+      Natural := DisplayUnitNaturalBounds(I);
+      FPlacements[I].Y := TargetBottom -
+        Natural.Bottom * FPlacements[I].ScaleY;
+    end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonDistributeHorizontalClick(
+  Sender: TObject);
+var
+  Bounds: TRectF;
+  CursorX: Double;
+  Gap: Double;
+  I: Integer;
+  J: Integer;
+  SelectedIndices: TArray<Integer>;
+  SelectedWidths: TArray<Double>;
+  TempIndex: Integer;
+  TotalWidth: Double;
+begin
+  if SelectionCount < 3 then
+    Exit;
+  SetLength(SelectedIndices, SelectionCount);
+  J := 0;
+  for I := 0 to High(FSelected) do
+    if FSelected[I] then
+    begin
+      SelectedIndices[J] := I;
+      Inc(J);
+    end;
+  for I := 0 to High(SelectedIndices) - 1 do
+    for J := I + 1 to High(SelectedIndices) do
+      if DisplayUnitSceneBounds(SelectedIndices[J]).Left <
+        DisplayUnitSceneBounds(SelectedIndices[I]).Left then
+      begin
+        TempIndex := SelectedIndices[I];
+        SelectedIndices[I] := SelectedIndices[J];
+        SelectedIndices[J] := TempIndex;
+      end;
+
+  SetLength(SelectedWidths, Length(SelectedIndices));
+  TotalWidth := 0;
+  for I := 0 to High(SelectedIndices) do
+  begin
+    Bounds := DisplayUnitSceneBounds(SelectedIndices[I]);
+    SelectedWidths[I] := Bounds.Width;
+    TotalWidth := TotalWidth + Bounds.Width;
+  end;
+  CursorX := DisplayUnitSceneBounds(SelectedIndices[0]).Left;
+  Bounds := DisplayUnitSceneBounds(
+    SelectedIndices[High(SelectedIndices)]);
+  Gap := (Bounds.Right - CursorX - TotalWidth) /
+    (Length(SelectedIndices) - 1);
+  for I := 0 to High(SelectedIndices) do
+  begin
+    Bounds := DisplayUnitSceneBounds(SelectedIndices[I]);
+    FPlacements[SelectedIndices[I]].X :=
+      FPlacements[SelectedIndices[I]].X +
+      CursorX - Bounds.Left;
+    CursorX := CursorX + SelectedWidths[I] + Gap;
+  end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonApplySelectedSettingsClick(
+  Sender: TObject);
+const
+  MAX_POSITION = 32767.0;
+  MAX_SCALE_PERCENT = 1000.0;
+  MIN_POSITION = -32768.0;
+  MIN_SCALE_PERCENT = 5.0;
+var
+  HasScaleX: Boolean;
+  HasScaleY: Boolean;
+  HasX: Boolean;
+  HasY: Boolean;
+  I: Integer;
+  ScaleXValue: Double;
+  ScaleYValue: Double;
+  XValue: Double;
+  YValue: Double;
+begin
+  if FUpdatingSelectedSettings or (SelectionCount = 0) then
+    Exit;
+  HasX := (SelectionCount = 1) and
+    (Trim(EditPositionX.Text) <> '');
+  HasY := (SelectionCount = 1) and
+    (Trim(EditPositionY.Text) <> '');
+  HasScaleX := Trim(EditScaleX.Text) <> '';
+  HasScaleY := Trim(EditScaleY.Text) <> '';
+  if HasX and not TryStrToFloat(Trim(EditPositionX.Text), XValue) then
+  begin
+    EditPositionX.SetFocus;
+    Exit;
+  end;
+  if HasY and not TryStrToFloat(Trim(EditPositionY.Text), YValue) then
+  begin
+    EditPositionY.SetFocus;
+    Exit;
+  end;
+  if HasScaleX and
+    not TryStrToFloat(Trim(EditScaleX.Text), ScaleXValue) then
+  begin
+    EditScaleX.SetFocus;
+    Exit;
+  end;
+  if HasScaleY and
+    not TryStrToFloat(Trim(EditScaleY.Text), ScaleYValue) then
+  begin
+    EditScaleY.SetFocus;
+    Exit;
+  end;
+
+  if HasX then
+    FPlacements[FSelectedIndex].X :=
+      EnsureRange(XValue, MIN_POSITION, MAX_POSITION);
+  if HasY then
+    FPlacements[FSelectedIndex].Y :=
+      EnsureRange(YValue, MIN_POSITION, MAX_POSITION);
+  if HasScaleX then
+  begin
+    ScaleXValue := EnsureRange(ScaleXValue, MIN_SCALE_PERCENT,
+      MAX_SCALE_PERCENT) / 100;
+    for I := 0 to High(FSelected) do
+      if FSelected[I] then
+        FPlacements[I].ScaleX := ScaleXValue;
+  end;
+  if HasScaleY then
+  begin
+    ScaleYValue := EnsureRange(ScaleYValue, MIN_SCALE_PERCENT,
+      MAX_SCALE_PERCENT) / 100;
+    for I := 0 to High(FSelected) do
+      if FSelected[I] then
+        FPlacements[I].ScaleY := ScaleYValue;
+  end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsDisplaySettingsDebug.ButtonFontClick(
+  Sender: TObject);
+var
+  FontForm: TFormLyricsFontSettings;
+  I: Integer;
+begin
+  if SelectionCount = 0 then
+    Exit;
+  FontForm := TFormLyricsFontSettings.Create(Self);
+  try
+    FontForm.SelectedBaseFontName :=
+      DisplayUnitBaseFontName(FSelectedIndex);
+    FontForm.SelectedRubyFontName :=
+      DisplayUnitRubyFontName(FSelectedIndex);
+    if FontForm.ShowModal <> mrOk then
+      Exit;
+    for I := 0 to High(FSelected) do
+      if FSelected[I] then
+      begin
+        if SameText(FontForm.SelectedBaseFontName,
+          FBaseFontName) then
+          FPlacements[I].BaseFontName := ''
+        else
+          FPlacements[I].BaseFontName :=
+            FontForm.SelectedBaseFontName;
+        if SameText(FontForm.SelectedRubyFontName,
+          FRubyFontName) then
+          FPlacements[I].RubyFontName := ''
+        else
+          FPlacements[I].RubyFontName :=
+            FontForm.SelectedRubyFontName;
+      end;
+  finally
+    FontForm.Free;
+  end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
 end;
 
 procedure TFormLyricsDisplaySettingsDebug.Configure(
@@ -943,6 +1464,8 @@ begin
     BuildInitialPlacements;
   SetLength(FSelected, Length(FUnits));
   ClearSelection;
+  PopulateElementList;
+  UpdateSelectedSettings;
   BackgroundPaintBox.Invalidate;
 end;
 

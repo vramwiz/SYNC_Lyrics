@@ -69,6 +69,7 @@ procedure TestDisplaySettingsData;
 var
   Data: TDisplaySettingsData;
   DecodedItems: TDisplayPlacementItems;
+  I: Integer;
   Items: TDisplayPlacementItems;
   OversizedItems: TDisplayPlacementItems;
 begin
@@ -80,6 +81,8 @@ begin
   Items[0].Y := -8;
   Items[0].ScaleX := 1.25;
   Items[0].ScaleY := 0.75;
+  Items[0].BaseFontName := 'Meiryo';
+  Items[0].RubyFontName := 'Yu Gothic UI';
   Items[1].Index := 1;
   Items[1].X := -20;
   Items[1].Y := 40.25;
@@ -93,10 +96,36 @@ begin
     (Abs(DecodedItems[0].X - 12) < 0.001) and
     (Abs(DecodedItems[1].Y - 40) < 0.001) and
     (Abs(DecodedItems[0].ScaleX - 1.25) < 0.001) and
-    (Abs(DecodedItems[1].ScaleY - 2) < 0.001),
+    (Abs(DecodedItems[1].ScaleY - 2) < 0.001) and
+    SameText(DecodedItems[0].BaseFontName, 'Meiryo') and
+    SameText(DecodedItems[0].RubyFontName, 'Yu Gothic UI') and
+    (DecodedItems[1].BaseFontName = '') and
+    (DecodedItems[1].RubyFontName = ''),
     'display placement coordinates did not round-trip');
   Check(not TryDecodeDisplayPlacements(Data, '変更後', 2,
     DecodedItems), 'placements survived a lyrics change');
+
+  SetLength(Items, MAX_DISPLAY_PLACEMENT_ITEMS);
+  for I := 0 to High(Items) do
+  begin
+    Items[I].Index := I;
+    Items[I].X := I;
+    Items[I].Y := -I;
+    Items[I].ScaleX := 1;
+    Items[I].ScaleY := 1;
+    if not Odd(I) then
+    begin
+      Items[I].BaseFontName := 'Meiryo';
+      Items[I].RubyFontName := 'Yu Gothic UI';
+    end;
+  end;
+  Check(TryEncodeDisplayPlacements('maximum', Items, Data),
+    'maximum placements with shared fonts could not be encoded');
+  Check(TryDecodeDisplayPlacements(Data, 'maximum',
+    MAX_DISPLAY_PLACEMENT_ITEMS, DecodedItems) and
+    SameText(DecodedItems[98].BaseFontName, 'Meiryo') and
+    (DecodedItems[99].BaseFontName = ''),
+    'maximum placements with sparse shared fonts did not round-trip');
 
   SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
   Check(not TryEncodeDisplayPlacements('oversized', OversizedItems, Data),

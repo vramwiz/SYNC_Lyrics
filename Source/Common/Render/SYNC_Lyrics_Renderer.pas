@@ -87,6 +87,13 @@ var
   RendererLock: TRTLCriticalSection;
   RendererInitialized: Boolean;
 
+type
+  TLyricsFontCacheItem = record
+    FontName: string;
+    Handle: HFONT;
+  end;
+  TLyricsFontCache = TArray<TLyricsFontCacheItem>;
+
 function ResolveRenderSize(Video: PFILTER_PROC_VIDEO; out Width, Height: Integer): Boolean;
 begin
   Width := 0;
@@ -391,6 +398,34 @@ begin
   end;
 end;
 
+function ResolveCachedLyricsFont(var Cache: TLyricsFontCache;
+  const FontName: string; FontHeight: Integer;
+  Bold, Italic, Underline, StrikeOut: Boolean): HFONT;
+var
+  I: Integer;
+begin
+  for I := 0 to High(Cache) do
+    if SameText(Cache[I].FontName, FontName) then
+      Exit(Cache[I].Handle);
+  Result := CreateLyricsFont(FontName, FontHeight, Bold, Italic,
+    Underline, StrikeOut);
+  if Result = 0 then
+    Exit;
+  SetLength(Cache, Length(Cache) + 1);
+  Cache[High(Cache)].FontName := FontName;
+  Cache[High(Cache)].Handle := Result;
+end;
+
+procedure FreeLyricsFontCache(var Cache: TLyricsFontCache);
+var
+  I: Integer;
+begin
+  for I := 0 to High(Cache) do
+    if Cache[I].Handle <> 0 then
+      DeleteObject(Cache[I].Handle);
+  Cache := nil;
+end;
+
 procedure DrawFreePlacementLyrics(DC: HDC; Width, Height: Integer;
   const Source: string; ProgressUnits: Double;
   const Settings: TLyricsRenderSettings;
@@ -398,7 +433,9 @@ procedure DrawFreePlacementLyrics(DC: HDC; Width, Height: Integer;
   PositionX, PositionY: Integer);
 var
   BaseFont: HFONT;
+  BaseFontCache: TLyricsFontCache;
   BaseFontHeight: Integer;
+  BaseFontName: string;
   BaseText: string;
   BaseWidth: Integer;
   BaseX: Integer;
@@ -408,7 +445,9 @@ var
   OldFont: HGDIOBJ;
   PlainText: string;
   RubyFont: HFONT;
+  RubyFontCache: TLyricsFontCache;
   RubyFontHeight: Integer;
+  RubyFontName: string;
   RubyGap: Integer;
   RubySpans: TLyricsRubySpans;
   RubyText: string;
@@ -432,18 +471,18 @@ begin
     MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
   RubyGap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
     MIN_RUBY_GAP, MAX_RUBY_GAP);
-  BaseFont := CreateLyricsFont(Settings.BaseFontName, BaseFontHeight,
+  BaseFont := ResolveCachedLyricsFont(BaseFontCache,
+    Settings.BaseFontName, BaseFontHeight,
     Settings.BaseBold, Settings.BaseItalic, Settings.BaseUnderline,
     Settings.BaseStrikeOut);
-  RubyFont := CreateLyricsFont(Settings.RubyFontName, RubyFontHeight,
+  RubyFont := ResolveCachedLyricsFont(RubyFontCache,
+    Settings.RubyFontName, RubyFontHeight,
     Settings.RubyBold, Settings.RubyItalic, Settings.RubyUnderline,
     Settings.RubyStrikeOut);
   if (BaseFont = 0) or (RubyFont = 0) then
   begin
-    if BaseFont <> 0 then
-      DeleteObject(BaseFont);
-    if RubyFont <> 0 then
-      DeleteObject(RubyFont);
+    FreeLyricsFontCache(BaseFontCache);
+    FreeLyricsFontCache(RubyFontCache);
     Exit;
   end;
   try
@@ -452,6 +491,22 @@ begin
     SetBkMode(DC, TRANSPARENT);
     for UnitIndex := 0 to High(Units) do
     begin
+      BaseFontName := Placements[UnitIndex].BaseFontName;
+      if BaseFontName = '' then
+        BaseFontName := Settings.BaseFontName;
+      RubyFontName := Placements[UnitIndex].RubyFontName;
+      if RubyFontName = '' then
+        RubyFontName := Settings.RubyFontName;
+      BaseFont := ResolveCachedLyricsFont(BaseFontCache,
+        BaseFontName, BaseFontHeight, Settings.BaseBold,
+        Settings.BaseItalic, Settings.BaseUnderline,
+        Settings.BaseStrikeOut);
+      RubyFont := ResolveCachedLyricsFont(RubyFontCache,
+        RubyFontName, RubyFontHeight, Settings.RubyBold,
+        Settings.RubyItalic, Settings.RubyUnderline,
+        Settings.RubyStrikeOut);
+      if (BaseFont = 0) or (RubyFont = 0) then
+        Continue;
       UnitState := SaveDC(DC);
       if UnitState = 0 then
         Continue;
@@ -531,8 +586,8 @@ begin
     SetTextCharacterExtra(DC, OldCharacterSpacing);
     SelectObject(DC, OldFont);
   finally
-    DeleteObject(RubyFont);
-    DeleteObject(BaseFont);
+    FreeLyricsFontCache(RubyFontCache);
+    FreeLyricsFontCache(BaseFontCache);
   end;
 end;
 
