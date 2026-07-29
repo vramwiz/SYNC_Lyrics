@@ -7,6 +7,13 @@
 uses
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SharedMemoryBase in 'Source\Lib\SharedMemoryBase.pas',
+  ColorPickerColorMath in 'Source\Lib\ColorPicker\ColorPickerColorMath.pas',
+  ColorPickerRGBEditFrame in 'Source\Lib\ColorPicker\ColorPickerRGBEditFrame.pas' {FrameColorPickerRGBEdit: TFrame},
+  ColorPickerHueBar in 'Source\Lib\ColorPicker\ColorPickerHueBar.pas',
+  ColorPickerSVArea in 'Source\Lib\ColorPicker\ColorPickerSVArea.pas',
+  ColorPickerPick in 'Source\Lib\ColorPicker\ColorPickerPick.pas',
+  ColorPickerDialogFrame in 'Source\Lib\ColorPicker\ColorPickerDialogFrame.pas' {FrameColorPickerDialog: TFrame},
+  ColorPickerDialog in 'Source\Lib\ColorPicker\ColorPickerDialog.pas' {FormColorPickerDialog},
   SYNC_Lyrics_FrameShared in 'Source\Common\Timeline\SYNC_Lyrics_FrameShared.pas',
   SYNC_Lyrics_ContextManager in 'Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas',
   SYNC_Lyrics_Time in 'Source\Common\Timeline\SYNC_Lyrics_Time.pas',
