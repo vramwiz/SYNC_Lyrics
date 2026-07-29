@@ -49,6 +49,7 @@ uses
   SYNC_Lyrics_MusicSyncNoteLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas',
   SYNC_Lyrics_MusicSyncFixedLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas',
   SYNC_Lyrics_MusicSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas' {FormLyricsMusicSyncSettings},
+  SYNC_Lyrics_TimeRuler in 'Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas',
   SYNC_Lyrics_ManualSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas' {FormLyricsManualSyncSettings},
   SYNC_Lyrics_FilterPlugin in 'Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas';
 

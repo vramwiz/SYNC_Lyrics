@@ -41,7 +41,9 @@ uses
   SYNC_Lyrics_MusicSyncPianoRoll in
     'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
   SYNC_Lyrics_MusicSyncEditModel in
-    'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas';
+    'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',
+  SYNC_Lyrics_TimeRuler in
+    'Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas';
 
 const
   TEST_MIDI: array[0..50] of Byte = (
@@ -59,6 +61,30 @@ procedure Check(Condition: Boolean; const MessageText: string);
 begin
   if not Condition then
     raise Exception.Create(MessageText);
+end;
+
+procedure TestTimeRuler;
+var
+  Interval: Double;
+begin
+  Interval := SelectTimeRulerInterval(10.0);
+  Check(Abs(Interval - 1.0) < 0.000001,
+    '10 second view did not select one-second ruler ticks');
+  Check(FirstTimeRulerTickIndex(2.35, Interval) = 3,
+    'ruler did not begin at the next absolute second');
+  Check(LastTimeRulerTickIndex(5.35, Interval) = 5,
+    'ruler did not end at the last visible absolute second');
+
+  Interval := SelectTimeRulerInterval(1.0);
+  Check(Abs(Interval - 0.1) < 0.000001,
+    'one-second view did not select 0.1-second ruler ticks');
+  Check(FirstTimeRulerTickIndex(0.21, Interval) = 3,
+    'fractional ruler did not follow the absolute audio origin');
+  Check(TimeRulerDecimalPlaces(Interval) = 1,
+    'fractional ruler label precision mismatch');
+
+  Check(Abs(SelectTimeRulerInterval(60.0) - 10.0) < 0.000001,
+    'wide view selected an excessive number of ruler ticks');
 end;
 
 procedure TestSongReaderAndConsumption;
@@ -491,6 +517,7 @@ begin
 end;
 
 begin
+  TestTimeRuler;
   TestSyncSourceKind;
   TestSongReaderAndConsumption;
   TestExpandedRubyUnitCharacterNotes;

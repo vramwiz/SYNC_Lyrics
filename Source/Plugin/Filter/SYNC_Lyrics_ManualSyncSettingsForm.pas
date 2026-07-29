@@ -107,6 +107,7 @@ uses
   System.SysUtils,
   System.UITypes,
   SYNC_Lyrics_LyricParser,
+  SYNC_Lyrics_TimeRuler,
   Vcl.Dialogs,
   Winapi.Windows;
 
@@ -114,8 +115,12 @@ uses
 
 const
   INITIAL_DISPLAY_SECONDS = 10.0;
+  LYRICS_LANE_BOTTOM_OFFSET = 50;
+  LYRICS_LANE_TOP_OFFSET = 24;
   MAX_DISPLAY_SECONDS = 60.0;
   MIN_DISPLAY_SECONDS = 1.0;
+  RULER_LABEL_TOP_OFFSET = 5;
+  SYNC_LINE_BOTTOM_OFFSET = 52;
 
 type
   TCapturePaintBox = class(TPaintBox)
@@ -634,8 +639,10 @@ var
   CenterY: Integer;
   EndPoint: Integer;
   EndSeconds: Double;
+  FirstTickIndex: Int64;
   I: Integer;
   LabelRect: TRect;
+  LastTickIndex: Int64;
   MaximumValue: Single;
   MinimumValue: Single;
   Peak: Single;
@@ -645,6 +652,10 @@ var
   StartPoint: Integer;
   StartSeconds: Double;
   TextValue: string;
+  TickDecimalPlaces: Integer;
+  TickIndex: Int64;
+  TickInterval: Double;
+  TickSeconds: Double;
   X: Integer;
   YMaximum: Integer;
   YMinimum: Integer;
@@ -660,25 +671,34 @@ begin
 
   CenterY := (PlotRect.Top + PlotRect.Bottom) div 2;
   Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := RGB(66, 74, 88);
+  Canvas.Pen.Color := RGB(82, 92, 108);
   Canvas.MoveTo(PlotRect.Left, CenterY);
   Canvas.LineTo(PlotRect.Right, CenterY);
-  for I := 0 to 4 do
+  TickInterval := SelectTimeRulerInterval(FDisplaySeconds);
+  FirstTickIndex := FirstTimeRulerTickIndex(
+    FViewStartSeconds, TickInterval);
+  LastTickIndex := LastTimeRulerTickIndex(
+    FViewStartSeconds + FDisplaySeconds, TickInterval);
+  TickDecimalPlaces := TimeRulerDecimalPlaces(TickInterval);
+  Canvas.Font.Name := 'Segoe UI';
+  Canvas.Font.Height := -13;
+  Canvas.Font.Color := RGB(205, 212, 226);
+  Canvas.Brush.Style := bsClear;
+  for TickIndex := FirstTickIndex to LastTickIndex do
   begin
-    X := PlotRect.Left + MulDiv(I,
-      PlotRect.Right - PlotRect.Left, 4);
-    Canvas.Pen.Color := RGB(48, 54, 66);
+    TickSeconds := TickIndex * TickInterval;
+    X := SecondsToX(TickSeconds);
+    Canvas.Pen.Color := RGB(72, 82, 98);
     Canvas.MoveTo(X, PlotRect.Top);
     Canvas.LineTo(X, PlotRect.Bottom);
-    Canvas.Font.Name := 'Segoe UI';
-    Canvas.Font.Height := -12;
-    Canvas.Font.Color := RGB(150, 160, 178);
-    Canvas.Brush.Style := bsClear;
-    TextValue := Format('%.2f',
-      [FViewStartSeconds + FDisplaySeconds * I / 4],
+    TextValue := Format('%.*f',
+      [TickDecimalPlaces, TickSeconds],
       TFormatSettings.Invariant);
-    Canvas.TextOut(X - Canvas.TextWidth(TextValue) div 2,
-      PlotRect.Bottom + 5, TextValue);
+    Canvas.TextOut(EnsureRange(
+      X - Canvas.TextWidth(TextValue) div 2,
+      PlotRect.Left,
+      PlotRect.Right - Canvas.TextWidth(TextValue)),
+      PlotRect.Bottom + RULER_LABEL_TOP_OFFSET, TextValue);
   end;
 
   if Length(FWaveform) = 0 then
@@ -752,10 +772,10 @@ begin
     LabelRect := Rect(
       Max(PlotRect.Left,
         SecondsToX(FEditModel.BoundarySeconds(I))),
-      PlotRect.Bottom + 12,
+      PlotRect.Bottom + LYRICS_LANE_TOP_OFFSET,
       Min(PlotRect.Right,
         SecondsToX(FEditModel.BoundarySeconds(I + 1))),
-      PlotRect.Bottom + 38);
+      PlotRect.Bottom + LYRICS_LANE_BOTTOM_OFFSET);
     Canvas.Brush.Color := RGB(42, 92, 118);
     Canvas.Pen.Color := RGB(93, 205, 235);
     Canvas.Polygon([
@@ -784,7 +804,7 @@ begin
       Continue;
     X := SecondsToX(FEditModel.BoundarySeconds(I));
     Canvas.MoveTo(X, PlotRect.Top);
-    Canvas.LineTo(X, PlotRect.Bottom + 42);
+    Canvas.LineTo(X, PlotRect.Bottom + SYNC_LINE_BOTTOM_OFFSET);
   end;
   if (FAudioDurationSeconds > 0) and
     (FPlaybackPositionSeconds >= FViewStartSeconds) and

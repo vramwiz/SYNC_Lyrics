@@ -96,8 +96,6 @@
         </DelphiCompile>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SharedMemoryBase.pas"/>
-        <DCCReference Include="Source\Lib\FFmpeg\FFmpegApi.pas"/>
-        <DCCReference Include="Source\Lib\FFmpeg\FFmpegAudioTempo.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_FrameShared.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_Time.pas"/>
@@ -121,6 +119,8 @@
         <DCCReference Include="Source\Lib\SongReader\SongReaderMusicMSCZ.pas"/>
         <DCCReference Include="Source\Lib\SongReader\SongReaderManager.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas"/>
+        <DCCReference Include="Source\Lib\FFmpeg\FFmpegApi.pas"/>
+        <DCCReference Include="Source\Lib\FFmpeg\FFmpegAudioTempo.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_AudioProbe.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_AudioWaveform.pas"/>
@@ -130,6 +130,7 @@
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_ManualSync.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSync.pas"/>
+        <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Animation.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas">
             <Form>FormLyricsFontSettings</Form>
@@ -141,6 +142,7 @@
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas">
             <Form>FormLyricsMusicSyncSettings</Form>
         </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas">
             <Form>FormLyricsManualSyncSettings</Form>
         </DCCReference>
