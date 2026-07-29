@@ -23,9 +23,12 @@ uses
   System.SysUtils,
   System.UITypes,
   SYNC_Lyrics_ContextManager,
+  SYNC_Lyrics_DisplaySettingsData,
+  SYNC_Lyrics_DisplaySettingsDebugForm,
   SYNC_Lyrics_FontSettingsForm,
   SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
+  SYNC_Lyrics_LastFrameCapture,
   SYNC_Lyrics_ManualSync,
   SYNC_Lyrics_ManualSyncSettingsForm,
   SYNC_Lyrics_AudioProbe,
@@ -43,6 +46,16 @@ uses
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 procedure FontSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
+procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
+
+type
+  TDisplaySettingsDataItem = record
+    ItemType: LPCWSTR;
+    Name: LPCWSTR;
+    Value: PDisplaySettingsData;
+    Size: Integer;
+    DefaultValue: TDisplaySettingsData;
+  end;
 
 var
   LyricsItem: TFILTER_ITEM_STRING = (
@@ -158,10 +171,11 @@ var
     R: 0;
     X: 0
   );
-  DisplayTypeList: array[0..3] of TFILTER_ITEM_SELECT_ITEM = (
+  DisplayTypeList: array[0..4] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: '通常カラオケ'; Value: 0),
     (Name: '文字単位強調'; Value: 1),
     (Name: '1文字ずつ出現'; Value: 2),
+    (Name: '文字自由配置'; Value: 3),
     (Name: nil; Value: 0)
   );
   DisplayTypeItem: TFILTER_ITEM_SELECT = (
@@ -169,6 +183,11 @@ var
     Name: 'タイプ';
     Value: 0;
     List: @DisplayTypeList[0]
+  );
+  DisplaySettingsButton: TFILTER_ITEM_BUTTON = (
+    ItemType: 'button';
+    Name: '表示設定';
+    Callback: DisplaySettingsButtonCallback
   );
   SyncAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: 'なし'; Value: 0),
@@ -264,7 +283,8 @@ var
     Name: '同期データ';
     Value: DEFAULT_MUSIC_SYNC_TEXT
   );
-  PluginItems: array[0..31] of Pointer;
+  DisplaySettingsDataItem: TDisplaySettingsDataItem;
+  PluginItems: array[0..33] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -279,10 +299,65 @@ const
   FILTER_EFFECT_NAME = 'SYNC_歌詞テロップ_Filter';
   BASE_FONT_ITEM_NAME = 'フォント名';
   RUBY_FONT_ITEM_NAME = 'フォント名（ルビ）';
+  DISPLAY_MODE_FREE_PLACEMENT = 3;
 
 procedure ShowFontSettingsError(const MessageText: string);
 begin
   MessageDlg(MessageText, mtError, [mbOK], 0);
+end;
+
+procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
+var
+  BackgroundHeight: Integer;
+  BackgroundPixels: TBytes;
+  BackgroundStatus: string;
+  BackgroundWidth: Integer;
+  CurrentText: string;
+  DisplayForm: TFormLyricsDisplaySettingsDebug;
+  EncodedData: TDisplaySettingsData;
+begin
+  if DisplayTypeItem.Value <> DISPLAY_MODE_FREE_PLACEMENT then
+  begin
+    MessageDlg('表示設定は「文字自由配置」で使用できます。',
+      mtInformation, [mbOK], 0);
+    Exit;
+  end;
+
+  CurrentText := '';
+  if (DisplaySettingsDataItem.Value <> nil) and
+    (DisplaySettingsDataItem.Size = SizeOf(TDisplaySettingsData)) then
+    CurrentText := DecodeDisplaySettingsText(
+      DisplaySettingsDataItem.Value^);
+
+  DisplayForm := TFormLyricsDisplaySettingsDebug.Create(nil);
+  try
+    if CopyLastFrame(BackgroundPixels, BackgroundWidth,
+      BackgroundHeight, BackgroundStatus) then
+      DisplayForm.SetBackgroundRgba(BackgroundPixels,
+        BackgroundWidth, BackgroundHeight);
+    DisplayForm.SetCaptureStatus(BackgroundStatus);
+    DisplayForm.SetSettingsText(CurrentText);
+    if DisplayForm.ShowModal <> mrOk then
+      Exit;
+    if not TryEncodeDisplaySettingsText(
+      DisplayForm.SettingsText, EncodedData) then
+    begin
+      ShowFontSettingsError(
+        '表示設定データが保存可能なサイズを超えています。');
+      Exit;
+    end;
+  finally
+    DisplayForm.Free;
+  end;
+
+  if (DisplaySettingsDataItem.Value = nil) or
+    (DisplaySettingsDataItem.Size <> SizeOf(TDisplaySettingsData)) then
+  begin
+    ShowFontSettingsError(
+      '表示設定データの保存領域を取得できませんでした。');
+    Exit;
+  end;
+  DisplaySettingsDataItem.Value^ := EncodedData;
 end;
 
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
@@ -596,14 +671,20 @@ var
   SyncStartSeconds: Double;
   SyncProgress: Double;
   Track: Integer;
+  SelectedDisplayMode: Integer;
 begin
   try
+    CaptureLastFrame(Video);
     AnimationOffsetY := 0;
     AnimationOpacity := 1;
     RenderSettings := DefaultLyricsRenderSettings;
-    RenderSettings.DisplayType := TLyricsDisplayType(EnsureRange(
-      DisplayTypeItem.Value, Ord(Low(TLyricsDisplayType)),
-      Ord(High(TLyricsDisplayType))));
+    SelectedDisplayMode := EnsureRange(DisplayTypeItem.Value, 0,
+      DISPLAY_MODE_FREE_PLACEMENT);
+    if SelectedDisplayMode = DISPLAY_MODE_FREE_PLACEMENT then
+      RenderSettings.DisplayType := ldtKaraoke
+    else
+      RenderSettings.DisplayType := TLyricsDisplayType(
+        SelectedDisplayMode);
     if Assigned(BaseFontItem.Value) then
       RenderSettings.BaseFontName := string(BaseFontItem.Value);
     if Assigned(RubyFontItem.Value) then
@@ -706,6 +787,12 @@ function GetLyricsFilterTable: PFILTER_PLUGIN_TABLE;
 begin
   if Plugin.Items = nil then
   begin
+    ClearDisplaySettingsData(DisplaySettingsDataItem.DefaultValue);
+    DisplaySettingsDataItem.ItemType := 'data';
+    DisplaySettingsDataItem.Name := '表示設定データ';
+    DisplaySettingsDataItem.Value :=
+      @DisplaySettingsDataItem.DefaultValue;
+    DisplaySettingsDataItem.Size := SizeOf(TDisplaySettingsData);
     // AviUtl2はnil終端された項目ポインター配列を参照する。
     PluginItems[0] := @MusicSyncSettingsButton;
     PluginItems[1] := @LyricsItem;
@@ -727,18 +814,20 @@ begin
     PluginItems[17] := @BeforeColorItem;
     PluginItems[18] := @AfterColorItem;
     PluginItems[19] := @DisplayTypeItem;
-    PluginItems[20] := @SyncAnimationItem;
-    PluginItems[21] := @StartAnimationItem;
-    PluginItems[22] := @StartAnimationTimeItem;
-    PluginItems[23] := @EndAnimationItem;
-    PluginItems[24] := @EndAnimationTimeItem;
-    PluginItems[25] := @BaseFontSizeItem;
-    PluginItems[26] := @RubyFontSizeItem;
-    PluginItems[27] := @RubyGapAdjustmentItem;
-    PluginItems[28] := @BaseCharacterSpacingItem;
-    PluginItems[29] := @PreDisplayTimeItem;
-    PluginItems[30] := @SyncDataItem;
-    PluginItems[31] := nil;
+    PluginItems[20] := @DisplaySettingsButton;
+    PluginItems[21] := @SyncAnimationItem;
+    PluginItems[22] := @StartAnimationItem;
+    PluginItems[23] := @StartAnimationTimeItem;
+    PluginItems[24] := @EndAnimationItem;
+    PluginItems[25] := @EndAnimationTimeItem;
+    PluginItems[26] := @BaseFontSizeItem;
+    PluginItems[27] := @RubyFontSizeItem;
+    PluginItems[28] := @RubyGapAdjustmentItem;
+    PluginItems[29] := @BaseCharacterSpacingItem;
+    PluginItems[30] := @PreDisplayTimeItem;
+    PluginItems[31] := @SyncDataItem;
+    PluginItems[32] := @DisplaySettingsDataItem;
+    PluginItems[33] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;
@@ -746,6 +835,7 @@ end;
 
 procedure InitializeLyricsFilter;
 begin
+  InitializeLastFrameCapture;
   InitializeLyricsFrameShared;
   InitializeLyricsContexts;
   InitializeMusicSyncAnchor;
@@ -760,6 +850,7 @@ begin
   FinalizeMusicSyncAnchor;
   FinalizeLyricsContexts;
   FinalizeLyricsFrameShared;
+  FinalizeLastFrameCapture;
 end;
 
 end.

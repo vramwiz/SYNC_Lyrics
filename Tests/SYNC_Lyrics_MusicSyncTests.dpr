@@ -28,6 +28,8 @@ uses
   SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
+  SYNC_Lyrics_DisplaySettingsData in
+    'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_SyncSourceKind in
     'Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas',
@@ -61,6 +63,25 @@ procedure Check(Condition: Boolean; const MessageText: string);
 begin
   if not Condition then
     raise Exception.Create(MessageText);
+end;
+
+procedure TestDisplaySettingsData;
+var
+  Data: TDisplaySettingsData;
+  OversizedText: string;
+  TestText: string;
+begin
+  Check(SizeOf(TDisplaySettingsData) = DISPLAY_SETTINGS_DATA_SIZE,
+    'display settings data ABI size mismatch');
+  TestText := 'index=0;x=12.5;y=-8.0;label=漢字';
+  Check(TryEncodeDisplaySettingsText(TestText, Data),
+    'display settings debug text could not be encoded');
+  Check(DecodeDisplaySettingsText(Data) = TestText,
+    'display settings debug text did not round-trip');
+
+  OversizedText := StringOfChar('x', DISPLAY_SETTINGS_PAYLOAD_SIZE + 1);
+  Check(not TryEncodeDisplaySettingsText(OversizedText, Data),
+    'oversized display settings debug text was accepted');
 end;
 
 procedure TestTimeRuler;
@@ -517,6 +538,7 @@ begin
 end;
 
 begin
+  TestDisplaySettingsData;
   TestTimeRuler;
   TestSyncSourceKind;
   TestSongReaderAndConsumption;

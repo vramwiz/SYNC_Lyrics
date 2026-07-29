@@ -130,8 +130,13 @@
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_ManualSync.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSync.pas"/>
+    <DCCReference Include="Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas"/>
+    <DCCReference Include="Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Animation.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsDebugForm.pas">
+            <Form>FormLyricsDisplaySettingsDebug</Form>
+        </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas">
             <Form>FormLyricsFontSettings</Form>
         </DCCReference>
