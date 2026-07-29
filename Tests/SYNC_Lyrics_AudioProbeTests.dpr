@@ -46,22 +46,22 @@ begin
     if DecodedFrameCount <= 0 then
       raise Exception.Create('PCMデコード結果が空です。');
     SetLength(InputPcm, 48000 * 2 * SizeOf(SmallInt));
-    if not TempoPcm16Stereo48k(InputPcm, 0.25, OutputPcm,
+    if not TempoPcm16Stereo48k(InputPcm, 0.75, OutputPcm,
       OutputSampleCount, ErrorMessage) then
       raise Exception.Create(ErrorMessage);
-    if OutputSampleCount < 180000 then
+    if OutputSampleCount < 60000 then
       raise Exception.CreateFmt(
-        '0.25倍速の出力サンプル数が不足しています: %d',
+        '0.75倍速の出力サンプル数が不足しています: %d',
         [OutputSampleCount]);
     SetLength(InputPcm, 24000 * 2 * SizeOf(SmallInt));
-    if not TempoPcm16Stereo48k(InputPcm, 0.25, OutputPcm,
+    if not TempoPcm16Stereo48k(InputPcm, 0.75, OutputPcm,
       OutputSampleCount, ErrorMessage) then
       raise Exception.Create(ErrorMessage);
     if OutputSampleCount <= 0 then
       raise Exception.Create(
-        '0.25倍速の再生チャンク変換で音声が出力されません。');
+        '0.75倍速の再生チャンク変換で音声が出力されません。');
     Writeln(Format(
-      'PASS duration=%.3f sample_rate=%d channels=%d stream=%d points=%d pcm=%d tempo025=%d',
+      'PASS duration=%.3f sample_rate=%d channels=%d stream=%d points=%d pcm=%d tempo075=%d',
       [AudioInfo.DurationSeconds, AudioInfo.SampleRate,
       AudioInfo.Channels, AudioInfo.StreamIndex, Length(Waveform),
       DecodedFrameCount, OutputSampleCount],

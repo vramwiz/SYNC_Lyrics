@@ -363,8 +363,8 @@ begin
     ErrorMessage := '音声ファイルが見つかりません。';
     Exit(False);
   end;
-  if not (SameValue(Rate, 1.0) or SameValue(Rate, 0.5) or
-    SameValue(Rate, 0.25)) then
+  if not (SameValue(Rate, 1.0) or SameValue(Rate, 0.75) or
+    SameValue(Rate, 0.5)) then
   begin
     ErrorMessage := '対応していない再生速度です。';
     Exit(False);

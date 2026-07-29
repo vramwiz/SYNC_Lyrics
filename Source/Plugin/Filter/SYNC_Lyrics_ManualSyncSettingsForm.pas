@@ -19,16 +19,7 @@ uses
 
 type
   TFormLyricsManualSyncSettings = class(TForm)
-    TitleLabel: TLabel;
-    FileCaptionLabel: TLabel;
     FileValueLabel: TLabel;
-    DurationCaptionLabel: TLabel;
-    DurationValueLabel: TLabel;
-    SampleRateCaptionLabel: TLabel;
-    SampleRateValueLabel: TLabel;
-    ChannelsCaptionLabel: TLabel;
-    ChannelsValueLabel: TLabel;
-    PlaybackCaptionLabel: TLabel;
     PlaybackPositionLabel: TLabel;
     StopButton: TButton;
     PlayButton: TButton;
@@ -84,6 +75,7 @@ type
     FWaveform: TSyncAudioWaveform;
     FWaveformMessage: string;
     function SelectedPlaybackRate: Double;
+    function ScaleWaveformMetric(Value: Integer): Integer;
     procedure BuildLyricsLabels;
     function PlotRect: TRect;
     function SecondsToX(Value: Double): Integer;
@@ -93,6 +85,7 @@ type
     procedure SetPlaybackPosition(Value: Double);
     procedure StartPlayback;
     procedure StopPlayback;
+    procedure UpdateWaveformCursor(X, Y: Integer);
   public
     procedure LoadSettings(const FileName: string;
       const AudioInfo: TSyncAudioFileInfo; const Lyrics, SyncText: string);
@@ -121,6 +114,7 @@ const
   MIN_DISPLAY_SECONDS = 1.0;
   RULER_LABEL_TOP_OFFSET = 5;
   SYNC_LINE_BOTTOM_OFFSET = 52;
+  WAVEFORM_BASE_DPI = 96;
 
 type
   TCapturePaintBox = class(TPaintBox)
@@ -164,12 +158,8 @@ begin
   FPlaybackPositionSeconds := 0;
   PlaybackPositionLabel.Caption := Format('0.000 / %.3f 秒',
     [FAudioDurationSeconds], TFormatSettings.Invariant);
-  FileValueLabel.Caption := FileName;
-  DurationValueLabel.Caption := Format('%.3f 秒',
-    [AudioInfo.DurationSeconds], TFormatSettings.Invariant);
-  SampleRateValueLabel.Caption := Format('%d Hz',
-    [AudioInfo.SampleRate]);
-  ChannelsValueLabel.Caption := IntToStr(AudioInfo.Channels);
+  FileValueLabel.Caption := ExtractFileName(FileName);
+  FileValueLabel.Hint := FileName;
   LyricsMemo.Text := Lyrics;
   BuildLyricsLabels;
   FEditModel.Initialize(Length(FLyricsLabels),
@@ -227,8 +217,15 @@ end;
 function TFormLyricsManualSyncSettings.PlotRect: TRect;
 begin
   Result := WaveformPaintBox.ClientRect;
-  InflateRect(Result, -12, -18);
-  Dec(Result.Bottom, 54);
+  InflateRect(Result, -ScaleWaveformMetric(12),
+    -ScaleWaveformMetric(18));
+  Dec(Result.Bottom, ScaleWaveformMetric(54));
+end;
+
+function TFormLyricsManualSyncSettings.ScaleWaveformMetric(
+  Value: Integer): Integer;
+begin
+  Result := MulDiv(Value, Max(1, CurrentPPI), WAVEFORM_BASE_DPI);
 end;
 
 function TFormLyricsManualSyncSettings.SecondsToX(Value: Double): Integer;
@@ -436,7 +433,8 @@ begin
     Exit;
   R := PlotRect;
   if (Y >= R.Top) and (Y <= R.Bottom) and
-    (Abs(X - SecondsToX(FPlaybackPositionSeconds)) <= 7) then
+    (Abs(X - SecondsToX(FPlaybackPositionSeconds)) <=
+      ScaleWaveformMetric(7)) then
   begin
     StopPlayback;
     FDraggingPlayback := True;
@@ -448,7 +446,8 @@ begin
   FDraggingBoundary := -1;
   if FInputMode = 0 then
     for I := 0 to FEditModel.BoundaryCount - 1 do
-      if Abs(X - SecondsToX(FEditModel.BoundarySeconds(I))) <= 6 then
+      if Abs(X - SecondsToX(FEditModel.BoundarySeconds(I))) <=
+        ScaleWaveformMetric(6) then
       begin
         FDraggingBoundary := I;
         TCapturePaintBox(WaveformPaintBox).MouseCapture := True;
@@ -466,8 +465,6 @@ end;
 
 procedure TFormLyricsManualSyncSettings.WaveformPaintBoxMouseMove(
   Sender: TObject; Shift: TShiftState; X, Y: Integer);
-var
-  I: Integer;
 begin
   if FDraggingView then
   begin
@@ -488,19 +485,11 @@ begin
   if FDraggingBoundary >= 0 then
   begin
     FEditModel.MoveBoundary(FDraggingBoundary, XToSeconds(X));
+    WaveformPaintBox.Cursor := crHSplit;
     WaveformPaintBox.Invalidate;
     Exit;
   end;
-  WaveformPaintBox.Cursor := crDefault;
-  if FInputMode = 0 then
-    for I := 0 to FEditModel.BoundaryCount - 1 do
-      if Abs(X - SecondsToX(FEditModel.BoundarySeconds(I))) <= 6 then
-      begin
-        WaveformPaintBox.Cursor := crHSplit;
-        Break;
-      end;
-  if WaveformPaintBox.Cursor = crDefault then
-    WaveformPaintBox.Cursor := crSizeWE;
+  UpdateWaveformCursor(X, Y);
 end;
 
 procedure TFormLyricsManualSyncSettings.WaveformPaintBoxMouseUp(
@@ -511,13 +500,51 @@ begin
   FDraggingPlayback := False;
   FDraggingView := False;
   TCapturePaintBox(WaveformPaintBox).MouseCapture := False;
+  UpdateWaveformCursor(X, Y);
+end;
+
+procedure TFormLyricsManualSyncSettings.UpdateWaveformCursor(
+  X, Y: Integer);
+var
+  I: Integer;
+  R: TRect;
+begin
+  if FDraggingView then
+  begin
+    WaveformPaintBox.Cursor := crSizeWE;
+    Exit;
+  end;
+  if FDraggingPlayback or (FDraggingBoundary >= 0) then
+  begin
+    WaveformPaintBox.Cursor := crHSplit;
+    Exit;
+  end;
+
+  WaveformPaintBox.Cursor := crDefault;
+  R := PlotRect;
+  if (Y < R.Top) or (Y > R.Bottom) then
+    Exit;
+  if Abs(X - SecondsToX(FPlaybackPositionSeconds)) <=
+    ScaleWaveformMetric(7) then
+  begin
+    WaveformPaintBox.Cursor := crHSplit;
+    Exit;
+  end;
+  if FInputMode = 0 then
+    for I := 0 to FEditModel.BoundaryCount - 1 do
+      if Abs(X - SecondsToX(FEditModel.BoundarySeconds(I))) <=
+        ScaleWaveformMetric(6) then
+      begin
+        WaveformPaintBox.Cursor := crHSplit;
+        Exit;
+      end;
 end;
 
 function TFormLyricsManualSyncSettings.SelectedPlaybackRate: Double;
 begin
   case RateComboBox.ItemIndex of
-    1: Result := 0.5;
-    2: Result := 0.25;
+    1: Result := 0.75;
+    2: Result := 0.5;
   else
     Result := 1.0;
   end;
@@ -681,7 +708,7 @@ begin
     FViewStartSeconds + FDisplaySeconds, TickInterval);
   TickDecimalPlaces := TimeRulerDecimalPlaces(TickInterval);
   Canvas.Font.Name := 'Segoe UI';
-  Canvas.Font.Height := -13;
+  Canvas.Font.Height := -ScaleWaveformMetric(13);
   Canvas.Font.Color := RGB(205, 212, 226);
   Canvas.Brush.Style := bsClear;
   for TickIndex := FirstTickIndex to LastTickIndex do
@@ -698,13 +725,14 @@ begin
       X - Canvas.TextWidth(TextValue) div 2,
       PlotRect.Left,
       PlotRect.Right - Canvas.TextWidth(TextValue)),
-      PlotRect.Bottom + RULER_LABEL_TOP_OFFSET, TextValue);
+      PlotRect.Bottom + ScaleWaveformMetric(
+        RULER_LABEL_TOP_OFFSET), TextValue);
   end;
 
   if Length(FWaveform) = 0 then
   begin
     Canvas.Font.Name := 'Segoe UI';
-    Canvas.Font.Height := -14;
+    Canvas.Font.Height := -ScaleWaveformMetric(14);
     Canvas.Font.Color := RGB(210, 215, 224);
     Canvas.Brush.Style := bsClear;
     if FWaveformMessage = '' then
@@ -761,7 +789,7 @@ begin
 
   // 完了した各区間だけを、右端が矢印になった歌詞枠で表示する。
   Canvas.Font.Name := 'Segoe UI';
-  Canvas.Font.Height := -14;
+  Canvas.Font.Height := -ScaleWaveformMetric(14);
   for I := 0 to Min(High(FLyricsLabels),
     FEditModel.BoundaryCount - 2) do
   begin
@@ -772,22 +800,27 @@ begin
     LabelRect := Rect(
       Max(PlotRect.Left,
         SecondsToX(FEditModel.BoundarySeconds(I))),
-      PlotRect.Bottom + LYRICS_LANE_TOP_OFFSET,
+      PlotRect.Bottom + ScaleWaveformMetric(
+        LYRICS_LANE_TOP_OFFSET),
       Min(PlotRect.Right,
         SecondsToX(FEditModel.BoundarySeconds(I + 1))),
-      PlotRect.Bottom + LYRICS_LANE_BOTTOM_OFFSET);
+      PlotRect.Bottom + ScaleWaveformMetric(
+        LYRICS_LANE_BOTTOM_OFFSET));
     Canvas.Brush.Color := RGB(42, 92, 118);
     Canvas.Pen.Color := RGB(93, 205, 235);
     Canvas.Polygon([
       Point(LabelRect.Left, LabelRect.Top),
-      Point(Max(LabelRect.Left, LabelRect.Right - 8), LabelRect.Top),
+      Point(Max(LabelRect.Left, LabelRect.Right -
+        ScaleWaveformMetric(8)), LabelRect.Top),
       Point(LabelRect.Right, (LabelRect.Top + LabelRect.Bottom) div 2),
-      Point(Max(LabelRect.Left, LabelRect.Right - 8), LabelRect.Bottom),
+      Point(Max(LabelRect.Left, LabelRect.Right -
+        ScaleWaveformMetric(8)), LabelRect.Bottom),
       Point(LabelRect.Left, LabelRect.Bottom)]);
     Canvas.Font.Color := clWhite;
     Canvas.Brush.Style := bsClear;
-    InflateRect(LabelRect, -4, -3);
-    Dec(LabelRect.Right, 6);
+    InflateRect(LabelRect, -ScaleWaveformMetric(4),
+      -ScaleWaveformMetric(3));
+    Dec(LabelRect.Right, ScaleWaveformMetric(6));
     Canvas.TextRect(LabelRect, FLyricsLabels[I],
       [tfSingleLine, tfVerticalCenter, tfEndEllipsis]);
     Canvas.Brush.Style := bsSolid;
@@ -804,7 +837,8 @@ begin
       Continue;
     X := SecondsToX(FEditModel.BoundarySeconds(I));
     Canvas.MoveTo(X, PlotRect.Top);
-    Canvas.LineTo(X, PlotRect.Bottom + SYNC_LINE_BOTTOM_OFFSET);
+    Canvas.LineTo(X, PlotRect.Bottom +
+      ScaleWaveformMetric(SYNC_LINE_BOTTOM_OFFSET));
   end;
   if (FAudioDurationSeconds > 0) and
     (FPlaybackPositionSeconds >= FViewStartSeconds) and
@@ -818,9 +852,9 @@ begin
     Canvas.LineTo(PlaybackX, PlotRect.Bottom);
     Canvas.Brush.Color := RGB(255, 204, 64);
     Canvas.Polygon([
-      Point(PlaybackX - 5, PlotRect.Top),
-      Point(PlaybackX + 5, PlotRect.Top),
-      Point(PlaybackX, PlotRect.Top + 7)]);
+      Point(PlaybackX - ScaleWaveformMetric(5), PlotRect.Top),
+      Point(PlaybackX + ScaleWaveformMetric(5), PlotRect.Top),
+      Point(PlaybackX, PlotRect.Top + ScaleWaveformMetric(7))]);
   end;
   Canvas.Brush.Style := bsSolid;
 end;
