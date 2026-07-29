@@ -5,6 +5,7 @@
 {$APPTYPE CONSOLE}
 
 uses
+  Winapi.Windows,
   System.Math,
   System.SysUtils,
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
@@ -75,11 +76,35 @@ begin
   end;
 end;
 
+procedure TestRejectsStaleInitialAnchor;
+var
+  EffectiveState: TSyncLyricsFrameState;
+  ObjectInfo: TOBJECT_INFO;
+  SharedState: TSyncLyricsFrameState;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(SharedState, SizeOf(SharedState), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.ID := 2;
+  ObjectInfo.EffectID := 20;
+  Video.Object_ := @ObjectInfo;
+  SharedState.Sequence := 2;
+  SharedState.Frame := 81;
+  SharedState.Rate := 30;
+  SharedState.Scale := 1;
+  SharedState.UpdateTick := GetTickCount64 - 1001;
+
+  Check(not ResolveLyricsFrameState(@Video, SharedState, EffectiveState),
+    'stale shared state was accepted as a new object anchor');
+end;
+
 begin
   InitializeLyricsFrameShared;
   InitializeLyricsContexts;
   try
     TestInputAndCachedInterpolation;
+    TestRejectsStaleInitialAnchor;
     Writeln('PASS');
   finally
     FinalizeLyricsContexts;
