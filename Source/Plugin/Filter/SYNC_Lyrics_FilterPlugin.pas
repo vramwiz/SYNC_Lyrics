@@ -312,7 +312,10 @@ var
   BackgroundPixels: TBytes;
   BackgroundStatus: string;
   BackgroundWidth: Integer;
-  CurrentText: string;
+  CurrentBaseFontName: string;
+  CurrentData: TDisplaySettingsData;
+  CurrentLyrics: string;
+  CurrentRubyFontName: string;
   DisplayForm: TFormLyricsDisplaySettingsDebug;
   EncodedData: TDisplaySettingsData;
 begin
@@ -323,11 +326,19 @@ begin
     Exit;
   end;
 
-  CurrentText := '';
+  ClearDisplaySettingsData(CurrentData);
   if (DisplaySettingsDataItem.Value <> nil) and
     (DisplaySettingsDataItem.Size = SizeOf(TDisplaySettingsData)) then
-    CurrentText := DecodeDisplaySettingsText(
-      DisplaySettingsDataItem.Value^);
+    CurrentData := DisplaySettingsDataItem.Value^;
+  CurrentLyrics := '';
+  if Assigned(LyricsItem.Value) then
+    CurrentLyrics := string(LyricsItem.Value);
+  CurrentBaseFontName := 'Yu Gothic UI';
+  if Assigned(BaseFontItem.Value) then
+    CurrentBaseFontName := string(BaseFontItem.Value);
+  CurrentRubyFontName := CurrentBaseFontName;
+  if Assigned(RubyFontItem.Value) then
+    CurrentRubyFontName := string(RubyFontItem.Value);
 
   DisplayForm := TFormLyricsDisplaySettingsDebug.Create(nil);
   try
@@ -336,11 +347,13 @@ begin
       DisplayForm.SetBackgroundRgba(BackgroundPixels,
         BackgroundWidth, BackgroundHeight);
     DisplayForm.SetCaptureStatus(BackgroundStatus);
-    DisplayForm.SetSettingsText(CurrentText);
+    DisplayForm.Configure(CurrentLyrics, CurrentBaseFontName,
+      CurrentRubyFontName, Round(BaseFontSizeItem.Value),
+      Round(RubyFontSizeItem.Value), Round(RubyGapAdjustmentItem.Value),
+      CurrentData);
     if DisplayForm.ShowModal <> mrOk then
       Exit;
-    if not TryEncodeDisplaySettingsText(
-      DisplayForm.SettingsText, EncodedData) then
+    if not DisplayForm.TryBuildSettingsData(EncodedData) then
     begin
       ShowFontSettingsError(
         '表示設定データが保存可能なサイズを超えています。');
@@ -660,6 +673,7 @@ var
   AnimationSettings: TLyricsAnimationSettings;
   DisplayUnitCount: Integer;
   FrameState: TSyncLyricsFrameState;
+  HasFreePlacement: Boolean;
   LyricsText: string;
   MusicFileName: string;
   LocalSeconds: Double;
@@ -667,6 +681,10 @@ var
   ObjectStartSeconds: Double;
   RenderSettings: TLyricsRenderSettings;
   RemainingSeconds: Double;
+  PlacementItems: TDisplayPlacementItems;
+  PlacementPlainText: string;
+  PlacementRubySpans: TLyricsRubySpans;
+  PlacementUnits: TLyricsDisplayUnits;
   SyncData: TSyncTextData;
   SyncStartSeconds: Double;
   SyncProgress: Double;
@@ -710,6 +728,18 @@ begin
     LyricsText := '';
     if Assigned(LyricsItem.Value) then
       LyricsText := string(LyricsItem.Value);
+    HasFreePlacement := False;
+    if SelectedDisplayMode = DISPLAY_MODE_FREE_PLACEMENT then
+    begin
+      ParseLyrics(LyricsText, PlacementPlainText, PlacementRubySpans);
+      BuildLyricsDisplayUnits(PlacementPlainText, PlacementRubySpans,
+        PlacementUnits);
+      if Assigned(DisplaySettingsDataItem.Value) and
+        (DisplaySettingsDataItem.Size = SizeOf(TDisplaySettingsData)) then
+        HasFreePlacement := TryDecodeDisplayPlacements(
+          DisplaySettingsDataItem.Value^, LyricsText,
+          Length(PlacementUnits), PlacementItems);
+    end;
     DisplayUnitCount := CountLyricsDisplayUnits(LyricsText);
     SyncProgress := 0;
     if TryGetLyricsFrameState(Video, FrameState) then
@@ -774,9 +804,14 @@ begin
       end;
     end;
     RenderSettings.Opacity := AnimationOpacity;
-    RenderLyrics(Video, PWideChar(LyricsText), SyncProgress, RenderSettings,
-      Round(PositionXItem.Value),
-      Round(PositionYItem.Value) + AnimationOffsetY);
+    if HasFreePlacement then
+      RenderFreePlacementLyrics(Video, PWideChar(LyricsText), SyncProgress,
+        RenderSettings, PlacementItems, Round(PositionXItem.Value),
+        Round(PositionYItem.Value) + AnimationOffsetY)
+    else
+      RenderLyrics(Video, PWideChar(LyricsText), SyncProgress,
+        RenderSettings, Round(PositionXItem.Value),
+        Round(PositionYItem.Value) + AnimationOffsetY);
   except
     // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
   end;

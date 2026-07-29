@@ -5,7 +5,8 @@
 interface
 
 uses
-  AviUtl2FilterTypes;
+  AviUtl2FilterTypes,
+  SYNC_Lyrics_DisplaySettingsData;
 
 type
   TLyricsDisplayType = (
@@ -52,6 +53,12 @@ function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 // 入力文字列を中央基準の指定座標へ配置し、表示単位進捗をクリッピング描画してAviUtl2へ渡す。
 function RenderLyrics(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits: Double;
   const Settings: TLyricsRenderSettings; PositionX, PositionY: Integer): Boolean;
+
+// 保存済みの各表示単位座標へ本文とルビを個別配置してAviUtl2へ渡す。
+function RenderFreePlacementLyrics(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR;
+  ProgressUnits: Double; const Settings: TLyricsRenderSettings;
+  const Placements: TDisplayPlacementItems;
+  PositionX, PositionY: Integer): Boolean;
 
 // 描画用の共有資源を解放する。処理中のコールバックがない状態で呼び出す。
 procedure FinalizeLyricsRenderer;
@@ -384,8 +391,154 @@ begin
   end;
 end;
 
+procedure DrawFreePlacementLyrics(DC: HDC; Width, Height: Integer;
+  const Source: string; ProgressUnits: Double;
+  const Settings: TLyricsRenderSettings;
+  const Placements: TDisplayPlacementItems;
+  PositionX, PositionY: Integer);
+var
+  BaseFont: HFONT;
+  BaseFontHeight: Integer;
+  BaseText: string;
+  BaseWidth: Integer;
+  BaseX: Integer;
+  BaseY: Integer;
+  ClipState: Integer;
+  OldCharacterSpacing: Integer;
+  OldFont: HGDIOBJ;
+  PlainText: string;
+  RubyFont: HFONT;
+  RubyFontHeight: Integer;
+  RubyGap: Integer;
+  RubySpans: TLyricsRubySpans;
+  RubyText: string;
+  RubyWidth: Integer;
+  RubyX: Integer;
+  RubyY: Integer;
+  UnitIndex: Integer;
+  UnitProgress: Double;
+  UnitState: Integer;
+  Units: TLyricsDisplayUnits;
+  WorldTransform: TXForm;
+begin
+  ParseLyrics(Source, PlainText, RubySpans);
+  BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
+  if Length(Placements) <> Length(Units) then
+    Exit;
+
+  BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
+    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+  RubyFontHeight := EnsureRange(Settings.RubyFontHeight,
+    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+  RubyGap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
+    MIN_RUBY_GAP, MAX_RUBY_GAP);
+  BaseFont := CreateLyricsFont(Settings.BaseFontName, BaseFontHeight,
+    Settings.BaseBold, Settings.BaseItalic, Settings.BaseUnderline,
+    Settings.BaseStrikeOut);
+  RubyFont := CreateLyricsFont(Settings.RubyFontName, RubyFontHeight,
+    Settings.RubyBold, Settings.RubyItalic, Settings.RubyUnderline,
+    Settings.RubyStrikeOut);
+  if (BaseFont = 0) or (RubyFont = 0) then
+  begin
+    if BaseFont <> 0 then
+      DeleteObject(BaseFont);
+    if RubyFont <> 0 then
+      DeleteObject(RubyFont);
+    Exit;
+  end;
+  try
+    OldFont := SelectObject(DC, BaseFont);
+    OldCharacterSpacing := GetTextCharacterExtra(DC);
+    SetBkMode(DC, TRANSPARENT);
+    for UnitIndex := 0 to High(Units) do
+    begin
+      UnitState := SaveDC(DC);
+      if UnitState = 0 then
+        Continue;
+      SetGraphicsMode(DC, GM_ADVANCED);
+      FillChar(WorldTransform, SizeOf(WorldTransform), 0);
+      WorldTransform.eM11 := EnsureRange(
+        Placements[UnitIndex].ScaleX, 0.05, 10.0);
+      WorldTransform.eM22 := EnsureRange(
+        Placements[UnitIndex].ScaleY, 0.05, 10.0);
+      WorldTransform.eDx := Width * 0.5 +
+        Placements[UnitIndex].X + PositionX;
+      WorldTransform.eDy := Height * 0.5 +
+        Placements[UnitIndex].Y + PositionY;
+      if not SetWorldTransform(DC, WorldTransform) then
+      begin
+        RestoreDC(DC, UnitState);
+        Continue;
+      end;
+      SelectObject(DC, BaseFont);
+      SetTextCharacterExtra(DC, EnsureRange(Settings.BaseCharacterSpacing,
+        MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING));
+      BaseText := Copy(PlainText, Units[UnitIndex].BaseStart,
+        Units[UnitIndex].BaseLength);
+      BaseWidth := MeasureTextWidth(DC, BaseText);
+      BaseX := -BaseWidth div 2;
+      // Placement Y identifies the vertical center of the base text.
+      // Ruby extends upward without moving the base-text bottom edge.
+      BaseY := -BaseFontHeight div 2;
+      SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
+      TextOutW(DC, BaseX, BaseY, PWideChar(BaseText), Length(BaseText));
+
+      UnitProgress := GetDisplayUnitProgress(Units, UnitIndex,
+        ProgressUnits);
+      if UnitProgress > 0 then
+      begin
+        ClipState := SaveDC(DC);
+        try
+          IntersectClipRect(DC, BaseX, BaseY,
+            BaseX + Round(BaseWidth * UnitProgress),
+            BaseY + BaseFontHeight);
+          SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
+          TextOutW(DC, BaseX, BaseY, PWideChar(BaseText),
+            Length(BaseText));
+        finally
+          RestoreDC(DC, ClipState);
+        end;
+      end;
+
+      if Units[UnitIndex].RubyIndex >= 0 then
+      begin
+        RubyText := RubySpans[Units[UnitIndex].RubyIndex].RubyText;
+        SelectObject(DC, RubyFont);
+        SetTextCharacterExtra(DC, 0);
+        RubyWidth := MeasureTextWidth(DC, RubyText);
+        RubyX := -RubyWidth div 2;
+        RubyY := BaseY - RubyGap - RubyFontHeight;
+        SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
+        TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
+          Length(RubyText));
+        if UnitProgress > 0 then
+        begin
+          ClipState := SaveDC(DC);
+          try
+            IntersectClipRect(DC, RubyX, RubyY,
+              RubyX + Round(RubyWidth * UnitProgress),
+              RubyY + RubyFontHeight);
+            SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
+            TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
+              Length(RubyText));
+          finally
+            RestoreDC(DC, ClipState);
+          end;
+        end;
+      end;
+      RestoreDC(DC, UnitState);
+    end;
+    SetTextCharacterExtra(DC, OldCharacterSpacing);
+    SelectObject(DC, OldFont);
+  finally
+    DeleteObject(RubyFont);
+    DeleteObject(BaseFont);
+  end;
+end;
+
 function RenderLocked(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits: Double;
   const Settings: TLyricsRenderSettings;
+  const Placements: TDisplayPlacementItems; FreePlacement: Boolean;
   PositionX, PositionY, Width, Height: Integer): Boolean;
 var
   Bitmap: HBITMAP;
@@ -450,15 +603,23 @@ begin
           MaskOldBitmap := SelectObject(MaskDC, MaskBitmap);
           SetBkMode(DC, TRANSPARENT);
           SetBkMode(MaskDC, TRANSPARENT);
-          DrawParsedLyrics(DC, Width, Height, string(Lyrics), ProgressUnits,
-            Settings, PositionX, PositionY);
+          if FreePlacement then
+            DrawFreePlacementLyrics(DC, Width, Height, string(Lyrics),
+              ProgressUnits, Settings, Placements, PositionX, PositionY)
+          else
+            DrawParsedLyrics(DC, Width, Height, string(Lyrics),
+              ProgressUnits, Settings, PositionX, PositionY);
           MaskSettings := Settings;
           MaskSettings.BeforeColor.R := 255;
           MaskSettings.BeforeColor.G := 255;
           MaskSettings.BeforeColor.B := 255;
           MaskSettings.AfterColor := MaskSettings.BeforeColor;
-          DrawParsedLyrics(MaskDC, Width, Height, string(Lyrics), ProgressUnits,
-            MaskSettings, PositionX, PositionY);
+          if FreePlacement then
+            DrawFreePlacementLyrics(MaskDC, Width, Height, string(Lyrics),
+              ProgressUnits, MaskSettings, Placements, PositionX, PositionY)
+          else
+            DrawParsedLyrics(MaskDC, Width, Height, string(Lyrics),
+              ProgressUnits, MaskSettings, PositionX, PositionY);
           SelectObject(MaskDC, MaskOldBitmap);
           SelectObject(DC, OldBitmap);
         finally
@@ -485,6 +646,30 @@ function RenderLyrics(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits:
   const Settings: TLyricsRenderSettings;
   PositionX, PositionY: Integer): Boolean;
 var
+  EmptyPlacements: TDisplayPlacementItems;
+  Height: Integer;
+  Width: Integer;
+begin
+  Result := ResolveRenderSize(Video, Width, Height);
+  if not Result then
+    Exit;
+
+  EnterCriticalSection(RendererLock);
+  try
+    EmptyPlacements := nil;
+    Result := RenderLocked(Video, Lyrics, ProgressUnits, Settings,
+      EmptyPlacements, False, PositionX, PositionY, Width, Height);
+  finally
+    LeaveCriticalSection(RendererLock);
+  end;
+end;
+
+function RenderFreePlacementLyrics(Video: PFILTER_PROC_VIDEO;
+  Lyrics: LPCWSTR; ProgressUnits: Double;
+  const Settings: TLyricsRenderSettings;
+  const Placements: TDisplayPlacementItems;
+  PositionX, PositionY: Integer): Boolean;
+var
   Height: Integer;
   Width: Integer;
 begin
@@ -495,7 +680,7 @@ begin
   EnterCriticalSection(RendererLock);
   try
     Result := RenderLocked(Video, Lyrics, ProgressUnits, Settings,
-      PositionX, PositionY, Width, Height);
+      Placements, True, PositionX, PositionY, Width, Height);
   finally
     LeaveCriticalSection(RendererLock);
   end;

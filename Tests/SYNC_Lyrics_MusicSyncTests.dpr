@@ -68,20 +68,39 @@ end;
 procedure TestDisplaySettingsData;
 var
   Data: TDisplaySettingsData;
-  OversizedText: string;
-  TestText: string;
+  DecodedItems: TDisplayPlacementItems;
+  Items: TDisplayPlacementItems;
+  OversizedItems: TDisplayPlacementItems;
 begin
   Check(SizeOf(TDisplaySettingsData) = DISPLAY_SETTINGS_DATA_SIZE,
     'display settings data ABI size mismatch');
-  TestText := 'index=0;x=12.5;y=-8.0;label=漢字';
-  Check(TryEncodeDisplaySettingsText(TestText, Data),
-    'display settings debug text could not be encoded');
-  Check(DecodeDisplaySettingsText(Data) = TestText,
-    'display settings debug text did not round-trip');
+  SetLength(Items, 2);
+  Items[0].Index := 0;
+  Items[0].X := 12.5;
+  Items[0].Y := -8;
+  Items[0].ScaleX := 1.25;
+  Items[0].ScaleY := 0.75;
+  Items[1].Index := 1;
+  Items[1].X := -20;
+  Items[1].Y := 40.25;
+  Items[1].ScaleX := 1;
+  Items[1].ScaleY := 2;
+  Check(TryEncodeDisplayPlacements('私[漢字](かんじ)', Items, Data),
+    'display placements could not be encoded');
+  Check(TryDecodeDisplayPlacements(Data, '私[漢字](かんじ)', 2,
+    DecodedItems), 'display placements could not be decoded');
+  Check((Length(DecodedItems) = 2) and
+    (Abs(DecodedItems[0].X - 12) < 0.001) and
+    (Abs(DecodedItems[1].Y - 40) < 0.001) and
+    (Abs(DecodedItems[0].ScaleX - 1.25) < 0.001) and
+    (Abs(DecodedItems[1].ScaleY - 2) < 0.001),
+    'display placement coordinates did not round-trip');
+  Check(not TryDecodeDisplayPlacements(Data, '変更後', 2,
+    DecodedItems), 'placements survived a lyrics change');
 
-  OversizedText := StringOfChar('x', DISPLAY_SETTINGS_PAYLOAD_SIZE + 1);
-  Check(not TryEncodeDisplaySettingsText(OversizedText, Data),
-    'oversized display settings debug text was accepted');
+  SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
+  Check(not TryEncodeDisplayPlacements('oversized', OversizedItems, Data),
+    'oversized display placement list was accepted');
 end;
 
 procedure TestTimeRuler;

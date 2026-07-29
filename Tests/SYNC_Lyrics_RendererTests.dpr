@@ -8,6 +8,8 @@ uses
   System.SysUtils,
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
+  SYNC_Lyrics_DisplaySettingsData in
+    'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_Animation in
     'Source\Common\Render\SYNC_Lyrics_Animation.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas';
@@ -594,6 +596,117 @@ begin
     'configured ruby gap did not increase row distance');
 end;
 
+procedure TestFreePlacementCoordinates;
+var
+  Bottom: Integer;
+  Left: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Right: Integer;
+  Settings: TLyricsRenderSettings;
+  Top: Integer;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].X := 120;
+  Placements[0].Y := 40;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Check(RenderFreePlacementLyrics(@Video, '字', 0, Settings,
+    Placements, 0, 0), 'free-placement render failed');
+  FindVisibleBounds(Left, Top, Right, Bottom);
+  Check((Left > TEST_WIDTH div 2) and (Top > TEST_HEIGHT div 2),
+    'free-placement coordinates did not move the display unit');
+end;
+
+procedure TestFreePlacementRubyKeepsBaseBottom;
+var
+  BaseBottom: Integer;
+  Bottom: Integer;
+  Left: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Right: Integer;
+  Settings: TLyricsRenderSettings;
+  Top: Integer;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].X := 0;
+  Placements[0].Y := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Check(RenderFreePlacementLyrics(@Video, '漢', 0, Settings,
+    Placements, 0, 0), 'free-placement base render failed');
+  FindVisibleBounds(Left, Top, Right, BaseBottom);
+  Check(RenderFreePlacementLyrics(@Video, '[漢](かん)', 0, Settings,
+    Placements, 0, 0), 'free-placement ruby render failed');
+  FindVisibleBounds(Left, Top, Right, Bottom);
+  Check(Abs(Bottom - BaseBottom) <= 1,
+    'ruby changed the free-placement base bottom edge');
+end;
+
+procedure TestFreePlacementScale;
+var
+  BaseBottom: Integer;
+  BaseHeight: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  ScaledBottom: Integer;
+  ScaledLeft: Integer;
+  ScaledRight: Integer;
+  ScaledTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].X := 0;
+  Placements[0].Y := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Check(RenderFreePlacementLyrics(@Video, '拡', 0, Settings,
+    Placements, 0, 0), 'base free-placement scale render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  BaseHeight := BaseBottom - BaseTop;
+
+  Placements[0].ScaleX := 2;
+  Placements[0].ScaleY := 0.5;
+  Check(RenderFreePlacementLyrics(@Video, '拡', 0, Settings,
+    Placements, 0, 0), 'scaled free-placement render failed');
+  FindVisibleBounds(ScaledLeft, ScaledTop, ScaledRight, ScaledBottom);
+  Check((ScaledRight - ScaledLeft) > (BaseRight - BaseLeft),
+    'free-placement horizontal scale did not increase width');
+  Check((ScaledBottom - ScaledTop) < BaseHeight,
+    'free-placement vertical scale did not reduce height');
+end;
+
 begin
   InitializeLyricsRenderer;
   try
@@ -610,6 +723,9 @@ begin
     TestDisplayTypes;
     TestLyricsAnimations;
     TestRubyGapAdjustmentChangesRowDistance;
+    TestFreePlacementCoordinates;
+    TestFreePlacementRubyKeepsBaseBottom;
+    TestFreePlacementScale;
     TestEmptyLyricsIsTransparent;
     Writeln('PASS');
   finally
