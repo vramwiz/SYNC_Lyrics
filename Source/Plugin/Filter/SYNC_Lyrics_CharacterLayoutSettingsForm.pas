@@ -30,30 +30,6 @@ type
     ElementPanel: TPanel;
     ElementListLabel: TLabel;
     ElementListView: TListView;
-    ButtonMoveToCenter: TButton;
-    ButtonResetSelected: TButton;
-    ButtonResetAll: TButton;
-    ButtonAlignHorizontal: TButton;
-    ButtonDistributeHorizontal: TButton;
-    SelectedSettingsGroup: TGroupBox;
-    LabelPositionX: TLabel;
-    LabelPositionY: TLabel;
-    LabelScaleX: TLabel;
-    LabelScaleY: TLabel;
-    // Temporary numeric controls. Mouse editing replaces these when the
-    // production GUI is complete; do not extend their feature set.
-    EditPositionX: TEdit;
-    EditPositionY: TEdit;
-    EditScaleX: TEdit;
-    EditScaleY: TEdit;
-    LabelBaseFontSize: TLabel;
-    LabelRubyFontSize: TLabel;
-    EditBaseFontSize: TEdit;
-    EditRubyFontSize: TEdit;
-    ButtonApplySelectedSettings: TButton;
-    ButtonFont: TButton;
-    ButtonBeforeColor: TButton;
-    ButtonAfterColor: TButton;
     procedure BackgroundPaintBoxMouseDown(Sender: TObject;
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure BackgroundPaintBoxMouseMove(Sender: TObject;
@@ -73,7 +49,6 @@ type
     procedure ButtonResetAllClick(Sender: TObject);
     procedure ButtonAlignHorizontalClick(Sender: TObject);
     procedure ButtonDistributeHorizontalClick(Sender: TObject);
-    procedure ButtonApplySelectedSettingsClick(Sender: TObject);
     procedure ButtonFontClick(Sender: TObject);
     procedure ButtonBeforeColorClick(Sender: TObject);
     procedure ButtonAfterColorClick(Sender: TObject);
@@ -325,138 +300,13 @@ begin
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.UpdateSelectedSettings;
-var
-  CommonScaleX: Single;
-  CommonScaleY: Single;
-  CommonBeforeColor: TColor;
-  CommonAfterColor: TColor;
-  CommonBaseFontSize: Integer;
-  CommonRubyFontSize: Integer;
-  Count: Integer;
-  I: Integer;
-  SameBeforeColor: Boolean;
-  SameAfterColor: Boolean;
-  SameBaseFontSize: Boolean;
-  SameRubyFontSize: Boolean;
-  SameScaleX: Boolean;
-  SameScaleY: Boolean;
-
-  function ColorCaption(const Prefix: string; Color: TColor): string;
-  var
-    Value: Cardinal;
-  begin
-    Value := Cardinal(ColorToRGB(Color));
-    Result := Format('%s #%2.2X%2.2X%2.2X', [Prefix,
-      Value and $FF, (Value shr 8) and $FF, (Value shr 16) and $FF]);
-  end;
-
-  function UnicodeChar(Value: Word): string;
-  begin
-    Result := WideChar(Value);
-  end;
-
-  function DefaultColorCaption(Before: Boolean): string;
-  begin
-    Result := UnicodeChar($540C) + UnicodeChar($671F);
-    if Before then
-      Result := Result + UnicodeChar($524D)
-    else
-      Result := Result + UnicodeChar($5F8C);
-    Result := Result + UnicodeChar($8272) + '...';
-  end;
-
-  function MixedColorCaption(Before: Boolean): string;
-  begin
-    if Before then
-      Result := UnicodeChar($524D)
-    else
-      Result := UnicodeChar($5F8C);
-    Result := Result + UnicodeChar($8272) + ': ' +
-      UnicodeChar($6DF7) + UnicodeChar($5728);
-  end;
 begin
   if FUpdatingSelectedSettings then
     Exit;
   FUpdatingSelectedSettings := True;
   try
-    Count := SelectionCount;
-    EditPositionX.Enabled := Count = 1;
-    EditPositionY.Enabled := Count = 1;
-    EditScaleX.Enabled := Count > 0;
-    EditScaleY.Enabled := Count > 0;
-    EditBaseFontSize.Enabled := Count > 0;
-    EditRubyFontSize.Enabled := Count > 0;
-    ButtonApplySelectedSettings.Enabled := Count > 0;
-    ButtonFont.Enabled := Count > 0;
-    ButtonBeforeColor.Enabled := Count > 0;
-    ButtonAfterColor.Enabled := Count > 0;
-    EditPositionX.Text := '';
-    EditPositionY.Text := '';
-    EditScaleX.Text := '';
-    EditScaleY.Text := '';
-    EditBaseFontSize.Text := '';
-    EditRubyFontSize.Text := '';
-    ButtonBeforeColor.Caption := DefaultColorCaption(True);
-    ButtonAfterColor.Caption := DefaultColorCaption(False);
-    if Count = 0 then
-      Exit;
-    if Count = 1 then
-    begin
-      EditPositionX.Text := FormatFloat('0.###',
-        FPlacements[FSelectedIndex].X);
-      EditPositionY.Text := FormatFloat('0.###',
-        FPlacements[FSelectedIndex].Y);
-    end;
-    CommonScaleX := FPlacements[FSelectedIndex].ScaleX;
-    CommonScaleY := FPlacements[FSelectedIndex].ScaleY;
-    CommonBeforeColor := DisplayUnitBeforeColor(FSelectedIndex);
-    CommonAfterColor := DisplayUnitAfterColor(FSelectedIndex);
-    CommonBaseFontSize := DisplayUnitBaseFontHeight(FSelectedIndex);
-    CommonRubyFontSize := DisplayUnitRubyFontHeight(FSelectedIndex);
-    SameScaleX := True;
-    SameScaleY := True;
-    SameBeforeColor := True;
-    SameAfterColor := True;
-    SameBaseFontSize := True;
-    SameRubyFontSize := True;
-    for I := 0 to High(FSelected) do
-      if FSelected[I] then
-      begin
-        SameScaleX := SameScaleX and SameValue(
-          FPlacements[I].ScaleX, CommonScaleX, 0.0005);
-        SameScaleY := SameScaleY and SameValue(
-          FPlacements[I].ScaleY, CommonScaleY, 0.0005);
-        SameBeforeColor := SameBeforeColor and
-          (ColorToRGB(DisplayUnitBeforeColor(I)) =
-            ColorToRGB(CommonBeforeColor));
-        SameAfterColor := SameAfterColor and
-          (ColorToRGB(DisplayUnitAfterColor(I)) =
-            ColorToRGB(CommonAfterColor));
-        SameBaseFontSize := SameBaseFontSize and
-          (DisplayUnitBaseFontHeight(I) = CommonBaseFontSize);
-        SameRubyFontSize := SameRubyFontSize and
-          (DisplayUnitRubyFontHeight(I) = CommonRubyFontSize);
-      end;
-    if SameScaleX then
-      EditScaleX.Text := FormatFloat('0.###', CommonScaleX * 100);
-    if SameScaleY then
-      EditScaleY.Text := FormatFloat('0.###', CommonScaleY * 100);
-    if SameBaseFontSize then
-      EditBaseFontSize.Text := IntToStr(CommonBaseFontSize);
-    if SameRubyFontSize then
-      EditRubyFontSize.Text := IntToStr(CommonRubyFontSize);
-    if SameBeforeColor then
-      ButtonBeforeColor.Caption := ColorCaption(UnicodeChar($524D),
-        CommonBeforeColor)
-    else
-      ButtonBeforeColor.Caption := MixedColorCaption(True);
-    if SameAfterColor then
-      ButtonAfterColor.Caption := ColorCaption(UnicodeChar($5F8C),
-        CommonAfterColor)
-    else
-      ButtonAfterColor.Caption := MixedColorCaption(False);
-  finally
     UpdateToolbarButtons;
+  finally
     FUpdatingSelectedSettings := False;
   end;
 end;
@@ -1914,121 +1764,6 @@ begin
       FPlacements[SelectedIndices[I]].X +
       CursorX - Bounds.Left;
     CursorX := CursorX + SelectedWidths[I] + Gap;
-  end;
-  UpdateSelectedSettings;
-  BackgroundPaintBox.Invalidate;
-end;
-
-procedure TFormLyricsCharacterLayoutSettings.ButtonApplySelectedSettingsClick(
-  Sender: TObject);
-const
-  MAX_POSITION = 32767.0;
-  MAX_SCALE_PERCENT = 1000.0;
-  MIN_POSITION = -32768.0;
-  MIN_SCALE_PERCENT = 5.0;
-var
-  HasScaleX: Boolean;
-  HasScaleY: Boolean;
-  HasBaseFontSize: Boolean;
-  HasRubyFontSize: Boolean;
-  HasX: Boolean;
-  HasY: Boolean;
-  I: Integer;
-  ScaleXValue: Double;
-  ScaleYValue: Double;
-  BaseFontSizeValue: Integer;
-  RubyFontSizeValue: Integer;
-  XValue: Double;
-  YValue: Double;
-begin
-  if FUpdatingSelectedSettings or (SelectionCount = 0) then
-    Exit;
-  HasX := (SelectionCount = 1) and
-    (Trim(EditPositionX.Text) <> '');
-  HasY := (SelectionCount = 1) and
-    (Trim(EditPositionY.Text) <> '');
-  HasScaleX := Trim(EditScaleX.Text) <> '';
-  HasScaleY := Trim(EditScaleY.Text) <> '';
-  HasBaseFontSize := Trim(EditBaseFontSize.Text) <> '';
-  HasRubyFontSize := Trim(EditRubyFontSize.Text) <> '';
-  if HasX and not TryStrToFloat(Trim(EditPositionX.Text), XValue) then
-  begin
-    EditPositionX.SetFocus;
-    Exit;
-  end;
-  if HasY and not TryStrToFloat(Trim(EditPositionY.Text), YValue) then
-  begin
-    EditPositionY.SetFocus;
-    Exit;
-  end;
-  if HasScaleX and
-    not TryStrToFloat(Trim(EditScaleX.Text), ScaleXValue) then
-  begin
-    EditScaleX.SetFocus;
-    Exit;
-  end;
-  if HasScaleY and
-    not TryStrToFloat(Trim(EditScaleY.Text), ScaleYValue) then
-  begin
-    EditScaleY.SetFocus;
-    Exit;
-  end;
-  if HasBaseFontSize and
-    not TryStrToInt(Trim(EditBaseFontSize.Text), BaseFontSizeValue) then
-  begin
-    EditBaseFontSize.SetFocus;
-    Exit;
-  end;
-  if HasRubyFontSize and
-    not TryStrToInt(Trim(EditRubyFontSize.Text), RubyFontSizeValue) then
-  begin
-    EditRubyFontSize.SetFocus;
-    Exit;
-  end;
-
-  if HasX then
-    FPlacements[FSelectedIndex].X :=
-      EnsureRange(XValue, MIN_POSITION, MAX_POSITION);
-  if HasY then
-    FPlacements[FSelectedIndex].Y :=
-      EnsureRange(YValue, MIN_POSITION, MAX_POSITION);
-  if HasScaleX then
-  begin
-    ScaleXValue := EnsureRange(ScaleXValue, MIN_SCALE_PERCENT,
-      MAX_SCALE_PERCENT) / 100;
-    for I := 0 to High(FSelected) do
-      if FSelected[I] then
-        FPlacements[I].ScaleX := ScaleXValue;
-  end;
-  if HasScaleY then
-  begin
-    ScaleYValue := EnsureRange(ScaleYValue, MIN_SCALE_PERCENT,
-      MAX_SCALE_PERCENT) / 100;
-    for I := 0 to High(FSelected) do
-      if FSelected[I] then
-        FPlacements[I].ScaleY := ScaleYValue;
-  end;
-  if HasBaseFontSize then
-  begin
-    BaseFontSizeValue := EnsureRange(BaseFontSizeValue, 1, 1024);
-    for I := 0 to High(FSelected) do
-      if FSelected[I] then
-      begin
-        FPlacements[I].HasBaseFontHeight :=
-          BaseFontSizeValue <> FBaseFontHeight;
-        FPlacements[I].BaseFontHeight := BaseFontSizeValue;
-      end;
-  end;
-  if HasRubyFontSize then
-  begin
-    RubyFontSizeValue := EnsureRange(RubyFontSizeValue, 1, 1024);
-    for I := 0 to High(FSelected) do
-      if FSelected[I] then
-      begin
-        FPlacements[I].HasRubyFontHeight :=
-          RubyFontSizeValue <> FRubyFontHeight;
-        FPlacements[I].RubyFontHeight := RubyFontSizeValue;
-      end;
   end;
   UpdateSelectedSettings;
   BackgroundPaintBox.Invalidate;
