@@ -1,9 +1,9 @@
-object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
+object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   Left = 0
   Top = 0
   BorderStyle = bsSizeable
-  Caption = #25991#23383#33258#30001#37197#32622#35373#23450
-  ClientHeight = 610
+  Caption = #25991#23383#21336#20301#33258#30001#37197#32622#35373#23450
+  ClientHeight = 646
   ClientWidth = 920
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -22,11 +22,11 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
     Height = 24
     Anchors = [akLeft, akTop, akRight]
     AutoSize = False
-    Caption = #32972#26223#19978#12398#25991#23383#12434#24038#12489#12521#12483#12464#12375#12390#37197#32622#12375#12414#12377#12290
+    Caption = #20877#12463#12522#12483#12463#12391#40644#33394#65288#31227#21205#12539#22793#24418#65289#8594#27700#33394#65288#25991#23383#38291#65289#8594#32043#65288#12523#12499#65289#12434#20999#26367#12290#24038#21491#28857#12391#38291#38548#12289#32043#12398#19978#28857#12391#12523#12499#20301#32622#12434#35519#25972#12375#12414#12377#12290
   end
   object BackgroundPaintBox: TPaintBox
     Left = 12
-    Top = 42
+    Top = 78
     Width = 668
     Height = 510
     Anchors = [akLeft, akTop, akRight, akBottom]
@@ -37,7 +37,7 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
   end
   object ElementPanel: TPanel
     Left = 692
-    Top = 42
+    Top = 78
     Width = 216
     Height = 510
     Anchors = [akTop, akRight, akBottom]
@@ -55,7 +55,7 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
       Left = 0
       Top = 20
       Width = 216
-      Height = 139
+      Height = 77
       Anchors = [akLeft, akTop, akRight, akBottom]
       Columns = <
         item
@@ -76,9 +76,9 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
     end
     object SelectedSettingsGroup: TGroupBox
       Left = 0
-      Top = 167
+      Top = 105
       Width = 216
-      Height = 159
+      Height = 221
       Anchors = [akLeft, akRight, akBottom]
       Caption = #36984#25246#35201#32032#12398#35373#23450
       TabOrder = 1
@@ -110,6 +110,20 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
         Height = 15
         Caption = #32294' %'
       end
+      object LabelBaseFontSize: TLabel
+        Left = 10
+        Top = 91
+        Width = 42
+        Height = 15
+        Caption = #26412#25991' px'
+      end
+      object LabelRubyFontSize: TLabel
+        Left = 105
+        Top = 91
+        Width = 42
+        Height = 15
+        Caption = #12523#12499' px'
+      end
       object EditPositionX: TEdit
         Left = 29
         Top = 21
@@ -138,23 +152,55 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
         Height = 23
         TabOrder = 3
       end
+      object EditBaseFontSize: TEdit
+        Left = 54
+        Top = 87
+        Width = 42
+        Height = 23
+        TabOrder = 4
+      end
+      object EditRubyFontSize: TEdit
+        Left = 153
+        Top = 87
+        Width = 42
+        Height = 23
+        TabOrder = 5
+      end
       object ButtonApplySelectedSettings: TButton
         Left = 10
-        Top = 91
+        Top = 120
         Width = 185
         Height = 26
         Caption = #36984#25246#35201#32032#12408#36969#29992
-        TabOrder = 4
+        TabOrder = 6
         OnClick = ButtonApplySelectedSettingsClick
       end
       object ButtonFont: TButton
         Left = 10
-        Top = 122
+        Top = 151
         Width = 185
         Height = 26
         Caption = #12501#12457#12531#12488'...'
-        TabOrder = 5
+        TabOrder = 7
         OnClick = ButtonFontClick
+      end
+      object ButtonBeforeColor: TButton
+        Left = 10
+        Top = 182
+        Width = 90
+        Height = 26
+        Caption = #21516#26399#21069#33394'...'
+        TabOrder = 8
+        OnClick = ButtonBeforeColorClick
+      end
+      object ButtonAfterColor: TButton
+        Left = 105
+        Top = 182
+        Width = 90
+        Height = 26
+        Caption = #21516#26399#24460#33394'...'
+        TabOrder = 9
+        OnClick = ButtonAfterColorClick
       end
     end
     object ButtonMoveToCenter: TButton
@@ -210,7 +256,7 @@ object FormLyricsDisplaySettingsDebug: TFormLyricsDisplaySettingsDebug
   end
   object ButtonPanel: TPanel
     Left = 0
-    Top = 560
+    Top = 596
     Width = 920
     Height = 50
     Align = alBottom

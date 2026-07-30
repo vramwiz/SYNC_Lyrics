@@ -1,0 +1,35 @@
+# Keep this Delphi source project lightweight. Enable a plugin temporarily in a
+# higher-precedence session override when a task specifically needs it.
+
+[plugins."documents@openai-primary-runtime"]
+enabled = false
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = false
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = false
+
+[plugins."chrome@openai-bundled"]
+enabled = false
+
+[plugins."canva@openai-curated"]
+enabled = false
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = false
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = false
+
+[plugins."sites@openai-bundled"]
+enabled = false
+
+[plugins."visualize@openai-bundled"]
+enabled = false
+
+[plugins."browser@openai-bundled"]
+enabled = false
+
+[mcp_servers.node_repl]
+enabled = false

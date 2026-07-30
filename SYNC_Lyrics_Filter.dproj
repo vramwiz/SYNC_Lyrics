@@ -96,6 +96,22 @@
         </DelphiCompile>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SharedMemoryBase.pas"/>
+        <DCCReference Include="Source\Lib\SYNC_Lyrics_ToolbarButtons.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerColorMath.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerRGBEditFrame.pas">
+            <Form>FrameColorPickerRGBEdit</Form>
+            <DesignClass>TFrame</DesignClass>
+        </DCCReference>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerHueBar.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerSVArea.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerPick.pas"/>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerDialogFrame.pas">
+            <Form>FrameColorPickerDialog</Form>
+            <DesignClass>TFrame</DesignClass>
+        </DCCReference>
+        <DCCReference Include="Source\Lib\ColorPicker\ColorPickerDialog.pas">
+            <Form>FormColorPickerDialog</Form>
+        </DCCReference>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_FrameShared.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_Time.pas"/>
@@ -130,12 +146,14 @@
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_ManualSync.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSync.pas"/>
-    <DCCReference Include="Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas"/>
-    <DCCReference Include="Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas"/>
+        <DCCReference Include="Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas"/>
+        <DCCReference Include="Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Animation.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsDebugForm.pas">
-            <Form>FormLyricsDisplaySettingsDebug</Form>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutDrawing.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas">
+            <Form>FormLyricsCharacterLayoutSettings</Form>
         </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas">
             <Form>FormLyricsFontSettings</Form>

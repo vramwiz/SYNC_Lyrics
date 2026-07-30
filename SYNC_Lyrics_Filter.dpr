@@ -7,6 +7,7 @@
 uses
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SharedMemoryBase in 'Source\Lib\SharedMemoryBase.pas',
+  SYNC_Lyrics_ToolbarButtons in 'Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
   ColorPickerColorMath in 'Source\Lib\ColorPicker\ColorPickerColorMath.pas',
   ColorPickerRGBEditFrame in 'Source\Lib\ColorPicker\ColorPickerRGBEditFrame.pas' {FrameColorPickerRGBEdit: TFrame},
   ColorPickerHueBar in 'Source\Lib\ColorPicker\ColorPickerHueBar.pas',
@@ -52,7 +53,9 @@ uses
   SYNC_Lyrics_LastFrameCapture in 'Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas',
   SYNC_Lyrics_Animation in 'Source\Common\Render\SYNC_Lyrics_Animation.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas',
-  SYNC_Lyrics_DisplaySettingsDebugForm in 'Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsDebugForm.pas' {FormLyricsDisplaySettingsDebug},
+  SYNC_Lyrics_CharacterLayoutInteraction in 'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas',
+  SYNC_Lyrics_CharacterLayoutDrawing in 'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutDrawing.pas',
+  SYNC_Lyrics_CharacterLayoutSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas' {FormLyricsCharacterLayoutSettings},
   SYNC_Lyrics_FontSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas' {FormLyricsFontSettings},
   SYNC_Lyrics_MusicSyncEditModel in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',
   SYNC_Lyrics_MusicSyncPianoRoll in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',

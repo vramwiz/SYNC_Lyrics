@@ -442,6 +442,30 @@ begin
     'configured character spacing did not increase text width');
 end;
 
+function CountDominantGreenPixels: Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to High(CapturedPixels) do
+    if (CapturedPixels[I].G > CapturedPixels[I].R) and
+      (CapturedPixels[I].G > CapturedPixels[I].B) and
+      (CapturedPixels[I].A <> 0) then
+      Inc(Result);
+end;
+
+function CountDominantBluePixels: Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to High(CapturedPixels) do
+    if (CapturedPixels[I].B > CapturedPixels[I].R) and
+      (CapturedPixels[I].B > CapturedPixels[I].G) and
+      (CapturedPixels[I].A <> 0) then
+      Inc(Result);
+end;
+
 procedure TestConfiguredFontStylesAreUsed;
 var
   BaseHash: UInt64;
@@ -707,6 +731,291 @@ begin
     'free-placement vertical scale did not reduce height');
 end;
 
+procedure TestFreePlacementElementColors;
+var
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.BeforeColor.R := 255;
+  Settings.BeforeColor.G := 0;
+  Settings.BeforeColor.B := 0;
+  Settings.AfterColor := Settings.BeforeColor;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[0].HasBeforeColor := True;
+  Placements[0].BeforeColor := $0000FF00;
+  Placements[0].HasAfterColor := True;
+  Placements[0].AfterColor := $00FF0000;
+
+  Check(RenderFreePlacementLyrics(@Video, '色', 0, Settings,
+    Placements, 0, 0), 'free-placement before-color render failed');
+  Check(CountDominantGreenPixels > 0,
+    'element before color was not used');
+  Check(RenderFreePlacementLyrics(@Video, '色', 1, Settings,
+    Placements, 0, 0), 'free-placement after-color render failed');
+  Check(CountDominantBluePixels > 0,
+    'element after color was not used');
+end;
+
+procedure TestFreePlacementElementFontSize;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  LargeBottom: Integer;
+  LargeLeft: Integer;
+  LargeRight: Integer;
+  LargeTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  RubyBaseBottom: Integer;
+  RubyBaseLeft: Integer;
+  RubyBaseRight: Integer;
+  RubyBaseTop: Integer;
+  RubyLargeBottom: Integer;
+  RubyLargeLeft: Integer;
+  RubyLargeRight: Integer;
+  RubyLargeTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.BaseFontHeight := 48;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+
+  Check(RenderFreePlacementLyrics(@Video, '大', 0, Settings,
+    Placements, 0, 0), 'inherited element font-size render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Placements[0].HasBaseFontHeight := True;
+  Placements[0].BaseFontHeight := 144;
+  Check(RenderFreePlacementLyrics(@Video, '大', 0, Settings,
+    Placements, 0, 0), 'individual element font-size render failed');
+  FindVisibleBounds(LargeLeft, LargeTop, LargeRight, LargeBottom);
+  Check((LargeRight - LargeLeft) > (BaseRight - BaseLeft),
+    'individual base font size did not increase width');
+  Check((LargeBottom - LargeTop) > (BaseBottom - BaseTop),
+    'individual base font size did not increase height');
+
+  Placements[0].HasBaseFontHeight := False;
+  Settings.RubyFontHeight := 16;
+  Check(RenderFreePlacementLyrics(@Video, '[大](だい)', 0, Settings,
+    Placements, 0, 0), 'inherited ruby font-size render failed');
+  FindVisibleBounds(RubyBaseLeft, RubyBaseTop, RubyBaseRight,
+    RubyBaseBottom);
+  Placements[0].HasRubyFontHeight := True;
+  Placements[0].RubyFontHeight := 64;
+  Check(RenderFreePlacementLyrics(@Video, '[大](だい)', 0, Settings,
+    Placements, 0, 0), 'individual ruby font-size render failed');
+  FindVisibleBounds(RubyLargeLeft, RubyLargeTop, RubyLargeRight,
+    RubyLargeBottom);
+  Check((RubyLargeBottom - RubyLargeTop) >
+    (RubyBaseBottom - RubyBaseTop),
+    'individual ruby font size did not increase row height');
+end;
+
+procedure TestFreePlacementElementFontStyle;
+var
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  PlainHash: UInt64;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.BaseBold := False;
+  Settings.BaseItalic := False;
+  Settings.BaseUnderline := False;
+  Settings.BaseStrikeOut := False;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+
+  Check(RenderFreePlacementLyrics(@Video, 'S', 0, Settings,
+    Placements, 0, 0), 'inherited element font-style render failed');
+  PlainHash := CapturedPixelHash;
+  Placements[0].HasBaseFontStyle := True;
+  Placements[0].BaseFontStyle := 2 or 4;
+  Check(RenderFreePlacementLyrics(@Video, 'S', 0, Settings,
+    Placements, 0, 0), 'individual element font-style render failed');
+  Check(CapturedPixelHash <> PlainHash,
+    'individual element font style did not change rendered pixels');
+end;
+
+procedure TestFreePlacementBaseCharacterSpacing;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  NegativeBottom: Integer;
+  NegativeLeft: Integer;
+  NegativeRight: Integer;
+  NegativeTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  SpacedBottom: Integer;
+  SpacedLeft: Integer;
+  SpacedRight: Integer;
+  SpacedTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.BaseFontHeight := 48;
+  Settings.RubyFontHeight := 12;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+
+  Check(RenderFreePlacementLyrics(@Video, '[漢字漢字](か)', 0,
+    Settings, Placements, 0, 0),
+    'inherited base-spacing render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Placements[0].HasBaseCharacterSpacing := True;
+  Placements[0].BaseCharacterSpacing := 20;
+  Check(RenderFreePlacementLyrics(@Video, '[漢字漢字](か)', 0,
+    Settings, Placements, 0, 0),
+    'positive individual base-spacing render failed');
+  FindVisibleBounds(SpacedLeft, SpacedTop, SpacedRight, SpacedBottom);
+  Check((SpacedRight - SpacedLeft) > (BaseRight - BaseLeft),
+    'individual base character spacing did not increase width');
+  Check(Abs((SpacedLeft + SpacedRight) -
+    (BaseLeft + BaseRight)) <= 4,
+    'base character spacing left a trailing gap after the last character');
+  Check((SpacedTop = BaseTop) and (SpacedBottom = BaseBottom),
+    'individual base character spacing changed character height');
+
+  Placements[0].BaseCharacterSpacing := -10;
+  Check(RenderFreePlacementLyrics(@Video, '[漢字漢字](か)', 0,
+    Settings, Placements, 0, 0),
+    'negative individual base-spacing render failed');
+  FindVisibleBounds(NegativeLeft, NegativeTop, NegativeRight,
+    NegativeBottom);
+  Check((NegativeRight - NegativeLeft) < (BaseRight - BaseLeft),
+    'negative base character spacing did not reduce width');
+  Check((NegativeTop = BaseTop) and (NegativeBottom = BaseBottom),
+    'negative base character spacing changed character height');
+end;
+
+procedure TestFreePlacementRubyCharacterSpacing;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  SpacedBottom: Integer;
+  SpacedLeft: Integer;
+  SpacedRight: Integer;
+  SpacedTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.BaseFontHeight := 24;
+  Settings.RubyFontHeight := 24;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+
+  Check(RenderFreePlacementLyrics(@Video, '[字](かなかな)', 0, Settings,
+    Placements, 0, 0), 'inherited ruby-spacing render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Placements[0].HasRubyCharacterSpacing := True;
+  Placements[0].RubyCharacterSpacing := 20;
+  Check(RenderFreePlacementLyrics(@Video, '[字](かなかな)', 0, Settings,
+    Placements, 0, 0), 'individual ruby-spacing render failed');
+  FindVisibleBounds(SpacedLeft, SpacedTop, SpacedRight, SpacedBottom);
+  Check((SpacedRight - SpacedLeft) > (BaseRight - BaseLeft),
+    'individual ruby character spacing did not increase width');
+end;
+
+procedure TestFreePlacementRubyOffset;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  MovedBottom: Integer;
+  MovedLeft: Integer;
+  MovedRight: Integer;
+  MovedTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+
+  Check(RenderFreePlacementLyrics(@Video, '[字](か)', 0, Settings,
+    Placements, 0, 0), 'inherited ruby-offset render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Placements[0].HasRubyOffsetX := True;
+  Placements[0].RubyOffsetX := 50;
+  Placements[0].HasRubyOffsetY := True;
+  Placements[0].RubyOffsetY := -30;
+  Check(RenderFreePlacementLyrics(@Video, '[字](か)', 0, Settings,
+    Placements, 0, 0), 'individual ruby-offset render failed');
+  FindVisibleBounds(MovedLeft, MovedTop, MovedRight, MovedBottom);
+  Check(MovedRight > BaseRight,
+    'individual ruby X offset did not move ruby right');
+  Check(MovedTop < BaseTop,
+    'individual ruby Y offset did not move ruby upward');
+end;
+
 begin
   InitializeLyricsRenderer;
   try
@@ -726,6 +1035,12 @@ begin
     TestFreePlacementCoordinates;
     TestFreePlacementRubyKeepsBaseBottom;
     TestFreePlacementScale;
+    TestFreePlacementElementColors;
+    TestFreePlacementElementFontSize;
+    TestFreePlacementElementFontStyle;
+    TestFreePlacementBaseCharacterSpacing;
+    TestFreePlacementRubyCharacterSpacing;
+    TestFreePlacementRubyOffset;
     TestEmptyLyricsIsTransparent;
     Writeln('PASS');
   finally

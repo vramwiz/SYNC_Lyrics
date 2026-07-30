@@ -7,8 +7,11 @@
 uses
   System.IOUtils,
   System.SysUtils,
+  System.Types,
   Vcl.Graphics,
   Winapi.Windows,
+  SYNC_Lyrics_ToolbarButtons in
+    'Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
   RTTIPersistent in 'Source\Lib\SongReader\RTTIPersistent.pas',
   RTTIPersistentIni in 'Source\Lib\SongReader\RTTIPersistentIni.pas',
   SectionFileManager in 'Source\Lib\SongReader\SectionFileManager.pas',
@@ -30,6 +33,8 @@ uses
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
+  SYNC_Lyrics_CharacterLayoutInteraction in
+    'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_SyncSourceKind in
     'Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas',
@@ -65,12 +70,14 @@ begin
     raise Exception.Create(MessageText);
 end;
 
+{$IFDEF LEGACY_DISPLAY_DATA_TEST}
 procedure TestDisplaySettingsData;
 var
   Data: TDisplaySettingsData;
   DecodedItems: TDisplayPlacementItems;
   I: Integer;
   Items: TDisplayPlacementItems;
+  LegacyItems: TDisplayPlacementItems;
   OversizedItems: TDisplayPlacementItems;
 begin
   Check(SizeOf(TDisplaySettingsData) = DISPLAY_SETTINGS_DATA_SIZE,
@@ -83,6 +90,26 @@ begin
   Items[0].ScaleY := 0.75;
   Items[0].BaseFontName := 'Meiryo';
   Items[0].RubyFontName := 'Yu Gothic UI';
+  Items[0].HasBeforeColor := True;
+  Items[0].BeforeColor := $0038220C;
+  Items[0].HasAfterColor := True;
+  Items[0].AfterColor := $007B5A4E;
+  Items[0].HasBaseFontHeight := True;
+  Items[0].BaseFontHeight := 144;
+  Items[0].HasRubyFontHeight := True;
+  Items[0].RubyFontHeight := 60;
+  Items[0].HasBaseFontStyle := True;
+  Items[0].BaseFontStyle := 1 or 2;
+  Items[0].HasRubyFontStyle := True;
+  Items[0].RubyFontStyle := 4 or 8;
+  Items[0].HasBaseCharacterSpacing := True;
+  Items[0].BaseCharacterSpacing := -11;
+  Items[0].HasRubyCharacterSpacing := True;
+  Items[0].RubyCharacterSpacing := 17;
+  Items[0].HasRubyOffsetX := True;
+  Items[0].RubyOffsetX := 9;
+  Items[0].HasRubyOffsetY := True;
+  Items[0].RubyOffsetY := -6;
   Items[1].Index := 1;
   Items[1].X := -20;
   Items[1].Y := 40.25;
@@ -99,12 +126,78 @@ begin
     (Abs(DecodedItems[1].ScaleY - 2) < 0.001) and
     SameText(DecodedItems[0].BaseFontName, 'Meiryo') and
     SameText(DecodedItems[0].RubyFontName, 'Yu Gothic UI') and
+    DecodedItems[0].HasBeforeColor and
+    (DecodedItems[0].BeforeColor = $0038220C) and
+    DecodedItems[0].HasAfterColor and
+    (DecodedItems[0].AfterColor = $007B5A4E) and
+    DecodedItems[0].HasBaseFontHeight and
+    (DecodedItems[0].BaseFontHeight = 144) and
+    DecodedItems[0].HasRubyFontHeight and
+    (DecodedItems[0].RubyFontHeight = 60) and
+    DecodedItems[0].HasBaseFontStyle and
+    (DecodedItems[0].BaseFontStyle = 3) and
+    DecodedItems[0].HasRubyFontStyle and
+    (DecodedItems[0].RubyFontStyle = 12) and
+    DecodedItems[0].HasBaseCharacterSpacing and
+    (DecodedItems[0].BaseCharacterSpacing = -11) and
+    DecodedItems[0].HasRubyCharacterSpacing and
+    (DecodedItems[0].RubyCharacterSpacing = 17) and
+    DecodedItems[0].HasRubyOffsetX and
+    (DecodedItems[0].RubyOffsetX = 9) and
+    DecodedItems[0].HasRubyOffsetY and
+    (DecodedItems[0].RubyOffsetY = -6) and
     (DecodedItems[1].BaseFontName = '') and
-    (DecodedItems[1].RubyFontName = ''),
+    (DecodedItems[1].RubyFontName = '') and
+    not DecodedItems[1].HasBeforeColor and
+    not DecodedItems[1].HasAfterColor and
+    not DecodedItems[1].HasBaseFontHeight and
+    not DecodedItems[1].HasRubyFontHeight and
+    not DecodedItems[1].HasBaseFontStyle and
+    not DecodedItems[1].HasRubyFontStyle and
+    not DecodedItems[1].HasBaseCharacterSpacing and
+    not DecodedItems[1].HasRubyCharacterSpacing and
+    not DecodedItems[1].HasRubyOffsetX and
+    not DecodedItems[1].HasRubyOffsetY,
     'display placement coordinates did not round-trip');
   Check(not TryDecodeDisplayPlacements(Data, '変更後', 2,
     DecodedItems), 'placements survived a lyrics change');
 
+  SetLength(LegacyItems, 1);
+  LegacyItems[0].Index := 0;
+  LegacyItems[0].ScaleX := 1;
+  LegacyItems[0].ScaleY := 1;
+  Check(TryEncodeDisplayPlacements('legacy-v9', LegacyItems, Data),
+    'legacy-v9 base data could not be encoded');
+  Data.Version := 9;
+  Data.Payload[14] := 1;
+  Data.Payload[15] := 23;
+  Data.Payload[16] := 0;
+  Data.Payload[17] := 1;
+  Check(TryDecodeDisplayPlacements(Data, 'legacy-v9', 1,
+    DecodedItems) and DecodedItems[0].HasRubyCharacterSpacing and
+    (DecodedItems[0].RubyCharacterSpacing = 23),
+    'version 9 ruby spacing did not remain backward compatible');
+
+  Check(TryEncodeDisplayPlacements('legacy-v10', LegacyItems, Data),
+    'legacy-v10 base data could not be encoded');
+  Data.Version := 10;
+  Data.Payload[14] := 1;
+  Data.Payload[15] := 1;
+  Data.Payload[16] := 19;
+  Data.Payload[17] := 0;
+  Data.Payload[18] := 0;
+  Data.Payload[19] := 0;
+  Data.Payload[20] := 0;
+  Data.Payload[21] := 0;
+  Data.Payload[22] := 1;
+  Check(TryDecodeDisplayPlacements(Data, 'legacy-v10', 1,
+    DecodedItems) and
+    not DecodedItems[0].HasBaseCharacterSpacing and
+    DecodedItems[0].HasRubyCharacterSpacing and
+    (DecodedItems[0].RubyCharacterSpacing = 19),
+    'version 10 interaction data did not remain backward compatible');
+
+  Items := nil;
   SetLength(Items, MAX_DISPLAY_PLACEMENT_ITEMS);
   for I := 0 to High(Items) do
   begin
@@ -117,6 +210,18 @@ begin
     begin
       Items[I].BaseFontName := 'Meiryo';
       Items[I].RubyFontName := 'Yu Gothic UI';
+      Items[I].HasBeforeColor := True;
+      Items[I].BeforeColor := $001E140A;
+      Items[I].HasAfterColor := True;
+      Items[I].AfterColor := $003C3228;
+      Items[I].HasBaseFontHeight := True;
+      Items[I].BaseFontHeight := 128;
+      Items[I].HasRubyFontHeight := True;
+      Items[I].RubyFontHeight := 48;
+      Items[I].HasBaseFontStyle := True;
+      Items[I].BaseFontStyle := 1;
+      Items[I].HasRubyFontStyle := True;
+      Items[I].RubyFontStyle := 2;
     end;
   end;
   Check(TryEncodeDisplayPlacements('maximum', Items, Data),
@@ -124,12 +229,221 @@ begin
   Check(TryDecodeDisplayPlacements(Data, 'maximum',
     MAX_DISPLAY_PLACEMENT_ITEMS, DecodedItems) and
     SameText(DecodedItems[98].BaseFontName, 'Meiryo') and
-    (DecodedItems[99].BaseFontName = ''),
-    'maximum placements with sparse shared fonts did not round-trip');
+    DecodedItems[98].HasBeforeColor and
+    (DecodedItems[98].BeforeColor = $001E140A) and
+    DecodedItems[98].HasBaseFontHeight and
+    (DecodedItems[98].BaseFontHeight = 128) and
+    DecodedItems[98].HasBaseFontStyle and
+    (DecodedItems[98].BaseFontStyle = 1) and
+    (DecodedItems[99].BaseFontName = '') and
+    not DecodedItems[99].HasBeforeColor and
+    not DecodedItems[99].HasBaseFontHeight and
+    not DecodedItems[99].HasBaseFontStyle and
+    not DecodedItems[99].HasBaseCharacterSpacing and
+    not DecodedItems[99].HasRubyCharacterSpacing and
+    not DecodedItems[99].HasRubyOffsetX and
+    not DecodedItems[99].HasRubyOffsetY,
+    'maximum placements with sparse shared styles did not round-trip');
 
   SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
   Check(not TryEncodeDisplayPlacements('oversized', OversizedItems, Data),
     'oversized display placement list was accepted');
+end;
+{$ENDIF}
+
+procedure TestDisplaySettingsData;
+var
+  DecodedItems: TDisplayPlacementItems;
+  I: Integer;
+  Items: TDisplayPlacementItems;
+  OversizedItems: TDisplayPlacementItems;
+  SettingsText: string;
+begin
+  SetLength(Items, MAX_DISPLAY_PLACEMENT_ITEMS);
+  for I := 0 to High(Items) do
+  begin
+    Items[I].Index := I;
+    Items[I].X := I - 50;
+    Items[I].Y := 50 - I;
+    Items[I].ScaleX := 1 + I / 1000;
+    Items[I].ScaleY := 1;
+    Items[I].BaseFontName := '游ゴシック体-' + IntToStr(I);
+    Items[I].RubyFontName := 'Yu Gothic UI';
+    Items[I].HasBeforeColor := True;
+    Items[I].BeforeColor := $001E140A + Cardinal(I);
+    Items[I].HasAfterColor := True;
+    Items[I].AfterColor := $003C3228 + Cardinal(I);
+    Items[I].HasBaseFontHeight := True;
+    Items[I].BaseFontHeight := 96 + I;
+    Items[I].HasRubyFontHeight := True;
+    Items[I].RubyFontHeight := 42;
+    Items[I].HasBaseFontStyle := True;
+    Items[I].BaseFontStyle := I and $0F;
+    Items[I].HasRubyFontStyle := True;
+    Items[I].RubyFontStyle := (I + 1) and $0F;
+    Items[I].HasBaseCharacterSpacing := True;
+    Items[I].BaseCharacterSpacing := I - 50;
+    Items[I].HasRubyCharacterSpacing := True;
+    Items[I].RubyCharacterSpacing := 50 - I;
+    Items[I].HasRubyOffsetX := True;
+    Items[I].RubyOffsetX := I;
+    Items[I].HasRubyOffsetY := True;
+    Items[I].RubyOffsetY := -I;
+  end;
+
+  Check(TryEncodeDisplayPlacementsText('私[漢字](かんじ)', Items,
+    SettingsText), 'display placements could not be encoded as text');
+  Check(Length(SettingsText) > 1024,
+    'display settings text did not exercise the former 1024-byte wall');
+  Check(Length(SettingsText) < MAX_DISPLAY_SETTINGS_TEXT_LENGTH,
+    'maximum display settings text exceeds the default edit input limit');
+  Check((Pos(#10, SettingsText) = 0) and (Pos(#13, SettingsText) = 0),
+    'display settings text unexpectedly contains a line break');
+  Check(TryDecodeDisplayPlacementsText(SettingsText,
+    '私[漢字](かんじ)', MAX_DISPLAY_PLACEMENT_ITEMS, DecodedItems),
+    'display placements text could not be decoded');
+  Check((Length(DecodedItems) = MAX_DISPLAY_PLACEMENT_ITEMS) and
+    SameText(DecodedItems[98].BaseFontName, '游ゴシック体-98') and
+    SameText(DecodedItems[98].RubyFontName, 'Yu Gothic UI') and
+    (Abs(DecodedItems[98].X - 48) < 0.001) and
+    (Abs(DecodedItems[98].ScaleX - 1.098) < 0.001) and
+    DecodedItems[98].HasBaseCharacterSpacing and
+    (DecodedItems[98].BaseCharacterSpacing = 48) and
+    DecodedItems[98].HasRubyOffsetY and
+    (DecodedItems[98].RubyOffsetY = -98),
+    'display settings text did not round-trip');
+  Check(not TryDecodeDisplayPlacementsText(SettingsText, '変更後',
+    MAX_DISPLAY_PLACEMENT_ITEMS, DecodedItems),
+    'placements survived a lyrics change');
+
+  SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
+  Check(not TryEncodeDisplayPlacementsText('oversized', OversizedItems,
+    SettingsText), 'oversized display placement list was accepted');
+end;
+
+procedure TestCharacterLayoutInteraction;
+var
+  CharacterCounts: TArray<Integer>;
+  Placements: TDisplayPlacementItems;
+  Selected: TArray<Boolean>;
+  StartPlacements: TDisplayPlacementItems;
+begin
+  Check(NextCharacterLayoutSelectionMode(clsmTransform, False) =
+    clsmCharacterSpacing, 'transform mode did not advance to spacing');
+  Check(NextCharacterLayoutSelectionMode(clsmCharacterSpacing, False) =
+    clsmTransform, 'non-ruby selection entered ruby mode');
+  Check(NextCharacterLayoutSelectionMode(clsmCharacterSpacing, True) =
+    clsmRuby, 'ruby selection did not enter ruby mode');
+  Check(HitTestCharacterLayoutModeHandle(Rect(10, 20, 110, 80),
+    clsmCharacterSpacing, 10, 50) = cldmSpacingLeft,
+    'left spacing handle hit test failed');
+  Check(HitTestCharacterLayoutModeHandle(Rect(10, 20, 110, 80),
+    clsmRuby, 60, 20) = cldmRubyMove,
+    'ruby move handle hit test failed');
+
+  SetLength(Placements, 3);
+  Placements[0].Index := 0;
+  Placements[0].X := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[1].Index := 1;
+  Placements[1].X := 20;
+  Placements[1].ScaleX := 1;
+  Placements[1].ScaleY := 1;
+  Placements[2].Index := 2;
+  Placements[2].X := 40;
+  Placements[2].ScaleX := 1;
+  Placements[2].ScaleY := 1;
+  StartPlacements := Copy(Placements);
+  SetLength(Selected, 3);
+  SetLength(CharacterCounts, 3);
+  CharacterCounts[0] := 2;
+  CharacterCounts[1] := 2;
+  CharacterCounts[2] := 2;
+  Selected[1] := True;
+  ApplyCharacterLayoutSpacingDrag(Placements, Selected,
+    CharacterCounts, StartPlacements, cldmSpacingRight, 10, 1);
+  Check(Placements[1].HasBaseCharacterSpacing and
+    (Placements[1].BaseCharacterSpacing = 20) and
+    (Abs(Placements[0].X) < 0.001) and
+    (Abs(Placements[1].X - 20) < 0.001) and
+    (Abs(Placements[2].X - 40) < 0.001),
+    'base character spacing drag changed element placement');
+
+  StartPlacements := Copy(Placements);
+  ApplyCharacterLayoutSpacingDrag(Placements, Selected,
+    CharacterCounts, StartPlacements, cldmSpacingRight, -25, 1);
+  Check(Placements[1].HasBaseCharacterSpacing and
+    (Placements[1].BaseCharacterSpacing = -30),
+    'negative base character spacing was not accepted');
+
+  Placements := Copy(StartPlacements);
+  ApplyCharacterLayoutSpacingDrag(Placements, Selected,
+    CharacterCounts, StartPlacements, cldmSpacingLeft, -5, 1);
+  Check(Placements[1].HasBaseCharacterSpacing and
+    (Placements[1].BaseCharacterSpacing = 30),
+    'left handle did not expand base character spacing');
+
+  Placements := Copy(StartPlacements);
+  Selected[0] := True;
+  Selected[2] := True;
+  ApplyCharacterLayoutSpacingDrag(Placements, Selected,
+    CharacterCounts, StartPlacements, cldmSpacingRight, 20, 1);
+  Check((Placements[0].BaseCharacterSpacing = 40) and
+    (Placements[1].BaseCharacterSpacing = 60) and
+    (Placements[2].BaseCharacterSpacing = 40),
+    'multi-selection base character spacing failed');
+
+  Placements := Copy(StartPlacements);
+  Selected[0] := False;
+  Selected[2] := False;
+  ApplyCharacterLayoutRubySpacingDrag(Placements, Selected,
+    StartPlacements, cldmSpacingRight, 12, 1);
+  Check(Placements[1].HasRubyCharacterSpacing and
+    (Placements[1].RubyCharacterSpacing = 12),
+    'ruby spacing drag failed');
+  StartPlacements := Copy(Placements);
+  ApplyCharacterLayoutRubyMoveDrag(Placements, Selected,
+    StartPlacements, 8, -6, 1);
+  Check(Placements[1].HasRubyOffsetX and
+    (Placements[1].RubyOffsetX = 8) and
+    Placements[1].HasRubyOffsetY and
+    (Placements[1].RubyOffsetY = -6),
+    'ruby move drag failed');
+end;
+
+procedure TestToolbarButtonState;
+var
+  DialogButton: TSyncLyricsToolbarButton;
+  Separator: TSyncLyricsToolbarButton;
+  ToggleButton: TSyncLyricsToolbarButton;
+  Toolbar: TSyncLyricsToolbarButtons;
+begin
+  Toolbar := TSyncLyricsToolbarButtons.Create(nil);
+  try
+    Toolbar.ButtonExtent := 32;
+    Toolbar.SeparatorExtent := 7;
+    ToggleButton := Toolbar.AddToggleButton('bold', tbgBold, 10);
+    Separator := Toolbar.AddSeparator;
+    DialogButton := Toolbar.AddDialogButton('font', tbgFont, 11);
+    Check((Toolbar.ItemCount = 3) and
+      (Toolbar.FindByTag(10) = ToggleButton) and
+      (ToggleButton.Width = 32) and (Separator.Width = 7),
+      'toolbar item creation or layout failed');
+    ToggleButton.CheckState := tbcsMixed;
+    ToggleButton.Execute;
+    Check(ToggleButton.CheckState = tbcsChecked,
+      'mixed toolbar toggle did not become checked');
+    ToggleButton.Execute;
+    Check(ToggleButton.CheckState = tbcsUnchecked,
+      'checked toolbar toggle did not become unchecked');
+    DialogButton.CheckState := tbcsMixed;
+    DialogButton.Execute;
+    Check(DialogButton.CheckState = tbcsMixed,
+      'dialog toolbar button unexpectedly toggled state');
+  finally
+    Toolbar.Free;
+  end;
 end;
 
 procedure TestTimeRuler;
@@ -587,6 +901,8 @@ end;
 
 begin
   TestDisplaySettingsData;
+  TestCharacterLayoutInteraction;
+  TestToolbarButtonState;
   TestTimeRuler;
   TestSyncSourceKind;
   TestSongReaderAndConsumption;

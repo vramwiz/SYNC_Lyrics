@@ -24,7 +24,7 @@ uses
   System.UITypes,
   SYNC_Lyrics_ContextManager,
   SYNC_Lyrics_DisplaySettingsData,
-  SYNC_Lyrics_DisplaySettingsDebugForm,
+  SYNC_Lyrics_CharacterLayoutSettingsForm,
   SYNC_Lyrics_FontSettingsForm,
   SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
@@ -46,16 +46,8 @@ uses
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 procedure FontSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
-procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
-
-type
-  TDisplaySettingsDataItem = record
-    ItemType: LPCWSTR;
-    Name: LPCWSTR;
-    Value: PDisplaySettingsData;
-    Size: Integer;
-    DefaultValue: TDisplaySettingsData;
-  end;
+procedure CharacterLayoutSettingsButtonCallback(
+  Edit: PEDIT_SECTION); cdecl; forward;
 
 var
   LyricsItem: TFILTER_ITEM_STRING = (
@@ -187,7 +179,7 @@ var
   DisplaySettingsButton: TFILTER_ITEM_BUTTON = (
     ItemType: 'button';
     Name: '表示設定';
-    Callback: DisplaySettingsButtonCallback
+    Callback: CharacterLayoutSettingsButtonCallback
   );
   SyncAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: 'なし'; Value: 0),
@@ -283,7 +275,11 @@ var
     Name: '同期データ';
     Value: DEFAULT_MUSIC_SYNC_TEXT
   );
-  DisplaySettingsDataItem: TDisplaySettingsDataItem;
+  DisplaySettingsTextItem: TFILTER_ITEM_STRING = (
+    ItemType: 'string';
+    Name: '表示設定';
+    Value: ''
+  );
   PluginItems: array[0..33] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
@@ -306,18 +302,21 @@ begin
   MessageDlg(MessageText, mtError, [mbOK], 0);
 end;
 
-procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
+procedure CharacterLayoutSettingsButtonCallback(
+  Edit: PEDIT_SECTION); cdecl;
 var
   BackgroundHeight: Integer;
   BackgroundPixels: TBytes;
   BackgroundStatus: string;
   BackgroundWidth: Integer;
   CurrentBaseFontName: string;
-  CurrentData: TDisplaySettingsData;
+  CurrentSettingsText: string;
   CurrentLyrics: string;
   CurrentRubyFontName: string;
-  DisplayForm: TFormLyricsDisplaySettingsDebug;
-  EncodedData: TDisplaySettingsData;
+  CharacterLayoutForm: TFormLyricsCharacterLayoutSettings;
+  EncodedSettingsText: string;
+  Obj: OBJECT_HANDLE;
+  Utf8SettingsText: UTF8String;
 begin
   if DisplayTypeItem.Value <> DISPLAY_MODE_FREE_PLACEMENT then
   begin
@@ -326,10 +325,9 @@ begin
     Exit;
   end;
 
-  ClearDisplaySettingsData(CurrentData);
-  if (DisplaySettingsDataItem.Value <> nil) and
-    (DisplaySettingsDataItem.Size = SizeOf(TDisplaySettingsData)) then
-    CurrentData := DisplaySettingsDataItem.Value^;
+  CurrentSettingsText := '';
+  if Assigned(DisplaySettingsTextItem.Value) then
+    CurrentSettingsText := string(DisplaySettingsTextItem.Value);
   CurrentLyrics := '';
   if Assigned(LyricsItem.Value) then
     CurrentLyrics := string(LyricsItem.Value);
@@ -340,37 +338,55 @@ begin
   if Assigned(RubyFontItem.Value) then
     CurrentRubyFontName := string(RubyFontItem.Value);
 
-  DisplayForm := TFormLyricsDisplaySettingsDebug.Create(nil);
+  CharacterLayoutForm := TFormLyricsCharacterLayoutSettings.Create(nil);
   try
     if CopyLastFrame(BackgroundPixels, BackgroundWidth,
       BackgroundHeight, BackgroundStatus) then
-      DisplayForm.SetBackgroundRgba(BackgroundPixels,
+      CharacterLayoutForm.SetBackgroundRgba(BackgroundPixels,
         BackgroundWidth, BackgroundHeight);
-    DisplayForm.SetCaptureStatus(BackgroundStatus);
-    DisplayForm.Configure(CurrentLyrics, CurrentBaseFontName,
+    CharacterLayoutForm.SetCaptureStatus(BackgroundStatus);
+    CharacterLayoutForm.Configure(CurrentLyrics, CurrentBaseFontName,
       CurrentRubyFontName, Round(BaseFontSizeItem.Value),
       Round(RubyFontSizeItem.Value), Round(RubyGapAdjustmentItem.Value),
-      CurrentData);
-    if DisplayForm.ShowModal <> mrOk then
+      BeforeColorItem.R or (Cardinal(BeforeColorItem.G) shl 8) or
+        (Cardinal(BeforeColorItem.B) shl 16),
+      AfterColorItem.R or (Cardinal(AfterColorItem.G) shl 8) or
+        (Cardinal(AfterColorItem.B) shl 16),
+      Byte(Ord(BaseBoldItem.Value <> 0) or
+        (Ord(BaseItalicItem.Value <> 0) shl 1) or
+        (Ord(BaseUnderlineItem.Value <> 0) shl 2) or
+        (Ord(BaseStrikeOutItem.Value <> 0) shl 3)),
+      Byte(Ord(RubyBoldItem.Value <> 0) or
+        (Ord(RubyItalicItem.Value <> 0) shl 1) or
+        (Ord(RubyUnderlineItem.Value <> 0) shl 2) or
+        (Ord(RubyStrikeOutItem.Value <> 0) shl 3)),
+      CurrentSettingsText);
+    if CharacterLayoutForm.ShowModal <> mrOk then
       Exit;
-    if not DisplayForm.TryBuildSettingsData(EncodedData) then
+    if not CharacterLayoutForm.TryBuildSettingsText(EncodedSettingsText) then
     begin
       ShowFontSettingsError(
-        '表示設定データが保存可能なサイズを超えています。');
+        '表示設定を文字列へ変換できませんでした。');
       Exit;
     end;
   finally
-    DisplayForm.Free;
+    CharacterLayoutForm.Free;
   end;
 
-  if (DisplaySettingsDataItem.Value = nil) or
-    (DisplaySettingsDataItem.Size <> SizeOf(TDisplaySettingsData)) then
+  Obj := nil;
+  if (Edit <> nil) and Assigned(Edit^.GetFocusObject) then
+    Obj := Edit^.GetFocusObject();
+  if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
+    (Obj = nil) then
   begin
     ShowFontSettingsError(
-      '表示設定データの保存領域を取得できませんでした。');
+      '表示設定を反映する対象オブジェクトを取得できませんでした。');
     Exit;
   end;
-  DisplaySettingsDataItem.Value^ := EncodedData;
+  Utf8SettingsText := UTF8String(EncodedSettingsText);
+  if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+    '表示設定', PAnsiChar(Utf8SettingsText)) then
+    ShowFontSettingsError('表示設定を歌詞テロップへ反映できませんでした。');
 end;
 
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
@@ -734,10 +750,9 @@ begin
       ParseLyrics(LyricsText, PlacementPlainText, PlacementRubySpans);
       BuildLyricsDisplayUnits(PlacementPlainText, PlacementRubySpans,
         PlacementUnits);
-      if Assigned(DisplaySettingsDataItem.Value) and
-        (DisplaySettingsDataItem.Size = SizeOf(TDisplaySettingsData)) then
-        HasFreePlacement := TryDecodeDisplayPlacements(
-          DisplaySettingsDataItem.Value^, LyricsText,
+      if Assigned(DisplaySettingsTextItem.Value) then
+        HasFreePlacement := TryDecodeDisplayPlacementsText(
+          string(DisplaySettingsTextItem.Value), LyricsText,
           Length(PlacementUnits), PlacementItems);
     end;
     DisplayUnitCount := CountLyricsDisplayUnits(LyricsText);
@@ -822,12 +837,6 @@ function GetLyricsFilterTable: PFILTER_PLUGIN_TABLE;
 begin
   if Plugin.Items = nil then
   begin
-    ClearDisplaySettingsData(DisplaySettingsDataItem.DefaultValue);
-    DisplaySettingsDataItem.ItemType := 'data';
-    DisplaySettingsDataItem.Name := '表示設定データ';
-    DisplaySettingsDataItem.Value :=
-      @DisplaySettingsDataItem.DefaultValue;
-    DisplaySettingsDataItem.Size := SizeOf(TDisplaySettingsData);
     // AviUtl2はnil終端された項目ポインター配列を参照する。
     PluginItems[0] := @MusicSyncSettingsButton;
     PluginItems[1] := @LyricsItem;
@@ -861,7 +870,7 @@ begin
     PluginItems[29] := @BaseCharacterSpacingItem;
     PluginItems[30] := @PreDisplayTimeItem;
     PluginItems[31] := @SyncDataItem;
-    PluginItems[32] := @DisplaySettingsDataItem;
+    PluginItems[32] := @DisplaySettingsTextItem;
     PluginItems[33] := nil;
     Plugin.Items := @PluginItems[0];
   end;
