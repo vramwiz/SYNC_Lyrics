@@ -33,6 +33,8 @@ uses
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
+  SYNC_Lyrics_DisplayPresetData in
+    'Source\Common\Render\SYNC_Lyrics_DisplayPresetData.pas',
   SYNC_Lyrics_CharacterLayoutInteraction in
     'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
@@ -249,16 +251,34 @@ begin
   Check(not TryEncodeDisplayPlacements('oversized', OversizedItems, Data),
     'oversized display placement list was accepted');
 end;
+
 {$ENDIF}
 
 procedure TestDisplaySettingsData;
 var
+  Common: TDisplayCommonSettings;
+  DecodedCommon: TDisplayCommonSettings;
   DecodedItems: TDisplayPlacementItems;
   I: Integer;
   Items: TDisplayPlacementItems;
   OversizedItems: TDisplayPlacementItems;
+  PlacementsMatchLyrics: Boolean;
   SettingsText: string;
 begin
+  Common := DefaultDisplayCommonSettings;
+  Common.PositionX := 123;
+  Common.PositionY := -45;
+  Common.BaseFontName := '游ゴシック';
+  Common.RubyFontName := 'Yu Gothic UI';
+  Common.BaseFontHeight := 88;
+  Common.RubyFontHeight := 36;
+  Common.BaseFontStyle := 2 or 4;
+  Common.RubyFontStyle := 1;
+  Common.BeforeColor := $001E140A;
+  Common.AfterColor := $003C3228;
+  Common.RubyGapAdjustment := 12;
+  Common.BaseCharacterSpacing := -3;
+  Common.RubyCharacterSpacing := 5;
   SetLength(Items, MAX_DISPLAY_PLACEMENT_ITEMS);
   for I := 0 to High(Items) do
   begin
@@ -291,18 +311,27 @@ begin
     Items[I].RubyOffsetY := -I;
   end;
 
-  Check(TryEncodeDisplayPlacementsText('私[漢字](かんじ)', Items,
-    SettingsText), 'display placements could not be encoded as text');
+  Check(TryEncodeDisplaySettingsText('私[漢字](かんじ)', Common, Items,
+    SettingsText), 'display settings could not be encoded as text');
   Check(Length(SettingsText) > 1024,
     'display settings text did not exercise the former 1024-byte wall');
   Check(Length(SettingsText) < MAX_DISPLAY_SETTINGS_TEXT_LENGTH,
     'maximum display settings text exceeds the default edit input limit');
   Check((Pos(#10, SettingsText) = 0) and (Pos(#13, SettingsText) = 0),
     'display settings text unexpectedly contains a line break');
-  Check(TryDecodeDisplayPlacementsText(SettingsText,
-    '私[漢字](かんじ)', MAX_DISPLAY_PLACEMENT_ITEMS, DecodedItems),
-    'display placements text could not be decoded');
-  Check((Length(DecodedItems) = MAX_DISPLAY_PLACEMENT_ITEMS) and
+  Check(TryDecodeDisplaySettingsText(SettingsText,
+    '私[漢字](かんじ)', DecodedCommon, DecodedItems,
+    PlacementsMatchLyrics), 'display settings text could not be decoded');
+  Check(PlacementsMatchLyrics and
+    (DecodedCommon.PositionX = 123) and
+    (DecodedCommon.PositionY = -45) and
+    SameText(DecodedCommon.BaseFontName, '游ゴシック') and
+    (DecodedCommon.BaseFontHeight = 88) and
+    (DecodedCommon.BaseFontStyle = 6) and
+    (DecodedCommon.RubyGapAdjustment = 12) and
+    (DecodedCommon.BaseCharacterSpacing = -3) and
+    (DecodedCommon.RubyCharacterSpacing = 5) and
+    (Length(DecodedItems) = MAX_DISPLAY_PLACEMENT_ITEMS) and
     SameText(DecodedItems[98].BaseFontName, '游ゴシック体-98') and
     SameText(DecodedItems[98].RubyFontName, 'Yu Gothic UI') and
     (Abs(DecodedItems[98].X - 48) < 0.001) and
@@ -312,13 +341,70 @@ begin
     DecodedItems[98].HasRubyOffsetY and
     (DecodedItems[98].RubyOffsetY = -98),
     'display settings text did not round-trip');
-  Check(not TryDecodeDisplayPlacementsText(SettingsText, '変更後',
-    MAX_DISPLAY_PLACEMENT_ITEMS, DecodedItems),
-    'placements survived a lyrics change');
+  Check(TryDecodeDisplaySettingsText(SettingsText, '変更後',
+    DecodedCommon, DecodedItems, PlacementsMatchLyrics) and
+    not PlacementsMatchLyrics and (DecodedCommon.PositionX = 123),
+    'lyrics change did not preserve common settings and reject placements');
 
   SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
-  Check(not TryEncodeDisplayPlacementsText('oversized', OversizedItems,
-    SettingsText), 'oversized display placement list was accepted');
+  Check(not TryEncodeDisplaySettingsText('oversized', Common,
+    OversizedItems, SettingsText),
+    'oversized display placement list was accepted');
+end;
+
+procedure TestDisplayPresetData;
+var
+  Common: TDisplayCommonSettings;
+  Decoded: TDisplayPreset;
+  DisplayEffect: Integer;
+  EndAnimation: Integer;
+  EndSeconds: Double;
+  Preset: TDisplayPreset;
+  PresetText: string;
+  StartAnimation: Integer;
+  StartSeconds: Double;
+  SyncAnimation: Integer;
+begin
+  Common := DefaultDisplayCommonSettings;
+  Common.PositionX := 321;
+  Common.PositionY := -123;
+  Common.BaseFontName := '游ゴシック';
+  Common.RubyFontName := 'メイリオ';
+  Common.BaseFontHeight := 120;
+  Common.RubyFontHeight := 48;
+  Common.BaseFontStyle := 3;
+  Common.RubyFontStyle := 4;
+  Common.BeforeColor := $00112233;
+  Common.AfterColor := $00445566;
+  Common.RubyGapAdjustment := 17;
+  Common.BaseCharacterSpacing := -4;
+  Common.RubyCharacterSpacing := 8;
+  BuildDisplayPreset(Common, 2, 1, 1, 0.45, 1, 0.72, Preset);
+  Check(TryEncodeDisplayPreset(Preset, PresetText),
+    'display preset could not be encoded');
+  Check(TryDecodeDisplayPreset(PresetText, Decoded),
+    'display preset could not be decoded');
+
+  Common := DefaultDisplayCommonSettings;
+  Common.PositionX := 321;
+  Common.PositionY := -123;
+  ApplyDisplayPreset(Decoded, Common, DisplayEffect, SyncAnimation,
+    StartAnimation, StartSeconds, EndAnimation, EndSeconds);
+  Check((Common.PositionX = 321) and (Common.PositionY = -123) and
+    SameText(Common.BaseFontName, '游ゴシック') and
+    SameText(Common.RubyFontName, 'メイリオ') and
+    (Common.BaseFontHeight = 120) and (Common.RubyFontHeight = 48) and
+    (Common.BeforeColor = $00112233) and
+    (Common.AfterColor = $00445566) and
+    (Common.RubyGapAdjustment = 17) and
+    (Common.BaseCharacterSpacing = -4) and
+    (Common.RubyCharacterSpacing = 8) and
+    (DisplayEffect = 2) and (SyncAnimation = 1) and
+    (StartAnimation = 1) and (Abs(StartSeconds - 0.45) < 0.0001) and
+    (EndAnimation = 1) and (Abs(EndSeconds - 0.72) < 0.0001),
+    'display preset did not round-trip or preserve coordinates');
+  Check(not TryDecodeDisplayPreset('broken', Decoded),
+    'invalid display preset was accepted');
 end;
 
 procedure TestCharacterLayoutInteraction;
@@ -901,6 +987,7 @@ end;
 
 begin
   TestDisplaySettingsData;
+  TestDisplayPresetData;
   TestCharacterLayoutInteraction;
   TestToolbarButtonState;
   TestTimeRuler;

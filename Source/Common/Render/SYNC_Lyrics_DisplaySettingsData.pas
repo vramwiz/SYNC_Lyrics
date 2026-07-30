@@ -1,10 +1,26 @@
 unit SYNC_Lyrics_DisplaySettingsData;
 
-// Serializes free-placement settings into one line for AviUtl2's string item.
+// Serializes common display settings and free placements into one string item.
 
 interface
 
 type
+  TDisplayCommonSettings = record
+    PositionX: Integer;
+    PositionY: Integer;
+    BaseFontName: string;
+    RubyFontName: string;
+    BaseFontHeight: Integer;
+    RubyFontHeight: Integer;
+    BaseFontStyle: Byte;
+    RubyFontStyle: Byte;
+    BeforeColor: Cardinal;
+    AfterColor: Cardinal;
+    RubyGapAdjustment: Integer;
+    BaseCharacterSpacing: Integer;
+    RubyCharacterSpacing: Integer;
+  end;
+
   TDisplayPlacementItem = record
     Index: Integer;
     X: Single;
@@ -42,9 +58,12 @@ const
   MAX_DISPLAY_SETTINGS_TEXT_LENGTH = 32767;
 
 function CalculateDisplayLyricsHash(const Lyrics: string): Cardinal;
-function TryDecodeDisplayPlacementsText(const Text, Lyrics: string;
-  ExpectedItemCount: Integer; out Items: TDisplayPlacementItems): Boolean;
-function TryEncodeDisplayPlacementsText(const Lyrics: string;
+function DefaultDisplayCommonSettings: TDisplayCommonSettings;
+function TryDecodeDisplaySettingsText(const Text, Lyrics: string;
+  out Common: TDisplayCommonSettings; out Items: TDisplayPlacementItems;
+  out PlacementsMatchLyrics: Boolean): Boolean;
+function TryEncodeDisplaySettingsText(const Lyrics: string;
+  const Common: TDisplayCommonSettings;
   const Items: TDisplayPlacementItems; out Text: string): Boolean;
 
 implementation
@@ -55,7 +74,7 @@ uses
   System.SysUtils;
 
 const
-  DISPLAY_SETTINGS_TEXT_PREFIX = 'SL1';
+  DISPLAY_SETTINGS_TEXT_PREFIX = 'SL2';
   FNV1A_OFFSET_BASIS = Cardinal(2166136261);
   FNV1A_PRIME = Cardinal(16777619);
   MIN_PLACEMENT_SCALE = 0.05;
@@ -71,6 +90,23 @@ const
   FLAG_RUBY_CHARACTER_SPACING = 128;
   FLAG_RUBY_OFFSET_X = 256;
   FLAG_RUBY_OFFSET_Y = 512;
+
+function DefaultDisplayCommonSettings: TDisplayCommonSettings;
+begin
+  Result.PositionX := 0;
+  Result.PositionY := 0;
+  Result.BaseFontName := 'Yu Gothic UI';
+  Result.RubyFontName := 'Yu Gothic UI';
+  Result.BaseFontHeight := 96;
+  Result.RubyFontHeight := 42;
+  Result.BaseFontStyle := 1;
+  Result.RubyFontStyle := 1;
+  Result.BeforeColor := $00FFFFFF;
+  Result.AfterColor := $00FFFF00;
+  Result.RubyGapAdjustment := 0;
+  Result.BaseCharacterSpacing := 0;
+  Result.RubyCharacterSpacing := 0;
+end;
 
 function CalculateDisplayLyricsHash(const Lyrics: string): Cardinal;
 var
@@ -181,19 +217,52 @@ begin
     Result := Result or FLAG_RUBY_OFFSET_Y;
 end;
 
-function TryEncodeDisplayPlacementsText(const Lyrics: string;
+function IsValidCommonSettings(
+  const Common: TDisplayCommonSettings): Boolean;
+begin
+  Result := (Common.PositionX >= -10000) and
+    (Common.PositionX <= 10000) and
+    (Common.PositionY >= -10000) and (Common.PositionY <= 10000) and
+    (Common.BaseFontName <> '') and (Common.RubyFontName <> '') and
+    (Common.BaseFontHeight >= 1) and (Common.BaseFontHeight <= 1024) and
+    (Common.RubyFontHeight >= 1) and (Common.RubyFontHeight <= 1024) and
+    (Common.BaseFontStyle <= $0F) and (Common.RubyFontStyle <= $0F) and
+    (Common.BeforeColor <= $FFFFFF) and
+    (Common.AfterColor <= $FFFFFF) and
+    (Common.RubyGapAdjustment >= -200) and
+    (Common.RubyGapAdjustment <= 500) and
+    (Common.BaseCharacterSpacing >= -100) and
+    (Common.BaseCharacterSpacing <= 100) and
+    (Common.RubyCharacterSpacing >= -100) and
+    (Common.RubyCharacterSpacing <= 100);
+end;
+
+function TryEncodeDisplaySettingsText(const Lyrics: string;
+  const Common: TDisplayCommonSettings;
   const Items: TDisplayPlacementItems; out Text: string): Boolean;
 var
+  CommonText: string;
   I: Integer;
   Item: TDisplayPlacementItem;
   RecordText: string;
 begin
   Text := '';
   if (Length(Items) > MAX_DISPLAY_PLACEMENT_ITEMS) or
-    (Length(Items) > 255) then
+    (Length(Items) > 255) or not IsValidCommonSettings(Common) then
     Exit(False);
   Text := Format('%s|%.8X|%d', [DISPLAY_SETTINGS_TEXT_PREFIX,
     CalculateDisplayLyricsHash(Lyrics), Length(Items)]);
+  CommonText := Format(
+    '%d,%d,%s,%s,%d,%d,%d,%d,%.6X,%.6X,%d,%d,%d',
+    [Common.PositionX, Common.PositionY,
+     EncodeUtf8Hex(Common.BaseFontName),
+     EncodeUtf8Hex(Common.RubyFontName),
+     Common.BaseFontHeight, Common.RubyFontHeight,
+     Common.BaseFontStyle and $0F, Common.RubyFontStyle and $0F,
+     Common.BeforeColor and $FFFFFF, Common.AfterColor and $FFFFFF,
+     Common.RubyGapAdjustment, Common.BaseCharacterSpacing,
+     Common.RubyCharacterSpacing]);
+  Text := Text + '|' + CommonText;
   for I := 0 to High(Items) do
   begin
     Item := Items[I];
@@ -238,9 +307,11 @@ begin
     Parsed := Cardinal(Parsed64);
 end;
 
-function TryDecodeDisplayPlacementsText(const Text, Lyrics: string;
-  ExpectedItemCount: Integer; out Items: TDisplayPlacementItems): Boolean;
+function TryDecodeDisplaySettingsText(const Text, Lyrics: string;
+  out Common: TDisplayCommonSettings; out Items: TDisplayPlacementItems;
+  out PlacementsMatchLyrics: Boolean): Boolean;
 var
+  CommonFields: TStringList;
   Fields: TStringList;
   Flags: Integer;
   Header: TStringList;
@@ -252,7 +323,9 @@ var
   StoredHash: Cardinal;
   StoredHash64: UInt64;
 begin
+  Common := DefaultDisplayCommonSettings;
   Items := nil;
+  PlacementsMatchLyrics := False;
   Result := False;
   if (Text = '') or (Length(Text) > MAX_DISPLAY_SETTINGS_TEXT_LENGTH) or
     (Pos(#10, Text) <> 0) or (Pos(#13, Text) <> 0) then
@@ -260,11 +333,12 @@ begin
   Records := TStringList.Create;
   Header := TStringList.Create;
   Fields := TStringList.Create;
+  CommonFields := TStringList.Create;
   try
     Records.StrictDelimiter := True;
     Records.Delimiter := '|';
     Records.DelimitedText := Text;
-    if Records.Count < 3 then
+    if Records.Count < 4 then
       Exit;
     if Records[0] <> DISPLAY_SETTINGS_TEXT_PREFIX then
       Exit;
@@ -277,10 +351,38 @@ begin
       not TryParseInteger(Header[1], ItemCount) then
       Exit;
     StoredHash := Cardinal(StoredHash64);
-    if (StoredHash <> CalculateDisplayLyricsHash(Lyrics)) or
-      (ItemCount <> ExpectedItemCount) or
-      (ItemCount < 0) or (ItemCount > MAX_DISPLAY_PLACEMENT_ITEMS) or
-      (Records.Count <> ItemCount + 3) then
+    if (ItemCount < 0) or (ItemCount > MAX_DISPLAY_PLACEMENT_ITEMS) or
+      (Records.Count <> ItemCount + 4) then
+      Exit;
+    PlacementsMatchLyrics :=
+      StoredHash = CalculateDisplayLyricsHash(Lyrics);
+
+    CommonFields.StrictDelimiter := True;
+    CommonFields.Delimiter := ',';
+    CommonFields.DelimitedText := Records[3];
+    if (CommonFields.Count <> 13) or
+      not TryParseInteger(CommonFields[0], Common.PositionX) or
+      not TryParseInteger(CommonFields[1], Common.PositionY) or
+      not TryDecodeUtf8Hex(CommonFields[2], Common.BaseFontName) or
+      not TryDecodeUtf8Hex(CommonFields[3], Common.RubyFontName) or
+      not TryParseInteger(CommonFields[4], Common.BaseFontHeight) or
+      not TryParseInteger(CommonFields[5], Common.RubyFontHeight) or
+      not TryParseInteger(CommonFields[6], IntegerValue) or
+      (IntegerValue < 0) or (IntegerValue > $0F) then
+      Exit;
+    Common.BaseFontStyle := IntegerValue;
+    if not TryParseInteger(CommonFields[7], IntegerValue) or
+      (IntegerValue < 0) or (IntegerValue > $0F) then
+      Exit;
+    Common.RubyFontStyle := IntegerValue;
+    if not TryParseHexCardinal(CommonFields[8], Common.BeforeColor) or
+      not TryParseHexCardinal(CommonFields[9], Common.AfterColor) or
+      not TryParseInteger(CommonFields[10], Common.RubyGapAdjustment) or
+      not TryParseInteger(CommonFields[11],
+        Common.BaseCharacterSpacing) or
+      not TryParseInteger(CommonFields[12],
+        Common.RubyCharacterSpacing) or
+      not IsValidCommonSettings(Common) then
       Exit;
 
     SetLength(Items, ItemCount);
@@ -288,7 +390,7 @@ begin
     Fields.Delimiter := ',';
     for I := 0 to ItemCount - 1 do
     begin
-      Fields.DelimitedText := Records[I + 3];
+      Fields.DelimitedText := Records[I + 4];
       if Fields.Count <> 18 then
         Exit;
       FillChar(Item, SizeOf(Item), 0);
@@ -368,11 +470,16 @@ begin
     end;
     Result := True;
   finally
+    CommonFields.Free;
     Fields.Free;
     Header.Free;
     Records.Free;
     if not Result then
+    begin
+      Common := DefaultDisplayCommonSettings;
       Items := nil;
+      PlacementsMatchLyrics := False;
+    end;
   end;
 end;
 

@@ -61,6 +61,7 @@ type
     FDragMode: TCharacterLayoutDragMode;
     FDragChanged: Boolean;
     FClickCandidateModeToggle: Boolean;
+    FCommonSettings: TDisplayCommonSettings;
     FDragStartMouse: TPoint;
     FDragStartGroupBounds: TRectF;
     FDragStartPlacement: TDisplayPlacementItem;
@@ -136,10 +137,8 @@ type
     procedure ToolbarButtonExecute(Sender: TObject;
       Button: TSyncLyricsToolbarButton);
   public
-    procedure Configure(const Lyrics, BaseFontName, RubyFontName: string;
-      BaseFontHeight, RubyFontHeight, RubyGapAdjustment: Integer;
-      BeforeColor, AfterColor: TColor;
-      BaseFontStyle, RubyFontStyle: Byte;
+    procedure Configure(const Lyrics: string;
+      const CommonSettings: TDisplayCommonSettings;
       const SettingsText: string);
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
@@ -1867,27 +1866,35 @@ begin
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.Configure(
-  const Lyrics, BaseFontName, RubyFontName: string;
-  BaseFontHeight, RubyFontHeight, RubyGapAdjustment: Integer;
-  BeforeColor, AfterColor: TColor;
-  BaseFontStyle, RubyFontStyle: Byte;
+  const Lyrics: string; const CommonSettings: TDisplayCommonSettings;
   const SettingsText: string);
+var
+  DecodedCommon: TDisplayCommonSettings;
+  DecodedPlacements: TDisplayPlacementItems;
+  PlacementsMatchLyrics: Boolean;
 begin
   FLyrics := Lyrics;
-  FBaseFontName := BaseFontName;
-  FRubyFontName := RubyFontName;
-  FBaseFontHeight := Max(1, BaseFontHeight);
-  FRubyFontHeight := Max(1, RubyFontHeight);
-  FBeforeColor := ColorToRGB(BeforeColor);
-  FAfterColor := ColorToRGB(AfterColor);
-  FBaseFontStyle := BaseFontStyle and $0F;
-  FRubyFontStyle := RubyFontStyle and $0F;
-  FRubyGap := EnsureRange(4 + RubyGapAdjustment, -1024, 1024);
+  FCommonSettings := CommonSettings;
+  FBaseFontName := CommonSettings.BaseFontName;
+  FRubyFontName := CommonSettings.RubyFontName;
+  FBaseFontHeight := Max(1, CommonSettings.BaseFontHeight);
+  FRubyFontHeight := Max(1, CommonSettings.RubyFontHeight);
+  FBeforeColor := TColor(CommonSettings.BeforeColor);
+  FAfterColor := TColor(CommonSettings.AfterColor);
+  FBaseFontStyle := CommonSettings.BaseFontStyle and $0F;
+  FRubyFontStyle := CommonSettings.RubyFontStyle and $0F;
+  FRubyGap := EnsureRange(4 + CommonSettings.RubyGapAdjustment,
+    -1024, 1024);
   ParseLyrics(FLyrics, FPlainText, FRubySpans);
   BuildLyricsDisplayUnits(FPlainText, FRubySpans, FUnits);
-  if not TryDecodeDisplayPlacementsText(SettingsText, FLyrics, Length(FUnits),
-    FPlacements) then
+  if not TryDecodeDisplaySettingsText(SettingsText, FLyrics,
+    DecodedCommon, DecodedPlacements, PlacementsMatchLyrics) or
+    not PlacementsMatchLyrics or
+    (Length(DecodedPlacements) <> Length(FUnits)) then
     BuildInitialPlacements;
+  if PlacementsMatchLyrics and
+    (Length(DecodedPlacements) = Length(FUnits)) then
+    FPlacements := DecodedPlacements;
   SetLength(FSelected, Length(FUnits));
   ClearSelection;
   PopulateElementList;
@@ -1935,8 +1942,8 @@ end;
 function TFormLyricsCharacterLayoutSettings.TryBuildSettingsText(
   out SettingsText: string): Boolean;
 begin
-  Result := TryEncodeDisplayPlacementsText(FLyrics, FPlacements,
-    SettingsText);
+  Result := TryEncodeDisplaySettingsText(FLyrics, FCommonSettings,
+    FPlacements, SettingsText);
 end;
 
 end.

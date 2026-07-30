@@ -14,6 +14,7 @@ uses
   Vcl.Forms,
   Vcl.Graphics,
   Vcl.StdCtrls,
+  SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_ToolbarButtons;
 
@@ -105,31 +106,12 @@ type
     procedure UpdateFormattingControls;
     procedure UpdateSelectionLabel;
   public
-    procedure Configure(const Lyrics, BaseFontName, RubyFontName: string;
-      BaseFontHeight, RubyFontHeight, RubyGapAdjustment,
-      BaseCharacterSpacing, RubyCharacterSpacing, PositionX,
-      PositionY: Integer;
-      BeforeColor, AfterColor: TColor;
-      BaseFontStyle, RubyFontStyle: Byte);
+    procedure Configure(const Lyrics: string;
+      const CommonSettings: TDisplayCommonSettings);
     function EnteredLyrics: string;
+    function SelectedCommonSettings: TDisplayCommonSettings;
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
-    property SelectedAfterColor: TColor read FAfterColor;
-    property SelectedBaseFontHeight: Integer read FBaseFontHeight;
-    property SelectedBaseCharacterSpacing: Integer
-      read FBaseCharacterSpacing;
-    property SelectedBaseFontName: string read FBaseFontName;
-    property SelectedBaseFontStyle: Byte read FBaseFontStyle;
-    property SelectedBeforeColor: TColor read FBeforeColor;
-    property SelectedPositionX: Integer read FPositionX;
-    property SelectedPositionY: Integer read FPositionY;
-    property SelectedRubyCharacterSpacing: Integer
-      read FRubyCharacterSpacing;
-    property SelectedRubyFontHeight: Integer read FRubyFontHeight;
-    property SelectedRubyFontName: string read FRubyFontName;
-    property SelectedRubyFontStyle: Byte read FRubyFontStyle;
-    property SelectedRubyGapAdjustment: Integer
-      read FRubyGapAdjustment;
   end;
 
 implementation
@@ -229,28 +211,27 @@ begin
   Result := Destination.Width / FBackground.Width;
 end;
 
-procedure TFormLyricsLineDisplaySettings.Configure(const Lyrics,
-  BaseFontName, RubyFontName: string; BaseFontHeight, RubyFontHeight,
-  RubyGapAdjustment, BaseCharacterSpacing, RubyCharacterSpacing,
-  PositionX, PositionY: Integer; BeforeColor, AfterColor: TColor;
-  BaseFontStyle, RubyFontStyle: Byte);
+procedure TFormLyricsLineDisplaySettings.Configure(const Lyrics: string;
+  const CommonSettings: TDisplayCommonSettings);
 begin
-  FBaseFontName := BaseFontName;
-  FRubyFontName := RubyFontName;
-  FBaseFontHeight := Max(1, BaseFontHeight);
-  FRubyFontHeight := Max(1, RubyFontHeight);
-  FRubyGapAdjustment := EnsureRange(RubyGapAdjustment,
+  FBaseFontName := CommonSettings.BaseFontName;
+  FRubyFontName := CommonSettings.RubyFontName;
+  FBaseFontHeight := Max(1, CommonSettings.BaseFontHeight);
+  FRubyFontHeight := Max(1, CommonSettings.RubyFontHeight);
+  FRubyGapAdjustment := EnsureRange(CommonSettings.RubyGapAdjustment,
     MIN_RUBY_GAP_ADJUSTMENT, MAX_RUBY_GAP_ADJUSTMENT);
-  FBaseCharacterSpacing := EnsureRange(BaseCharacterSpacing,
+  FBaseCharacterSpacing := EnsureRange(CommonSettings.BaseCharacterSpacing,
     MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-  FRubyCharacterSpacing := EnsureRange(RubyCharacterSpacing,
+  FRubyCharacterSpacing := EnsureRange(CommonSettings.RubyCharacterSpacing,
     MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-  FPositionX := EnsureRange(PositionX, MIN_POSITION, MAX_POSITION);
-  FPositionY := EnsureRange(PositionY, MIN_POSITION, MAX_POSITION);
-  FBeforeColor := BeforeColor;
-  FAfterColor := AfterColor;
-  FBaseFontStyle := BaseFontStyle;
-  FRubyFontStyle := RubyFontStyle;
+  FPositionX := EnsureRange(CommonSettings.PositionX,
+    MIN_POSITION, MAX_POSITION);
+  FPositionY := EnsureRange(CommonSettings.PositionY,
+    MIN_POSITION, MAX_POSITION);
+  FBeforeColor := TColor(CommonSettings.BeforeColor);
+  FAfterColor := TColor(CommonSettings.AfterColor);
+  FBaseFontStyle := CommonSettings.BaseFontStyle;
+  FRubyFontStyle := CommonSettings.RubyFontStyle;
   LyricsEdit.Text := Lyrics;
   ParseCurrentLyrics;
   LyricsEdit.SelectAll;
@@ -338,6 +319,24 @@ end;
 function TFormLyricsLineDisplaySettings.EnteredLyrics: string;
 begin
   Result := LyricsEdit.Text;
+end;
+
+function TFormLyricsLineDisplaySettings.SelectedCommonSettings:
+  TDisplayCommonSettings;
+begin
+  Result.PositionX := FPositionX;
+  Result.PositionY := FPositionY;
+  Result.BaseFontName := FBaseFontName;
+  Result.RubyFontName := FRubyFontName;
+  Result.BaseFontHeight := FBaseFontHeight;
+  Result.RubyFontHeight := FRubyFontHeight;
+  Result.BaseFontStyle := FBaseFontStyle and $0F;
+  Result.RubyFontStyle := FRubyFontStyle and $0F;
+  Result.BeforeColor := Cardinal(ColorToRGB(FBeforeColor)) and $FFFFFF;
+  Result.AfterColor := Cardinal(ColorToRGB(FAfterColor)) and $FFFFFF;
+  Result.RubyGapAdjustment := FRubyGapAdjustment;
+  Result.BaseCharacterSpacing := FBaseCharacterSpacing;
+  Result.RubyCharacterSpacing := FRubyCharacterSpacing;
 end;
 
 procedure TFormLyricsLineDisplaySettings.FormCreate(Sender: TObject);

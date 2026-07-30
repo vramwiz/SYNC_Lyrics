@@ -23,6 +23,8 @@ type
     Obj: OBJECT_HANDLE): TOBJECT_LAYER_FRAME; cdecl;
   TSetObjectItemValueFunc = function(Obj: OBJECT_HANDLE; Effect: LPCWSTR;
     Item: LPCWSTR; Value: PAnsiChar): LongBool; cdecl;
+  TGetObjectItemValueFunc = function(Obj: OBJECT_HANDLE; Effect: LPCWSTR;
+    Item: LPCWSTR): PAnsiChar; cdecl;
   TGetFocusObjectFunc = function: OBJECT_HANDLE; cdecl;
   TSetObjectNameFunc = procedure(Obj: OBJECT_HANDLE; Name: LPCWSTR); cdecl;
 
@@ -34,7 +36,7 @@ type
     CountObjectEffect: TCountObjectEffectFunc;
     GetObjectLayerFrame: TGetObjectLayerFrameFunc;
     GetObjectAlias: Pointer;
-    GetObjectItemValue: Pointer;
+    GetObjectItemValue: TGetObjectItemValueFunc;
     SetObjectItemValue: TSetObjectItemValueFunc;
     MoveObject: Pointer;
     DeleteObject: Pointer;

@@ -19,13 +19,14 @@ procedure FinalizeLyricsFilter;
 implementation
 
 uses
+  System.IOUtils,
   System.Math,
   System.SysUtils,
   System.UITypes,
   SYNC_Lyrics_ContextManager,
+  SYNC_Lyrics_DisplayPresetData,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_CharacterLayoutSettingsForm,
-  SYNC_Lyrics_FontSettingsForm,
   SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_LastFrameCapture,
@@ -41,15 +42,14 @@ uses
   SYNC_Lyrics_SyncSourceKind,
   SYNC_Lyrics_SyncFormat,
   SYNC_Lyrics_Time,
-  Winapi.Windows,
   Vcl.Dialogs,
-  Vcl.Forms,
-  Vcl.Graphics;
+  Vcl.Forms;
 
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
-procedure FontSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
+procedure PresetSaveButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
+procedure PresetLoadButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure CharacterLayoutSettingsButtonCallback(
   Edit: PEDIT_SECTION); cdecl; forward;
 procedure LineDisplaySettingsButtonCallback(
@@ -82,93 +82,6 @@ var
     E: 255;
     Step: 1
   );
-  PositionXItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: 'X';
-    Value: 0;
-    S: -10000;
-    E: 10000;
-    Step: 1
-  );
-  PositionYItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: 'Y';
-    Value: 0;
-    S: -10000;
-    E: 10000;
-    Step: 1
-  );
-  FontSettingsButton: TFILTER_ITEM_BUTTON = (
-    ItemType: 'button';
-    Name: 'フォント設定';
-    Callback: FontSettingsButtonCallback
-  );
-  BaseFontItem: TFILTER_ITEM_STRING = (
-    ItemType: 'string';
-    Name: 'フォント名';
-    Value: 'Yu Gothic UI'
-  );
-  BaseBoldItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '太字';
-    Value: 1
-  );
-  BaseItalicItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '斜体';
-    Value: 0
-  );
-  BaseUnderlineItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '下線';
-    Value: 0
-  );
-  BaseStrikeOutItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '取り消し線';
-    Value: 0
-  );
-  RubyFontItem: TFILTER_ITEM_STRING = (
-    ItemType: 'string';
-    Name: 'フォント名（ルビ）';
-    Value: 'Yu Gothic UI'
-  );
-  RubyBoldItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '太字（ルビ）';
-    Value: 1
-  );
-  RubyItalicItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '斜体（ルビ）';
-    Value: 0
-  );
-  RubyUnderlineItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '下線（ルビ）';
-    Value: 0
-  );
-  RubyStrikeOutItem: TFILTER_ITEM_CHECK = (
-    ItemType: 'check';
-    Name: '取り消し線（ルビ）';
-    Value: 0
-  );
-  BeforeColorItem: TFILTER_ITEM_COLOR = (
-    ItemType: 'color';
-    Name: '変化前色';
-    B: 255;
-    G: 255;
-    R: 255;
-    X: 0
-  );
-  AfterColorItem: TFILTER_ITEM_COLOR = (
-    ItemType: 'color';
-    Name: '変化後色';
-    B: 255;
-    G: 255;
-    R: 0;
-    X: 0
-  );
   PlacementModeList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: '1行配置'; Value: 0),
     (Name: '文字自由配置'; Value: 1),
@@ -196,6 +109,35 @@ var
     ItemType: 'button';
     Name: '表示設定';
     Callback: DisplaySettingsButtonCallback
+  );
+  PresetList: array[0..10] of TFILTER_ITEM_SELECT_ITEM = (
+    (Name: 'プリセット1'; Value: 0),
+    (Name: 'プリセット2'; Value: 1),
+    (Name: 'プリセット3'; Value: 2),
+    (Name: 'プリセット4'; Value: 3),
+    (Name: 'プリセット5'; Value: 4),
+    (Name: 'プリセット6'; Value: 5),
+    (Name: 'プリセット7'; Value: 6),
+    (Name: 'プリセット8'; Value: 7),
+    (Name: 'プリセット9'; Value: 8),
+    (Name: 'プリセット10'; Value: 9),
+    (Name: nil; Value: 0)
+  );
+  PresetItem: TFILTER_ITEM_SELECT = (
+    ItemType: 'select';
+    Name: 'プリセット';
+    Value: 0;
+    List: @PresetList[0]
+  );
+  PresetSaveButton: TFILTER_ITEM_BUTTON = (
+    ItemType: 'button';
+    Name: '保存';
+    Callback: PresetSaveButtonCallback
+  );
+  PresetLoadButton: TFILTER_ITEM_BUTTON = (
+    ItemType: 'button';
+    Name: '読込';
+    Callback: PresetLoadButtonCallback
   );
   SyncAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: 'なし'; Value: 0),
@@ -241,46 +183,6 @@ var
     E: 10;
     Step: 0.01
   );
-  BaseFontSizeItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: '歌詞サイズ';
-    Value: 96;
-    S: 1;
-    E: 1024;
-    Step: 1
-  );
-  RubyFontSizeItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: 'ルビサイズ';
-    Value: 42;
-    S: 1;
-    E: 1024;
-    Step: 1
-  );
-  RubyGapAdjustmentItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: 'ルビ間隔補正';
-    Value: 0;
-    S: -200;
-    E: 500;
-    Step: 1
-  );
-  BaseCharacterSpacingItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: '字間';
-    Value: 0;
-    S: -100;
-    E: 100;
-    Step: 1
-  );
-  RubyCharacterSpacingItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: '字間（ルビ）';
-    Value: 0;
-    S: -100;
-    E: 100;
-    Step: 1
-  );
   PreDisplayTimeItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track';
     Name: '事前表示 (秒)';
@@ -304,7 +206,7 @@ var
     Name: '表示設定';
     Value: ''
   );
-  PluginItems: array[0..35] of Pointer;
+  PluginItems: array[0..18] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -317,8 +219,6 @@ var
 
 const
   FILTER_EFFECT_NAME = 'SYNC_歌詞テロップ_Filter';
-  BASE_FONT_ITEM_NAME = 'フォント名';
-  RUBY_FONT_ITEM_NAME = 'フォント名（ルビ）';
   PLACEMENT_MODE_LINE = 0;
   PLACEMENT_MODE_FREE = 1;
 
@@ -377,21 +277,39 @@ begin
   Result := True;
 end;
 
-function FilterColorText(Color: TColor): string;
+function TryGetObjectItemText(Edit: PEDIT_SECTION; Obj: OBJECT_HANDLE;
+  const ItemName: string; out Value: string): Boolean;
 var
-  RgbColor: COLORREF;
+  RawValue: PAnsiChar;
 begin
-  RgbColor := ColorToRGB(Color);
-  Result := LowerCase(Format('%.2x%.2x%.2x', [
-    GetRValue(RgbColor), GetGValue(RgbColor), GetBValue(RgbColor)]));
+  Value := '';
+  Result := (Edit <> nil) and Assigned(Edit^.GetObjectItemValue) and
+    (Obj <> nil);
+  if not Result then
+    Exit;
+  RawValue := Edit^.GetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+    PWideChar(ItemName));
+  Result := RawValue <> nil;
+  if Result then
+    Value := string(UTF8String(RawValue));
 end;
 
-function StyleFlagText(Style: Byte; Mask: Byte): string;
+function TryGetObjectItemInteger(Edit: PEDIT_SECTION; Obj: OBJECT_HANDLE;
+  const ItemName: string; out Value: Integer): Boolean;
+var
+  TextValue: string;
 begin
-  if (Style and Mask) <> 0 then
-    Result := '1'
-  else
-    Result := '0';
+  Result := TryGetObjectItemText(Edit, Obj, ItemName, TextValue) and
+    TryStrToInt(TextValue, Value);
+end;
+
+function TryGetObjectItemFloat(Edit: PEDIT_SECTION; Obj: OBJECT_HANDLE;
+  const ItemName: string; out Value: Double): Boolean;
+var
+  TextValue: string;
+begin
+  Result := TryGetObjectItemText(Edit, Obj, ItemName, TextValue) and
+    TryStrToFloat(TextValue, Value, TFormatSettings.Invariant);
 end;
 
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
@@ -402,6 +320,166 @@ begin
     LineDisplaySettingsButtonCallback(Edit);
 end;
 
+procedure PresetSaveButtonCallback(Edit: PEDIT_SECTION); cdecl;
+var
+  Common: TDisplayCommonSettings;
+  CurrentLyrics: string;
+  CurrentPlacements: TDisplayPlacementItems;
+  CurrentSettingsText: string;
+  DisplayEffect: Integer;
+  EndAnimation: Integer;
+  EndAnimationSeconds: Double;
+  FileName: string;
+  Obj: OBJECT_HANDLE;
+  PlacementsMatchLyrics: Boolean;
+  Preset: TDisplayPreset;
+  PresetIndex: Integer;
+  PresetText: string;
+  StartAnimation: Integer;
+  StartAnimationSeconds: Double;
+  SyncAnimation: Integer;
+begin
+  try
+    if (Edit = nil) or not Assigned(Edit^.GetFocusObject) then
+      Exit;
+    Obj := Edit^.GetFocusObject();
+    if (Obj = nil) or
+      not TryGetObjectItemText(Edit, Obj, '歌詞', CurrentLyrics) or
+      not TryGetObjectItemText(Edit, Obj, '表示設定',
+        CurrentSettingsText) or
+      not TryGetObjectItemInteger(Edit, Obj, 'プリセット',
+        PresetIndex) or
+      not TryGetObjectItemInteger(Edit, Obj, '同期演出',
+        DisplayEffect) or
+      not TryGetObjectItemInteger(Edit, Obj, '同期アニメーション',
+        SyncAnimation) or
+      not TryGetObjectItemInteger(Edit, Obj, '開始演出',
+        StartAnimation) or
+      not TryGetObjectItemFloat(Edit, Obj, '開始演出時間 (秒)',
+        StartAnimationSeconds) or
+      not TryGetObjectItemInteger(Edit, Obj, '終了演出',
+        EndAnimation) or
+      not TryGetObjectItemFloat(Edit, Obj, '終了演出時間 (秒)',
+        EndAnimationSeconds) then
+      Exit;
+    Common := DefaultDisplayCommonSettings;
+    CurrentPlacements := nil;
+    PlacementsMatchLyrics := False;
+    TryDecodeDisplaySettingsText(CurrentSettingsText, CurrentLyrics,
+      Common, CurrentPlacements, PlacementsMatchLyrics);
+    BuildDisplayPreset(Common, DisplayEffect, SyncAnimation, StartAnimation,
+      StartAnimationSeconds, EndAnimation, EndAnimationSeconds, Preset);
+    if not TryEncodeDisplayPreset(Preset, PresetText) then
+      Exit;
+    FileName := TPath.Combine(
+      TPath.Combine(TPath.GetDocumentsPath, 'SYNC_Lyrics'),
+      IntToStr(EnsureRange(PresetIndex, 0, 9)) + '.slpreset');
+    TDirectory.CreateDirectory(TPath.GetDirectoryName(FileName));
+    TFile.WriteAllText(FileName, PresetText, TEncoding.UTF8);
+  except
+    // Preset operations are deliberately silent.
+  end;
+end;
+
+procedure PresetLoadButtonCallback(Edit: PEDIT_SECTION); cdecl;
+var
+  Common: TDisplayCommonSettings;
+  CurrentLyrics: string;
+  CurrentPlacements: TDisplayPlacementItems;
+  CurrentSettingsText: string;
+  DisplayEffect: Integer;
+  EncodedSettingsText: string;
+  EndAnimation: Integer;
+  EndAnimationSeconds: Double;
+  FailedItemName: string;
+  FileName: string;
+  Obj: OBJECT_HANDLE;
+  PlacementsMatchLyrics: Boolean;
+  Preset: TDisplayPreset;
+  PresetIndex: Integer;
+  PresetText: string;
+  StartAnimation: Integer;
+  StartAnimationSeconds: Double;
+  SyncAnimation: Integer;
+  Updates: TFilterItemUpdates;
+begin
+  try
+    if (Edit = nil) or not Assigned(Edit^.GetFocusObject) or
+      not Assigned(Edit^.GetObjectItemValue) or
+      not Assigned(Edit^.SetObjectItemValue) then
+      Exit;
+    Obj := Edit^.GetFocusObject();
+    if (Obj = nil) or
+      not TryGetObjectItemInteger(Edit, Obj, 'プリセット',
+        PresetIndex) then
+      Exit;
+    FileName := TPath.Combine(
+      TPath.Combine(TPath.GetDocumentsPath, 'SYNC_Lyrics'),
+      IntToStr(EnsureRange(PresetIndex, 0, 9)) + '.slpreset');
+    if not TFile.Exists(FileName) then
+      Exit;
+    PresetText := TFile.ReadAllText(FileName, TEncoding.UTF8);
+    if not TryDecodeDisplayPreset(PresetText, Preset) then
+      Exit;
+
+    if not TryGetObjectItemText(Edit, Obj, '歌詞', CurrentLyrics) or
+      not TryGetObjectItemText(Edit, Obj, '表示設定',
+        CurrentSettingsText) then
+      Exit;
+    Common := DefaultDisplayCommonSettings;
+    CurrentPlacements := nil;
+    PlacementsMatchLyrics := False;
+    TryDecodeDisplaySettingsText(CurrentSettingsText, CurrentLyrics,
+      Common, CurrentPlacements, PlacementsMatchLyrics);
+    if not PlacementsMatchLyrics then
+      CurrentPlacements := nil;
+    ApplyDisplayPreset(Preset, Common, DisplayEffect, SyncAnimation,
+      StartAnimation, StartAnimationSeconds, EndAnimation,
+      EndAnimationSeconds);
+    if not TryEncodeDisplaySettingsText(CurrentLyrics, Common,
+      CurrentPlacements, EncodedSettingsText) then
+      Exit;
+
+    AddFilterItemUpdate(Updates, '表示設定', CurrentSettingsText,
+      EncodedSettingsText);
+    if not TryGetObjectItemText(Edit, Obj, '同期演出',
+      PresetText) then
+      Exit;
+    AddFilterItemUpdate(Updates, '同期演出', PresetText,
+      IntToStr(DisplayEffect));
+    if not TryGetObjectItemText(Edit, Obj, '同期アニメーション',
+      PresetText) then
+      Exit;
+    AddFilterItemUpdate(Updates, '同期アニメーション', PresetText,
+      IntToStr(SyncAnimation));
+    if not TryGetObjectItemText(Edit, Obj, '開始演出',
+      PresetText) then
+      Exit;
+    AddFilterItemUpdate(Updates, '開始演出', PresetText,
+      IntToStr(StartAnimation));
+    if not TryGetObjectItemText(Edit, Obj, '開始演出時間 (秒)',
+      PresetText) then
+      Exit;
+    AddFilterItemUpdate(Updates, '開始演出時間 (秒)', PresetText,
+      FormatFloat('0.00', StartAnimationSeconds,
+        TFormatSettings.Invariant));
+    if not TryGetObjectItemText(Edit, Obj, '終了演出',
+      PresetText) then
+      Exit;
+    AddFilterItemUpdate(Updates, '終了演出', PresetText,
+      IntToStr(EndAnimation));
+    if not TryGetObjectItemText(Edit, Obj, '終了演出時間 (秒)',
+      PresetText) then
+      Exit;
+    AddFilterItemUpdate(Updates, '終了演出時間 (秒)', PresetText,
+      FormatFloat('0.00', EndAnimationSeconds,
+        TFormatSettings.Invariant));
+    ApplyFilterItemUpdates(Edit, Obj, Updates, FailedItemName);
+  except
+    // Preset operations are deliberately silent.
+  end;
+end;
+
 procedure LineDisplaySettingsButtonCallback(
   Edit: PEDIT_SECTION); cdecl;
 var
@@ -409,28 +487,17 @@ var
   BackgroundPixels: TBytes;
   BackgroundStatus: string;
   BackgroundWidth: Integer;
-  CurrentBaseFontName: string;
-  CurrentBaseFontStyle: Byte;
+  CurrentCommon: TDisplayCommonSettings;
   CurrentLyrics: string;
-  CurrentRubyFontName: string;
-  CurrentRubyFontStyle: Byte;
+  CurrentPlacements: TDisplayPlacementItems;
+  CurrentSettingsText: string;
+  EncodedSettingsText: string;
   FailedItemName: string;
   LineDisplayForm: TFormLyricsLineDisplaySettings;
   Obj: OBJECT_HANDLE;
-  SelectedAfterColor: TColor;
-  SelectedBaseFontHeight: Integer;
-  SelectedBaseCharacterSpacing: Integer;
-  SelectedBaseFontName: string;
-  SelectedBaseFontStyle: Byte;
-  SelectedBeforeColor: TColor;
-  SelectedPositionX: Integer;
-  SelectedPositionY: Integer;
-  SelectedRubyCharacterSpacing: Integer;
+  PlacementsMatchLyrics: Boolean;
+  SelectedCommon: TDisplayCommonSettings;
   SelectedLyrics: string;
-  SelectedRubyFontHeight: Integer;
-  SelectedRubyFontName: string;
-  SelectedRubyFontStyle: Byte;
-  SelectedRubyGapAdjustment: Integer;
   Updates: TFilterItemUpdates;
 begin
   try
@@ -448,112 +515,41 @@ begin
     CurrentLyrics := '';
     if Assigned(LyricsItem.Value) then
       CurrentLyrics := string(LyricsItem.Value);
-    CurrentBaseFontName := 'Yu Gothic UI';
-    if Assigned(BaseFontItem.Value) then
-      CurrentBaseFontName := string(BaseFontItem.Value);
-    CurrentRubyFontName := CurrentBaseFontName;
-    if Assigned(RubyFontItem.Value) then
-      CurrentRubyFontName := string(RubyFontItem.Value);
-    CurrentBaseFontStyle := Byte(Ord(BaseBoldItem.Value <> 0) or
-      (Ord(BaseItalicItem.Value <> 0) shl 1) or
-      (Ord(BaseUnderlineItem.Value <> 0) shl 2) or
-      (Ord(BaseStrikeOutItem.Value <> 0) shl 3));
-    CurrentRubyFontStyle := Byte(Ord(RubyBoldItem.Value <> 0) or
-      (Ord(RubyItalicItem.Value <> 0) shl 1) or
-      (Ord(RubyUnderlineItem.Value <> 0) shl 2) or
-      (Ord(RubyStrikeOutItem.Value <> 0) shl 3));
+    CurrentSettingsText := '';
+    if Assigned(DisplaySettingsTextItem.Value) then
+      CurrentSettingsText := string(DisplaySettingsTextItem.Value);
+    CurrentCommon := DefaultDisplayCommonSettings;
+    CurrentPlacements := nil;
+    PlacementsMatchLyrics := False;
+    TryDecodeDisplaySettingsText(CurrentSettingsText, CurrentLyrics,
+      CurrentCommon, CurrentPlacements, PlacementsMatchLyrics);
     LineDisplayForm := TFormLyricsLineDisplaySettings.Create(nil);
     try
       if CopyLastFrame(BackgroundPixels, BackgroundWidth,
         BackgroundHeight, BackgroundStatus) then
         LineDisplayForm.SetBackgroundRgba(BackgroundPixels,
           BackgroundWidth, BackgroundHeight);
-      LineDisplayForm.Configure(CurrentLyrics, CurrentBaseFontName,
-        CurrentRubyFontName, Round(BaseFontSizeItem.Value),
-        Round(RubyFontSizeItem.Value), Round(RubyGapAdjustmentItem.Value),
-        Round(BaseCharacterSpacingItem.Value),
-        Round(RubyCharacterSpacingItem.Value), Round(PositionXItem.Value),
-        Round(PositionYItem.Value),
-        RGB(BeforeColorItem.R, BeforeColorItem.G, BeforeColorItem.B),
-        RGB(AfterColorItem.R, AfterColorItem.G, AfterColorItem.B),
-        CurrentBaseFontStyle, CurrentRubyFontStyle);
+      LineDisplayForm.Configure(CurrentLyrics, CurrentCommon);
       if LineDisplayForm.ShowModal <> mrOk then
         Exit;
       SelectedLyrics := LineDisplayForm.EnteredLyrics;
-      SelectedBaseFontName := LineDisplayForm.SelectedBaseFontName;
-      SelectedRubyFontName := LineDisplayForm.SelectedRubyFontName;
-      SelectedBaseFontStyle := LineDisplayForm.SelectedBaseFontStyle;
-      SelectedRubyFontStyle := LineDisplayForm.SelectedRubyFontStyle;
-      SelectedBaseFontHeight := LineDisplayForm.SelectedBaseFontHeight;
-      SelectedBaseCharacterSpacing :=
-        LineDisplayForm.SelectedBaseCharacterSpacing;
-      SelectedRubyFontHeight := LineDisplayForm.SelectedRubyFontHeight;
-      SelectedRubyCharacterSpacing :=
-        LineDisplayForm.SelectedRubyCharacterSpacing;
-      SelectedRubyGapAdjustment :=
-        LineDisplayForm.SelectedRubyGapAdjustment;
-      SelectedPositionX := LineDisplayForm.SelectedPositionX;
-      SelectedPositionY := LineDisplayForm.SelectedPositionY;
-      SelectedBeforeColor := LineDisplayForm.SelectedBeforeColor;
-      SelectedAfterColor := LineDisplayForm.SelectedAfterColor;
+      SelectedCommon := LineDisplayForm.SelectedCommonSettings;
     finally
       LineDisplayForm.Free;
     end;
 
+    if (SelectedLyrics <> CurrentLyrics) or not PlacementsMatchLyrics then
+      CurrentPlacements := nil;
+    if not TryEncodeDisplaySettingsText(SelectedLyrics, SelectedCommon,
+      CurrentPlacements, EncodedSettingsText) then
+    begin
+      ShowFontSettingsError(
+        '表示設定を文字列へ変換できませんでした。');
+      Exit;
+    end;
     AddFilterItemUpdate(Updates, '歌詞', CurrentLyrics, SelectedLyrics);
-    AddFilterItemUpdate(Updates, BASE_FONT_ITEM_NAME, CurrentBaseFontName,
-      SelectedBaseFontName);
-    AddFilterItemUpdate(Updates, RUBY_FONT_ITEM_NAME, CurrentRubyFontName,
-      SelectedRubyFontName);
-    AddFilterItemUpdate(Updates, '太字',
-      StyleFlagText(CurrentBaseFontStyle, 1),
-      StyleFlagText(SelectedBaseFontStyle, 1));
-    AddFilterItemUpdate(Updates, '斜体',
-      StyleFlagText(CurrentBaseFontStyle, 2),
-      StyleFlagText(SelectedBaseFontStyle, 2));
-    AddFilterItemUpdate(Updates, '下線',
-      StyleFlagText(CurrentBaseFontStyle, 4),
-      StyleFlagText(SelectedBaseFontStyle, 4));
-    AddFilterItemUpdate(Updates, '取り消し線',
-      StyleFlagText(CurrentBaseFontStyle, 8),
-      StyleFlagText(SelectedBaseFontStyle, 8));
-    AddFilterItemUpdate(Updates, '太字（ルビ）',
-      StyleFlagText(CurrentRubyFontStyle, 1),
-      StyleFlagText(SelectedRubyFontStyle, 1));
-    AddFilterItemUpdate(Updates, '斜体（ルビ）',
-      StyleFlagText(CurrentRubyFontStyle, 2),
-      StyleFlagText(SelectedRubyFontStyle, 2));
-    AddFilterItemUpdate(Updates, '下線（ルビ）',
-      StyleFlagText(CurrentRubyFontStyle, 4),
-      StyleFlagText(SelectedRubyFontStyle, 4));
-    AddFilterItemUpdate(Updates, '取り消し線（ルビ）',
-      StyleFlagText(CurrentRubyFontStyle, 8),
-      StyleFlagText(SelectedRubyFontStyle, 8));
-    AddFilterItemUpdate(Updates, '歌詞サイズ',
-      IntToStr(Round(BaseFontSizeItem.Value)),
-      IntToStr(SelectedBaseFontHeight));
-    AddFilterItemUpdate(Updates, 'ルビサイズ',
-      IntToStr(Round(RubyFontSizeItem.Value)),
-      IntToStr(SelectedRubyFontHeight));
-    AddFilterItemUpdate(Updates, 'ルビ間隔補正',
-      IntToStr(Round(RubyGapAdjustmentItem.Value)),
-      IntToStr(SelectedRubyGapAdjustment));
-    AddFilterItemUpdate(Updates, '字間',
-      IntToStr(Round(BaseCharacterSpacingItem.Value)),
-      IntToStr(SelectedBaseCharacterSpacing));
-    AddFilterItemUpdate(Updates, '字間（ルビ）',
-      IntToStr(Round(RubyCharacterSpacingItem.Value)),
-      IntToStr(SelectedRubyCharacterSpacing));
-    AddFilterItemUpdate(Updates, 'X', IntToStr(Round(PositionXItem.Value)),
-      IntToStr(SelectedPositionX));
-    AddFilterItemUpdate(Updates, 'Y', IntToStr(Round(PositionYItem.Value)),
-      IntToStr(SelectedPositionY));
-    AddFilterItemUpdate(Updates, '変化前色',
-      FilterColorText(RGB(BeforeColorItem.R, BeforeColorItem.G,
-        BeforeColorItem.B)), FilterColorText(SelectedBeforeColor));
-    AddFilterItemUpdate(Updates, '変化後色',
-      FilterColorText(RGB(AfterColorItem.R, AfterColorItem.G,
-        AfterColorItem.B)), FilterColorText(SelectedAfterColor));
+    AddFilterItemUpdate(Updates, '表示設定', CurrentSettingsText,
+      EncodedSettingsText);
     if not ApplyFilterItemUpdates(Edit, Obj, Updates, FailedItemName) then
     begin
       ShowFontSettingsError('「' + FailedItemName +
@@ -575,13 +571,14 @@ var
   BackgroundPixels: TBytes;
   BackgroundStatus: string;
   BackgroundWidth: Integer;
-  CurrentBaseFontName: string;
+  CurrentCommon: TDisplayCommonSettings;
+  CurrentPlacements: TDisplayPlacementItems;
   CurrentSettingsText: string;
   CurrentLyrics: string;
-  CurrentRubyFontName: string;
   CharacterLayoutForm: TFormLyricsCharacterLayoutSettings;
   EncodedSettingsText: string;
   Obj: OBJECT_HANDLE;
+  PlacementsMatchLyrics: Boolean;
   Utf8SettingsText: UTF8String;
 begin
   if PlacementModeItem.Value <> PLACEMENT_MODE_FREE then
@@ -597,12 +594,11 @@ begin
   CurrentLyrics := '';
   if Assigned(LyricsItem.Value) then
     CurrentLyrics := string(LyricsItem.Value);
-  CurrentBaseFontName := 'Yu Gothic UI';
-  if Assigned(BaseFontItem.Value) then
-    CurrentBaseFontName := string(BaseFontItem.Value);
-  CurrentRubyFontName := CurrentBaseFontName;
-  if Assigned(RubyFontItem.Value) then
-    CurrentRubyFontName := string(RubyFontItem.Value);
+  CurrentCommon := DefaultDisplayCommonSettings;
+  CurrentPlacements := nil;
+  PlacementsMatchLyrics := False;
+  TryDecodeDisplaySettingsText(CurrentSettingsText, CurrentLyrics,
+    CurrentCommon, CurrentPlacements, PlacementsMatchLyrics);
 
   CharacterLayoutForm := TFormLyricsCharacterLayoutSettings.Create(nil);
   try
@@ -611,21 +607,7 @@ begin
       CharacterLayoutForm.SetBackgroundRgba(BackgroundPixels,
         BackgroundWidth, BackgroundHeight);
     CharacterLayoutForm.SetCaptureStatus(BackgroundStatus);
-    CharacterLayoutForm.Configure(CurrentLyrics, CurrentBaseFontName,
-      CurrentRubyFontName, Round(BaseFontSizeItem.Value),
-      Round(RubyFontSizeItem.Value), Round(RubyGapAdjustmentItem.Value),
-      BeforeColorItem.R or (Cardinal(BeforeColorItem.G) shl 8) or
-        (Cardinal(BeforeColorItem.B) shl 16),
-      AfterColorItem.R or (Cardinal(AfterColorItem.G) shl 8) or
-        (Cardinal(AfterColorItem.B) shl 16),
-      Byte(Ord(BaseBoldItem.Value <> 0) or
-        (Ord(BaseItalicItem.Value <> 0) shl 1) or
-        (Ord(BaseUnderlineItem.Value <> 0) shl 2) or
-        (Ord(BaseStrikeOutItem.Value <> 0) shl 3)),
-      Byte(Ord(RubyBoldItem.Value <> 0) or
-        (Ord(RubyItalicItem.Value <> 0) shl 1) or
-        (Ord(RubyUnderlineItem.Value <> 0) shl 2) or
-        (Ord(RubyStrikeOutItem.Value <> 0) shl 3)),
+    CharacterLayoutForm.Configure(CurrentLyrics, CurrentCommon,
       CurrentSettingsText);
     if CharacterLayoutForm.ShowModal <> mrOk then
       Exit;
@@ -850,109 +832,12 @@ begin
   end;
 end;
 
-procedure FontSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
-var
-  BaseChanged: Boolean;
-  CurrentBaseFontName: string;
-  CurrentRubyFontName: string;
-  EffectCount: Integer;
-  FontForm: TFormLyricsFontSettings;
-  Obj: OBJECT_HANDLE;
-  RubyChanged: Boolean;
-  SelectedBaseFontName: string;
-  SelectedRubyFontName: string;
-  Utf8BaseFontName: UTF8String;
-  Utf8CurrentBaseFontName: UTF8String;
-  Utf8RubyFontName: UTF8String;
-begin
-  if Edit = nil then
-    Exit;
-  if not Assigned(Edit^.GetFocusObject) or
-    not Assigned(Edit^.SetObjectItemValue) then
-  begin
-    ShowFontSettingsError('AviUtl2の編集情報を取得できませんでした。');
-    Exit;
-  end;
-
-  Obj := Edit^.GetFocusObject();
-  if Obj = nil then
-  begin
-    ShowFontSettingsError('対象の歌詞テロップオブジェクトを取得できませんでした。');
-    Exit;
-  end;
-
-  if Assigned(Edit^.CountObjectEffect) then
-  begin
-    EffectCount := Edit^.CountObjectEffect(Obj, FILTER_EFFECT_NAME);
-    if EffectCount <> 1 then
-    begin
-      ShowFontSettingsError(
-        '同じオブジェクト内の歌詞テロップFilterを一意に特定できませんでした。');
-      Exit;
-    end;
-  end;
-
-  if Assigned(BaseFontItem.Value) then
-    CurrentBaseFontName := string(BaseFontItem.Value)
-  else
-    CurrentBaseFontName := '';
-  if Assigned(RubyFontItem.Value) then
-    CurrentRubyFontName := string(RubyFontItem.Value)
-  else
-    CurrentRubyFontName := '';
-
-  FontForm := TFormLyricsFontSettings.Create(nil);
-  try
-    FontForm.SelectedBaseFontName := CurrentBaseFontName;
-    FontForm.SelectedRubyFontName := CurrentRubyFontName;
-    if FontForm.ShowModal <> mrOk then
-      Exit;
-    SelectedBaseFontName := FontForm.SelectedBaseFontName;
-    SelectedRubyFontName := FontForm.SelectedRubyFontName;
-  finally
-    FontForm.Free;
-  end;
-
-  if (SelectedBaseFontName = '') or (SelectedRubyFontName = '') then
-    Exit;
-  BaseChanged := not SameText(CurrentBaseFontName, SelectedBaseFontName);
-  RubyChanged := not SameText(CurrentRubyFontName, SelectedRubyFontName);
-  if not BaseChanged and not RubyChanged then
-    Exit;
-
-  if BaseChanged then
-  begin
-    Utf8BaseFontName := UTF8String(SelectedBaseFontName);
-    if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-      BASE_FONT_ITEM_NAME, PAnsiChar(Utf8BaseFontName)) then
-    begin
-      ShowFontSettingsError('本文用フォントを歌詞テロップへ反映できませんでした。');
-      Exit;
-    end;
-  end;
-
-  if RubyChanged then
-  begin
-    Utf8RubyFontName := UTF8String(SelectedRubyFontName);
-    if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-      RUBY_FONT_ITEM_NAME, PAnsiChar(Utf8RubyFontName)) then
-    begin
-      if BaseChanged then
-      begin
-        Utf8CurrentBaseFontName := UTF8String(CurrentBaseFontName);
-        Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-          BASE_FONT_ITEM_NAME, PAnsiChar(Utf8CurrentBaseFontName));
-      end;
-      ShowFontSettingsError('ルビ用フォントを歌詞テロップへ反映できませんでした。');
-    end;
-  end;
-end;
-
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
 var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
   AnimationSettings: TLyricsAnimationSettings;
+  CommonSettings: TDisplayCommonSettings;
   DisplayUnitCount: Integer;
   FrameState: TSyncLyricsFrameState;
   HasFreePlacement: Boolean;
@@ -967,6 +852,7 @@ var
   PlacementPlainText: string;
   PlacementRubySpans: TLyricsRubySpans;
   PlacementUnits: TLyricsDisplayUnits;
+  PlacementsMatchLyrics: Boolean;
   SyncData: TSyncTextData;
   SyncStartSeconds: Double;
   SyncProgress: Double;
@@ -983,43 +869,51 @@ begin
     RenderSettings.DisplayType := TLyricsDisplayType(
       EnsureRange(DisplayEffectItem.Value,
         Ord(Low(TLyricsDisplayType)), Ord(High(TLyricsDisplayType))));
-    if Assigned(BaseFontItem.Value) then
-      RenderSettings.BaseFontName := string(BaseFontItem.Value);
-    if Assigned(RubyFontItem.Value) then
-      RenderSettings.RubyFontName := string(RubyFontItem.Value);
-    RenderSettings.BaseBold := BaseBoldItem.Value <> 0;
-    RenderSettings.BaseItalic := BaseItalicItem.Value <> 0;
-    RenderSettings.BaseUnderline := BaseUnderlineItem.Value <> 0;
-    RenderSettings.BaseStrikeOut := BaseStrikeOutItem.Value <> 0;
-    RenderSettings.RubyBold := RubyBoldItem.Value <> 0;
-    RenderSettings.RubyItalic := RubyItalicItem.Value <> 0;
-    RenderSettings.RubyUnderline := RubyUnderlineItem.Value <> 0;
-    RenderSettings.RubyStrikeOut := RubyStrikeOutItem.Value <> 0;
-    RenderSettings.BaseFontHeight := Round(BaseFontSizeItem.Value);
-    RenderSettings.RubyFontHeight := Round(RubyFontSizeItem.Value);
-    RenderSettings.RubyGapAdjustment := Round(RubyGapAdjustmentItem.Value);
-    RenderSettings.BaseCharacterSpacing := Round(BaseCharacterSpacingItem.Value);
-    RenderSettings.RubyCharacterSpacing :=
-      Round(RubyCharacterSpacingItem.Value);
-    RenderSettings.BeforeColor.R := BeforeColorItem.R;
-    RenderSettings.BeforeColor.G := BeforeColorItem.G;
-    RenderSettings.BeforeColor.B := BeforeColorItem.B;
-    RenderSettings.AfterColor.R := AfterColorItem.R;
-    RenderSettings.AfterColor.G := AfterColorItem.G;
-    RenderSettings.AfterColor.B := AfterColorItem.B;
     LyricsText := '';
     if Assigned(LyricsItem.Value) then
       LyricsText := string(LyricsItem.Value);
+    CommonSettings := DefaultDisplayCommonSettings;
+    PlacementItems := nil;
+    PlacementsMatchLyrics := False;
+    if Assigned(DisplaySettingsTextItem.Value) then
+      TryDecodeDisplaySettingsText(string(DisplaySettingsTextItem.Value),
+        LyricsText, CommonSettings, PlacementItems,
+        PlacementsMatchLyrics);
+    RenderSettings.BaseFontName := CommonSettings.BaseFontName;
+    RenderSettings.RubyFontName := CommonSettings.RubyFontName;
+    RenderSettings.BaseBold := (CommonSettings.BaseFontStyle and 1) <> 0;
+    RenderSettings.BaseItalic := (CommonSettings.BaseFontStyle and 2) <> 0;
+    RenderSettings.BaseUnderline := (CommonSettings.BaseFontStyle and 4) <> 0;
+    RenderSettings.BaseStrikeOut := (CommonSettings.BaseFontStyle and 8) <> 0;
+    RenderSettings.RubyBold := (CommonSettings.RubyFontStyle and 1) <> 0;
+    RenderSettings.RubyItalic := (CommonSettings.RubyFontStyle and 2) <> 0;
+    RenderSettings.RubyUnderline := (CommonSettings.RubyFontStyle and 4) <> 0;
+    RenderSettings.RubyStrikeOut := (CommonSettings.RubyFontStyle and 8) <> 0;
+    RenderSettings.BaseFontHeight := CommonSettings.BaseFontHeight;
+    RenderSettings.RubyFontHeight := CommonSettings.RubyFontHeight;
+    RenderSettings.RubyGapAdjustment := CommonSettings.RubyGapAdjustment;
+    RenderSettings.BaseCharacterSpacing :=
+      CommonSettings.BaseCharacterSpacing;
+    RenderSettings.RubyCharacterSpacing :=
+      CommonSettings.RubyCharacterSpacing;
+    RenderSettings.BeforeColor.R := CommonSettings.BeforeColor and $FF;
+    RenderSettings.BeforeColor.G :=
+      (CommonSettings.BeforeColor shr 8) and $FF;
+    RenderSettings.BeforeColor.B :=
+      (CommonSettings.BeforeColor shr 16) and $FF;
+    RenderSettings.AfterColor.R := CommonSettings.AfterColor and $FF;
+    RenderSettings.AfterColor.G :=
+      (CommonSettings.AfterColor shr 8) and $FF;
+    RenderSettings.AfterColor.B :=
+      (CommonSettings.AfterColor shr 16) and $FF;
     HasFreePlacement := False;
     if SelectedPlacementMode = PLACEMENT_MODE_FREE then
     begin
       ParseLyrics(LyricsText, PlacementPlainText, PlacementRubySpans);
       BuildLyricsDisplayUnits(PlacementPlainText, PlacementRubySpans,
         PlacementUnits);
-      if Assigned(DisplaySettingsTextItem.Value) then
-        HasFreePlacement := TryDecodeDisplayPlacementsText(
-          string(DisplaySettingsTextItem.Value), LyricsText,
-          Length(PlacementUnits), PlacementItems);
+      HasFreePlacement := PlacementsMatchLyrics and
+        (Length(PlacementItems) = Length(PlacementUnits));
     end;
     DisplayUnitCount := CountLyricsDisplayUnits(LyricsText);
     SyncProgress := 0;
@@ -1087,12 +981,12 @@ begin
     RenderSettings.Opacity := AnimationOpacity;
     if HasFreePlacement then
       RenderFreePlacementLyrics(Video, PWideChar(LyricsText), SyncProgress,
-        RenderSettings, PlacementItems, Round(PositionXItem.Value),
-        Round(PositionYItem.Value) + AnimationOffsetY)
+        RenderSettings, PlacementItems, CommonSettings.PositionX,
+        CommonSettings.PositionY + AnimationOffsetY)
     else
       RenderLyrics(Video, PWideChar(LyricsText), SyncProgress,
-        RenderSettings, Round(PositionXItem.Value),
-        Round(PositionYItem.Value) + AnimationOffsetY);
+        RenderSettings, CommonSettings.PositionX,
+        CommonSettings.PositionY + AnimationOffsetY);
   except
     // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
   end;
@@ -1108,38 +1002,21 @@ begin
     PluginItems[1] := @LyricsItem;
     PluginItems[2] := @MusicFileItem;
     PluginItems[3] := @TrackItem;
-    PluginItems[4] := @PositionXItem;
-    PluginItems[5] := @PositionYItem;
-    PluginItems[6] := @FontSettingsButton;
-    PluginItems[7] := @BaseFontItem;
-    PluginItems[8] := @BaseBoldItem;
-    PluginItems[9] := @BaseItalicItem;
-    PluginItems[10] := @BaseUnderlineItem;
-    PluginItems[11] := @BaseStrikeOutItem;
-    PluginItems[12] := @RubyFontItem;
-    PluginItems[13] := @RubyBoldItem;
-    PluginItems[14] := @RubyItalicItem;
-    PluginItems[15] := @RubyUnderlineItem;
-    PluginItems[16] := @RubyStrikeOutItem;
-    PluginItems[17] := @BeforeColorItem;
-    PluginItems[18] := @AfterColorItem;
-    PluginItems[19] := @PlacementModeItem;
-    PluginItems[20] := @DisplayEffectItem;
-    PluginItems[21] := @DisplaySettingsButton;
-    PluginItems[22] := @SyncAnimationItem;
-    PluginItems[23] := @StartAnimationItem;
-    PluginItems[24] := @StartAnimationTimeItem;
-    PluginItems[25] := @EndAnimationItem;
-    PluginItems[26] := @EndAnimationTimeItem;
-    PluginItems[27] := @BaseFontSizeItem;
-    PluginItems[28] := @RubyFontSizeItem;
-    PluginItems[29] := @RubyGapAdjustmentItem;
-    PluginItems[30] := @BaseCharacterSpacingItem;
-    PluginItems[31] := @RubyCharacterSpacingItem;
-    PluginItems[32] := @PreDisplayTimeItem;
-    PluginItems[33] := @SyncDataItem;
-    PluginItems[34] := @DisplaySettingsTextItem;
-    PluginItems[35] := nil;
+    PluginItems[4] := @PlacementModeItem;
+    PluginItems[5] := @DisplayEffectItem;
+    PluginItems[6] := @DisplaySettingsButton;
+    PluginItems[7] := @PresetItem;
+    PluginItems[8] := @PresetSaveButton;
+    PluginItems[9] := @PresetLoadButton;
+    PluginItems[10] := @SyncAnimationItem;
+    PluginItems[11] := @StartAnimationItem;
+    PluginItems[12] := @StartAnimationTimeItem;
+    PluginItems[13] := @EndAnimationItem;
+    PluginItems[14] := @EndAnimationTimeItem;
+    PluginItems[15] := @PreDisplayTimeItem;
+    PluginItems[16] := @SyncDataItem;
+    PluginItems[17] := @DisplaySettingsTextItem;
+    PluginItems[18] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

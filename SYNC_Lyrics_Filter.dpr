@@ -49,6 +49,7 @@ uses
   SYNC_Lyrics_ManualSync in 'Source\Common\Sync\SYNC_Lyrics_ManualSync.pas',
   SYNC_Lyrics_MusicSyncAnchor in 'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
+  SYNC_Lyrics_DisplayPresetData in 'Source\Common\Render\SYNC_Lyrics_DisplayPresetData.pas',
   SYNC_Lyrics_DisplaySettingsData in 'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_ResolvedDisplayUnits in 'Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas',
   SYNC_Lyrics_LastFrameCapture in 'Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas',
