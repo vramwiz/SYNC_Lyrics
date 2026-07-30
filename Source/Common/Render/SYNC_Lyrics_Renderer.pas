@@ -69,7 +69,9 @@ implementation
 uses
   System.Math,
   System.SysUtils,
+  SYNC_Lyrics_Animation,
   SYNC_Lyrics_LyricParser,
+  SYNC_Lyrics_ResolvedDisplayUnits,
   Winapi.Windows;
 
 const
@@ -182,6 +184,63 @@ begin
     (Cardinal(Color.B) shl 16);
 end;
 
+function LyricsColorToCardinal(const Color: TLyricsRenderColor): Cardinal;
+begin
+  Result := Color.R or (Cardinal(Color.G) shl 8) or
+    (Cardinal(Color.B) shl 16);
+end;
+
+function CardinalToLyricsColor(Color: Cardinal): TLyricsRenderColor;
+begin
+  Result.R := Color and $FF;
+  Result.G := (Color shr 8) and $FF;
+  Result.B := (Color shr 16) and $FF;
+end;
+
+function ResolvedStyleFromSettings(const Settings: TLyricsRenderSettings;
+  Ruby: Boolean): TResolvedLyricsStyle;
+begin
+  if Ruby then
+  begin
+    Result.FontName := Settings.RubyFontName;
+    Result.FontHeight := EnsureRange(Settings.RubyFontHeight,
+      MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+    Result.FontStyle := Ord(Settings.RubyBold) or
+      (Ord(Settings.RubyItalic) shl 1) or
+      (Ord(Settings.RubyUnderline) shl 2) or
+      (Ord(Settings.RubyStrikeOut) shl 3);
+    Result.CharacterSpacing := EnsureRange(Settings.RubyCharacterSpacing,
+      MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
+  end
+  else
+  begin
+    Result.FontName := Settings.BaseFontName;
+    Result.FontHeight := EnsureRange(Settings.BaseFontHeight,
+      MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+    Result.FontStyle := Ord(Settings.BaseBold) or
+      (Ord(Settings.BaseItalic) shl 1) or
+      (Ord(Settings.BaseUnderline) shl 2) or
+      (Ord(Settings.BaseStrikeOut) shl 3);
+    Result.CharacterSpacing := EnsureRange(Settings.BaseCharacterSpacing,
+      MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
+  end;
+  Result.BeforeColor := LyricsColorToCardinal(Settings.BeforeColor);
+  Result.AfterColor := LyricsColorToCardinal(Settings.AfterColor);
+end;
+
+function UnitDisplayEffectFromType(
+  DisplayType: TLyricsDisplayType): TLyricsUnitDisplayEffect;
+begin
+  case DisplayType of
+    ldtUnitEmphasis:
+      Result := ludeUnitEmphasis;
+    ldtUnitReveal:
+      Result := ludeUnitReveal;
+  else
+    Result := ludeKaraoke;
+  end;
+end;
+
 function CreateLyricsFont(const FontName: string; FontHeight: Integer;
   Bold, Italic, Underline, StrikeOut: Boolean): HFONT;
 var
@@ -215,8 +274,139 @@ begin
   Result := Max(0, TextSize.cx - CharacterExtra);
 end;
 
-function GetDisplayUnitProgress(const Units: TLyricsDisplayUnits; UnitIndex: Integer;
-  ProgressUnits: Double): Double;
+procedure IncludeResolvedRect(var Target: TResolvedLyricsRect;
+  var HasTarget: Boolean; const Value: TResolvedLyricsRect);
+begin
+  if not HasTarget then
+  begin
+    Target := Value;
+    HasTarget := True;
+    Exit;
+  end;
+  Target.Left := Min(Target.Left, Value.Left);
+  Target.Top := Min(Target.Top, Value.Top);
+  Target.Right := Max(Target.Right, Value.Right);
+  Target.Bottom := Max(Target.Bottom, Value.Bottom);
+end;
+
+function ResolveLineLyricsGeometry(DC: HDC; Width, Height: Integer;
+  const PlainText: string; BaseFont, RubyFont: HFONT;
+  BaseCharacterSpacing, RubyCharacterSpacing, RubyGap: Integer;
+  PositionX, PositionY: Integer;
+  const Units: TResolvedLyricsDisplayUnits;
+  out Layout: TResolvedLyricsDisplayLayout): Boolean;
+var
+  AnyRuby: Boolean;
+  BaseHeight: Integer;
+  BaseWidth: Integer;
+  BaseX: Integer;
+  BaseY: Integer;
+  GroupHasBounds: Boolean;
+  OldCharacterSpacing: Integer;
+  OldFont: HGDIOBJ;
+  PrefixText: string;
+  PrefixWidth: Integer;
+  RubyHeight: Integer;
+  RubyWidth: Integer;
+  RubyX: Integer;
+  RubyY: Integer;
+  UnitIndex: Integer;
+  UnitText: string;
+  UnitWidth: Integer;
+begin
+  Result := False;
+  Layout := Default(TResolvedLyricsDisplayLayout);
+  Layout.Units := Units;
+  if (BaseFont = 0) or (RubyFont = 0) then
+    Exit;
+
+  AnyRuby := False;
+  for UnitIndex := 0 to High(Layout.Units) do
+    if Layout.Units[UnitIndex].HasRuby then
+    begin
+      AnyRuby := True;
+      Break;
+    end;
+
+  BaseHeight := 0;
+  RubyHeight := 0;
+  if Length(Layout.Units) > 0 then
+  begin
+    BaseHeight := Layout.Units[0].Base.Style.FontHeight;
+    RubyHeight := Layout.Units[0].Ruby.Style.FontHeight;
+  end;
+  OldFont := SelectObject(DC, BaseFont);
+  OldCharacterSpacing := GetTextCharacterExtra(DC);
+  try
+    SetTextCharacterExtra(DC, BaseCharacterSpacing);
+    BaseWidth := MeasureTextWidth(DC, PlainText);
+    BaseX := (Width - BaseWidth) div 2 + PositionX;
+    if not AnyRuby then
+      BaseY := (Height - BaseHeight) div 2 + PositionY
+    else
+      BaseY := (Height - (RubyHeight + RubyGap + BaseHeight)) div 2 +
+        RubyHeight + RubyGap + PositionY;
+    RubyY := BaseY - RubyGap - RubyHeight;
+
+    for UnitIndex := 0 to High(Layout.Units) do
+    begin
+      PrefixText := Copy(PlainText, 1,
+        Layout.Units[UnitIndex].Base.SourceStart - 1);
+      UnitText := Layout.Units[UnitIndex].Base.Text;
+      SelectObject(DC, BaseFont);
+      SetTextCharacterExtra(DC, BaseCharacterSpacing);
+      PrefixWidth := MeasureTextWidth(DC, PrefixText);
+      if (PrefixText <> '') and (UnitText <> '') then
+        Inc(PrefixWidth, BaseCharacterSpacing);
+      UnitWidth := MeasureTextWidth(DC, UnitText);
+
+      Layout.Units[UnitIndex].Base.OriginX := BaseX + PrefixWidth;
+      Layout.Units[UnitIndex].Base.OriginY := BaseY;
+      Layout.Units[UnitIndex].Base.Bounds.Left :=
+        Layout.Units[UnitIndex].Base.OriginX;
+      Layout.Units[UnitIndex].Base.Bounds.Top := BaseY;
+      Layout.Units[UnitIndex].Base.Bounds.Right :=
+        Layout.Units[UnitIndex].Base.OriginX + UnitWidth;
+      Layout.Units[UnitIndex].Base.Bounds.Bottom := BaseY + BaseHeight;
+      Layout.Units[UnitIndex].PivotX :=
+        (Layout.Units[UnitIndex].Base.Bounds.Left +
+        Layout.Units[UnitIndex].Base.Bounds.Right) * 0.5;
+      Layout.Units[UnitIndex].PivotY :=
+        (Layout.Units[UnitIndex].Base.Bounds.Top +
+        Layout.Units[UnitIndex].Base.Bounds.Bottom) * 0.5;
+      Layout.Units[UnitIndex].Bounds :=
+        Layout.Units[UnitIndex].Base.Bounds;
+      GroupHasBounds := True;
+
+      if Layout.Units[UnitIndex].HasRuby then
+      begin
+        SelectObject(DC, RubyFont);
+        SetTextCharacterExtra(DC, RubyCharacterSpacing);
+        RubyWidth := MeasureTextWidth(DC,
+          Layout.Units[UnitIndex].Ruby.Text);
+        RubyX := Round(Layout.Units[UnitIndex].Base.OriginX) +
+          (UnitWidth - RubyWidth) div 2;
+        Layout.Units[UnitIndex].Ruby.OriginX := RubyX;
+        Layout.Units[UnitIndex].Ruby.OriginY := RubyY;
+        Layout.Units[UnitIndex].Ruby.Bounds.Left := RubyX;
+        Layout.Units[UnitIndex].Ruby.Bounds.Top := RubyY;
+        Layout.Units[UnitIndex].Ruby.Bounds.Right := RubyX + RubyWidth;
+        Layout.Units[UnitIndex].Ruby.Bounds.Bottom := RubyY + RubyHeight;
+        IncludeResolvedRect(Layout.Units[UnitIndex].Bounds,
+          GroupHasBounds, Layout.Units[UnitIndex].Ruby.Bounds);
+      end;
+      IncludeResolvedRect(Layout.Bounds, Layout.HasBounds,
+        Layout.Units[UnitIndex].Bounds);
+    end;
+    Result := True;
+  finally
+    SetTextCharacterExtra(DC, OldCharacterSpacing);
+    SelectObject(DC, OldFont);
+  end;
+end;
+
+function GetDisplayUnitProgress(const Units: TResolvedLyricsDisplayUnits;
+  UnitIndex: Integer; ProgressUnits: Double): Double;
 begin
   if (UnitIndex < 0) or (UnitIndex >= Length(Units)) then
     Exit(0);
@@ -226,40 +416,36 @@ begin
     Units[UnitIndex].SyncUnitIndex, 0.0, 1.0);
 end;
 
-function FindRubyUnitIndex(const Units: TLyricsDisplayUnits; RubyIndex: Integer): Integer;
+function HasResolvedRuby(const Units: TResolvedLyricsDisplayUnits): Boolean;
 var
-  I: Integer;
+  UnitIndex: Integer;
 begin
-  Result := -1;
-  for I := 0 to High(Units) do
-    if Units[I].RubyIndex = RubyIndex then
-      Exit(I);
+  for UnitIndex := 0 to High(Units) do
+    if Units[UnitIndex].HasRuby then
+      Exit(True);
+  Result := False;
 end;
 
-function MeasureBaseProgressWidth(DC: HDC; const PlainText: string;
-  const Units: TLyricsDisplayUnits; ProgressUnits: Double;
-  DisplayType: TLyricsDisplayType): Integer;
+function MeasureBaseProgressWidth(
+  const Units: TResolvedLyricsDisplayUnits; BaseX: Single;
+  ProgressUnits: Double; Effect: TLyricsUnitDisplayEffect): Integer;
 var
-  PrefixText: string;
-  Progress: Double;
+  State: TLyricsUnitEffectState;
   UnitIndex: Integer;
-  UnitText: string;
+  UnitWidth: Single;
 begin
   Result := 0;
   for UnitIndex := 0 to High(Units) do
   begin
-    Progress := GetDisplayUnitProgress(Units, UnitIndex, ProgressUnits);
-    if Progress <= 0 then
+    ResolveLyricsUnitEffect(Effect,
+      GetDisplayUnitProgress(Units, UnitIndex, ProgressUnits), State);
+    if State.AfterProgress <= 0 then
       Break;
-    if DisplayType <> ldtKaraoke then
-      Progress := 1;
-    PrefixText := Copy(PlainText, 1, Units[UnitIndex].BaseStart - 1);
-    UnitText := Copy(PlainText, Units[UnitIndex].BaseStart, Units[UnitIndex].BaseLength);
-    Result := MeasureTextWidth(DC, PrefixText);
-    if (PrefixText <> '') and (UnitText <> '') then
-      Inc(Result, GetTextCharacterExtra(DC));
-    Inc(Result, Round(MeasureTextWidth(DC, UnitText) * Progress));
-    if Progress < 1 then
+    UnitWidth := Units[UnitIndex].Base.Bounds.Right -
+      Units[UnitIndex].Base.Bounds.Left;
+    Result := Round(Units[UnitIndex].Base.Bounds.Left - BaseX +
+      UnitWidth * State.AfterProgress);
+    if State.AfterProgress < 1 then
       Break;
   end;
 end;
@@ -271,17 +457,19 @@ var
   BaseFont: HFONT;
   BaseFontHeight: Integer;
   BaseCharacterSpacing: Integer;
+  DefaultBaseStyle: TResolvedLyricsStyle;
+  DefaultRubyStyle: TResolvedLyricsStyle;
+  EmptyPlacements: TDisplayPlacementItems;
+  Effect: TLyricsUnitDisplayEffect;
+  EffectState: TLyricsUnitEffectState;
   BaseProgressWidth: Integer;
-  BaseWidth: Integer;
   BaseX: Integer;
   BaseY: Integer;
   ClipState: Integer;
-  I: Integer;
+  Layout: TResolvedLyricsDisplayLayout;
   OldFont: HGDIOBJ;
   OldCharacterSpacing: Integer;
   PlainText: string;
-  PrefixText: string;
-  PrefixWidth: Integer;
   RubyFont: HFONT;
   RubyFontHeight: Integer;
   RubyGap: Integer;
@@ -289,15 +477,18 @@ var
   RubyWidth: Integer;
   RubyX: Integer;
   RubyY: Integer;
-  SpanText: string;
-  SpanWidth: Integer;
   UnitIndex: Integer;
   UnitProgress: Double;
-  UnitOverlayProgress: Double;
   Units: TLyricsDisplayUnits;
+  ResolvedUnits: TResolvedLyricsDisplayUnits;
 begin
-  ParseLyrics(Source, PlainText, RubySpans);
-  BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
+  DefaultBaseStyle := ResolvedStyleFromSettings(Settings, False);
+  DefaultRubyStyle := ResolvedStyleFromSettings(Settings, True);
+  Effect := UnitDisplayEffectFromType(Settings.DisplayType);
+  if not BuildResolvedLyricsDisplayUnits(Source, DefaultBaseStyle,
+    DefaultRubyStyle, EmptyPlacements, False, PlainText, RubySpans,
+    Units, ResolvedUnits) then
+    Exit;
   BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
     MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
   RubyFontHeight := EnsureRange(Settings.RubyFontHeight,
@@ -321,68 +512,67 @@ begin
     Exit;
   end;
   try
+    if not ResolveLineLyricsGeometry(DC, Width, Height, PlainText,
+      BaseFont, RubyFont, BaseCharacterSpacing,
+      EnsureRange(Settings.RubyCharacterSpacing,
+        MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING),
+      RubyGap, PositionX, PositionY, ResolvedUnits, Layout) then
+      Exit;
+    ResolvedUnits := Layout.Units;
+    if Length(ResolvedUnits) = 0 then
+      Exit;
+
     OldFont := SelectObject(DC, BaseFont);
     OldCharacterSpacing := GetTextCharacterExtra(DC);
     SetTextCharacterExtra(DC, BaseCharacterSpacing);
-    BaseWidth := MeasureTextWidth(DC, PlainText);
-    // X・Yはグループ制御後に各行だけを微調整する中央基準のオフセットとする。
-    BaseX := (Width - BaseWidth) div 2 + PositionX;
-    if Length(RubySpans) = 0 then
-      BaseY := (Height - BaseFontHeight) div 2 + PositionY
-    else
-      BaseY := (Height - (RubyFontHeight + RubyGap + BaseFontHeight)) div 2 +
-        RubyFontHeight + RubyGap + PositionY;
-    if Settings.DisplayType <> ldtUnitReveal then
+    BaseX := Round(ResolvedUnits[0].Base.OriginX);
+    BaseY := Round(ResolvedUnits[0].Base.OriginY);
+    ResolveLyricsUnitEffect(Effect, 0, EffectState);
+    if EffectState.DrawBefore then
     begin
       SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
       TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
     end;
 
-    if Length(RubySpans) > 0 then
+    if HasResolvedRuby(ResolvedUnits) then
     begin
       SelectObject(DC, RubyFont);
       SetTextCharacterExtra(DC, EnsureRange(Settings.RubyCharacterSpacing,
         MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING));
-      RubyY := BaseY - RubyGap - RubyFontHeight;
-      for I := 0 to High(RubySpans) do
+      for UnitIndex := 0 to High(ResolvedUnits) do
       begin
-        PrefixText := Copy(PlainText, 1, RubySpans[I].BaseStart - 1);
-        SpanText := Copy(PlainText, RubySpans[I].BaseStart, RubySpans[I].BaseLength);
-        SelectObject(DC, BaseFont);
-        SetTextCharacterExtra(DC, BaseCharacterSpacing);
-        PrefixWidth := MeasureTextWidth(DC, PrefixText);
-        if (PrefixText <> '') and (SpanText <> '') then
-          Inc(PrefixWidth, BaseCharacterSpacing);
-        SpanWidth := MeasureTextWidth(DC, SpanText);
+        if not ResolvedUnits[UnitIndex].HasRuby then
+          Continue;
         SelectObject(DC, RubyFont);
         SetTextCharacterExtra(DC, EnsureRange(
           Settings.RubyCharacterSpacing, MIN_CHARACTER_SPACING,
           MAX_CHARACTER_SPACING));
-        RubyWidth := MeasureTextWidth(DC, RubySpans[I].RubyText);
-        RubyX := BaseX + PrefixWidth + (SpanWidth - RubyWidth) div 2;
-        if Settings.DisplayType <> ldtUnitReveal then
+        RubyX := Round(ResolvedUnits[UnitIndex].Ruby.OriginX);
+        RubyY := Round(ResolvedUnits[UnitIndex].Ruby.OriginY);
+        RubyWidth := Round(ResolvedUnits[UnitIndex].Ruby.Bounds.Right -
+          ResolvedUnits[UnitIndex].Ruby.Bounds.Left);
+        UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
+          ProgressUnits);
+        ResolveLyricsUnitEffect(Effect, UnitProgress, EffectState);
+        if EffectState.DrawBefore then
         begin
           SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
-          TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
-            Length(RubySpans[I].RubyText));
+          TextOutW(DC, RubyX, RubyY,
+            PWideChar(ResolvedUnits[UnitIndex].Ruby.Text),
+            Length(ResolvedUnits[UnitIndex].Ruby.Text));
         end;
 
-        UnitIndex := FindRubyUnitIndex(Units, I);
-        UnitProgress := GetDisplayUnitProgress(Units, UnitIndex, ProgressUnits);
-        UnitOverlayProgress := UnitProgress;
-        if (Settings.DisplayType <> ldtKaraoke) and
-          (UnitOverlayProgress > 0) then
-          UnitOverlayProgress := 1;
-        if UnitProgress > 0 then
+        if EffectState.AfterProgress > 0 then
         begin
           ClipState := SaveDC(DC);
           try
             IntersectClipRect(DC, RubyX, RubyY,
-              RubyX + Round(RubyWidth * UnitOverlayProgress),
+              RubyX + Round(RubyWidth * EffectState.AfterProgress),
               RubyY + RubyFontHeight);
             SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
-            TextOutW(DC, RubyX, RubyY, PWideChar(RubySpans[I].RubyText),
-              Length(RubySpans[I].RubyText));
+            TextOutW(DC, RubyX, RubyY,
+              PWideChar(ResolvedUnits[UnitIndex].Ruby.Text),
+              Length(ResolvedUnits[UnitIndex].Ruby.Text));
           finally
             RestoreDC(DC, ClipState);
           end;
@@ -392,8 +582,8 @@ begin
 
     SelectObject(DC, BaseFont);
     SetTextCharacterExtra(DC, BaseCharacterSpacing);
-    BaseProgressWidth := MeasureBaseProgressWidth(DC, PlainText, Units,
-      ProgressUnits, Settings.DisplayType);
+    BaseProgressWidth := MeasureBaseProgressWidth(ResolvedUnits, BaseX,
+      ProgressUnits, Effect);
     if BaseProgressWidth > 0 then
     begin
       ClipState := SaveDC(DC);
@@ -472,6 +662,12 @@ var
   BaseX: Integer;
   BaseY: Integer;
   ClipState: Integer;
+  DefaultBaseStyle: TResolvedLyricsStyle;
+  DefaultRubyStyle: TResolvedLyricsStyle;
+  Effect: TLyricsUnitDisplayEffect;
+  EffectState: TLyricsUnitEffectState;
+  GroupHasBounds: Boolean;
+  Layout: TResolvedLyricsDisplayLayout;
   BeforeColor: TLyricsRenderColor;
   AfterColor: TLyricsRenderColor;
   OldCharacterSpacing: Integer;
@@ -498,12 +694,19 @@ var
   UnitProgress: Double;
   UnitState: Integer;
   Units: TLyricsDisplayUnits;
+  ResolvedUnits: TResolvedLyricsDisplayUnits;
   WorldTransform: TXForm;
 begin
-  ParseLyrics(Source, PlainText, RubySpans);
-  BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
-  if Length(Placements) <> Length(Units) then
+  DefaultBaseStyle := ResolvedStyleFromSettings(Settings, False);
+  DefaultRubyStyle := ResolvedStyleFromSettings(Settings, True);
+  Effect := UnitDisplayEffectFromType(Settings.DisplayType);
+  if not BuildResolvedLyricsDisplayUnits(Source, DefaultBaseStyle,
+    DefaultRubyStyle, Placements, True, PlainText, RubySpans, Units,
+    ResolvedUnits) then
     Exit;
+  Layout := Default(TResolvedLyricsDisplayLayout);
+  Layout.Units := ResolvedUnits;
+  ResolvedUnits := Layout.Units;
 
   BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
     MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
@@ -531,84 +734,28 @@ begin
     SetBkMode(DC, TRANSPARENT);
     for UnitIndex := 0 to High(Units) do
     begin
-      BaseFontName := Placements[UnitIndex].BaseFontName;
-      if BaseFontName = '' then
-        BaseFontName := Settings.BaseFontName;
-      RubyFontName := Placements[UnitIndex].RubyFontName;
-      if RubyFontName = '' then
-        RubyFontName := Settings.RubyFontName;
-      BeforeColor := Settings.BeforeColor;
-      if Placements[UnitIndex].HasBeforeColor then
-      begin
-        BeforeColor.R := Placements[UnitIndex].BeforeColor and $FF;
-        BeforeColor.G := (Placements[UnitIndex].BeforeColor shr 8) and $FF;
-        BeforeColor.B := (Placements[UnitIndex].BeforeColor shr 16) and $FF;
-      end;
-      AfterColor := Settings.AfterColor;
-      if Placements[UnitIndex].HasAfterColor then
-      begin
-        AfterColor.R := Placements[UnitIndex].AfterColor and $FF;
-        AfterColor.G := (Placements[UnitIndex].AfterColor shr 8) and $FF;
-        AfterColor.B := (Placements[UnitIndex].AfterColor shr 16) and $FF;
-      end;
-      BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
-        MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-      if Placements[UnitIndex].HasBaseFontHeight then
-        BaseFontHeight := EnsureRange(
-          Integer(Placements[UnitIndex].BaseFontHeight),
-          MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-      RubyFontHeight := EnsureRange(Settings.RubyFontHeight,
-        MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-      if Placements[UnitIndex].HasRubyFontHeight then
-        RubyFontHeight := EnsureRange(
-          Integer(Placements[UnitIndex].RubyFontHeight),
-          MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-      BaseBold := Settings.BaseBold;
-      BaseItalic := Settings.BaseItalic;
-      BaseUnderline := Settings.BaseUnderline;
-      BaseStrikeOut := Settings.BaseStrikeOut;
-      if Placements[UnitIndex].HasBaseFontStyle then
-      begin
-        BaseBold := (Placements[UnitIndex].BaseFontStyle and 1) <> 0;
-        BaseItalic := (Placements[UnitIndex].BaseFontStyle and 2) <> 0;
-        BaseUnderline := (Placements[UnitIndex].BaseFontStyle and 4) <> 0;
-        BaseStrikeOut := (Placements[UnitIndex].BaseFontStyle and 8) <> 0;
-      end;
-      RubyBold := Settings.RubyBold;
-      RubyItalic := Settings.RubyItalic;
-      RubyUnderline := Settings.RubyUnderline;
-      RubyStrikeOut := Settings.RubyStrikeOut;
-      if Placements[UnitIndex].HasRubyFontStyle then
-      begin
-        RubyBold := (Placements[UnitIndex].RubyFontStyle and 1) <> 0;
-        RubyItalic := (Placements[UnitIndex].RubyFontStyle and 2) <> 0;
-        RubyUnderline := (Placements[UnitIndex].RubyFontStyle and 4) <> 0;
-        RubyStrikeOut := (Placements[UnitIndex].RubyFontStyle and 8) <> 0;
-      end;
-      BaseCharacterSpacing := EnsureRange(
-        Settings.BaseCharacterSpacing, MIN_CHARACTER_SPACING,
-        MAX_CHARACTER_SPACING);
-      if Placements[UnitIndex].HasBaseCharacterSpacing then
-        BaseCharacterSpacing := EnsureRange(
-          Integer(Placements[UnitIndex].BaseCharacterSpacing),
-          MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-      RubyCharacterSpacing := EnsureRange(
-        Settings.RubyCharacterSpacing, MIN_CHARACTER_SPACING,
-        MAX_CHARACTER_SPACING);
-      if Placements[UnitIndex].HasRubyCharacterSpacing then
-        RubyCharacterSpacing := EnsureRange(
-          Integer(Placements[UnitIndex].RubyCharacterSpacing),
-          MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-      RubyOffsetX := 0;
-      if Placements[UnitIndex].HasRubyOffsetX then
-        RubyOffsetX := EnsureRange(
-          Integer(Placements[UnitIndex].RubyOffsetX),
-          MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-      RubyOffsetY := 0;
-      if Placements[UnitIndex].HasRubyOffsetY then
-        RubyOffsetY := EnsureRange(
-          Integer(Placements[UnitIndex].RubyOffsetY),
-          MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
+      BaseFontName := ResolvedUnits[UnitIndex].Base.Style.FontName;
+      RubyFontName := ResolvedUnits[UnitIndex].Ruby.Style.FontName;
+      BeforeColor := CardinalToLyricsColor(
+        ResolvedUnits[UnitIndex].Base.Style.BeforeColor);
+      AfterColor := CardinalToLyricsColor(
+        ResolvedUnits[UnitIndex].Base.Style.AfterColor);
+      BaseFontHeight := ResolvedUnits[UnitIndex].Base.Style.FontHeight;
+      RubyFontHeight := ResolvedUnits[UnitIndex].Ruby.Style.FontHeight;
+      BaseBold := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 1) <> 0;
+      BaseItalic := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 2) <> 0;
+      BaseUnderline := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 4) <> 0;
+      BaseStrikeOut := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 8) <> 0;
+      RubyBold := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 1) <> 0;
+      RubyItalic := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 2) <> 0;
+      RubyUnderline := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 4) <> 0;
+      RubyStrikeOut := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 8) <> 0;
+      BaseCharacterSpacing :=
+        ResolvedUnits[UnitIndex].Base.Style.CharacterSpacing;
+      RubyCharacterSpacing :=
+        ResolvedUnits[UnitIndex].Ruby.Style.CharacterSpacing;
+      RubyOffsetX := ResolvedUnits[UnitIndex].Ruby.OffsetX;
+      RubyOffsetY := ResolvedUnits[UnitIndex].Ruby.OffsetY;
       BaseFont := ResolveCachedLyricsFont(BaseFontCache,
         BaseFontName, BaseFontHeight, BaseBold, BaseItalic,
         BaseUnderline, BaseStrikeOut);
@@ -622,14 +769,14 @@ begin
         Continue;
       SetGraphicsMode(DC, GM_ADVANCED);
       FillChar(WorldTransform, SizeOf(WorldTransform), 0);
-      WorldTransform.eM11 := EnsureRange(
-        Placements[UnitIndex].ScaleX, 0.05, 10.0);
-      WorldTransform.eM22 := EnsureRange(
-        Placements[UnitIndex].ScaleY, 0.05, 10.0);
-      WorldTransform.eDx := Width * 0.5 +
-        Placements[UnitIndex].X + PositionX;
-      WorldTransform.eDy := Height * 0.5 +
-        Placements[UnitIndex].Y + PositionY;
+      ResolvedUnits[UnitIndex].PivotX := Width * 0.5 +
+        ResolvedUnits[UnitIndex].X + PositionX;
+      ResolvedUnits[UnitIndex].PivotY := Height * 0.5 +
+        ResolvedUnits[UnitIndex].Y + PositionY;
+      WorldTransform.eM11 := ResolvedUnits[UnitIndex].ScaleX;
+      WorldTransform.eM22 := ResolvedUnits[UnitIndex].ScaleY;
+      WorldTransform.eDx := ResolvedUnits[UnitIndex].PivotX;
+      WorldTransform.eDy := ResolvedUnits[UnitIndex].PivotY;
       if not SetWorldTransform(DC, WorldTransform) then
       begin
         RestoreDC(DC, UnitState);
@@ -637,24 +784,46 @@ begin
       end;
       SelectObject(DC, BaseFont);
       SetTextCharacterExtra(DC, BaseCharacterSpacing);
-      BaseText := Copy(PlainText, Units[UnitIndex].BaseStart,
-        Units[UnitIndex].BaseLength);
+      BaseText := ResolvedUnits[UnitIndex].Base.Text;
       BaseWidth := MeasureTextWidth(DC, BaseText);
       BaseX := -BaseWidth div 2;
       // Placement Y identifies the vertical center of the base text.
       // Ruby extends upward without moving the base-text bottom edge.
       BaseY := -BaseFontHeight div 2;
-      SetTextColor(DC, LyricsColorToColorRef(BeforeColor));
-      TextOutW(DC, BaseX, BaseY, PWideChar(BaseText), Length(BaseText));
-
-      UnitProgress := GetDisplayUnitProgress(Units, UnitIndex,
+      ResolvedUnits[UnitIndex].Base.OriginX :=
+        ResolvedUnits[UnitIndex].PivotX +
+        BaseX * ResolvedUnits[UnitIndex].ScaleX;
+      ResolvedUnits[UnitIndex].Base.OriginY :=
+        ResolvedUnits[UnitIndex].PivotY +
+        BaseY * ResolvedUnits[UnitIndex].ScaleY;
+      ResolvedUnits[UnitIndex].Base.Bounds.Left :=
+        ResolvedUnits[UnitIndex].Base.OriginX;
+      ResolvedUnits[UnitIndex].Base.Bounds.Top :=
+        ResolvedUnits[UnitIndex].Base.OriginY;
+      ResolvedUnits[UnitIndex].Base.Bounds.Right :=
+        ResolvedUnits[UnitIndex].PivotX +
+        (BaseX + BaseWidth) * ResolvedUnits[UnitIndex].ScaleX;
+      ResolvedUnits[UnitIndex].Base.Bounds.Bottom :=
+        ResolvedUnits[UnitIndex].PivotY +
+        (BaseY + BaseFontHeight) * ResolvedUnits[UnitIndex].ScaleY;
+      ResolvedUnits[UnitIndex].Bounds :=
+        ResolvedUnits[UnitIndex].Base.Bounds;
+      GroupHasBounds := True;
+      UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
         ProgressUnits);
-      if UnitProgress > 0 then
+      ResolveLyricsUnitEffect(Effect, UnitProgress, EffectState);
+      if EffectState.DrawBefore then
+      begin
+        SetTextColor(DC, LyricsColorToColorRef(BeforeColor));
+        TextOutW(DC, BaseX, BaseY, PWideChar(BaseText), Length(BaseText));
+      end;
+
+      if EffectState.AfterProgress > 0 then
       begin
         ClipState := SaveDC(DC);
         try
           IntersectClipRect(DC, BaseX, BaseY,
-            BaseX + Round(BaseWidth * UnitProgress),
+            BaseX + Round(BaseWidth * EffectState.AfterProgress),
             BaseY + BaseFontHeight);
           SetTextColor(DC, LyricsColorToColorRef(AfterColor));
           TextOutW(DC, BaseX, BaseY, PWideChar(BaseText),
@@ -664,23 +833,44 @@ begin
         end;
       end;
 
-      if Units[UnitIndex].RubyIndex >= 0 then
+      if ResolvedUnits[UnitIndex].HasRuby then
       begin
-        RubyText := RubySpans[Units[UnitIndex].RubyIndex].RubyText;
+        RubyText := ResolvedUnits[UnitIndex].Ruby.Text;
         SelectObject(DC, RubyFont);
         SetTextCharacterExtra(DC, RubyCharacterSpacing);
         RubyWidth := MeasureTextWidth(DC, RubyText);
         RubyX := -RubyWidth div 2 + RubyOffsetX;
         RubyY := BaseY - RubyGap - RubyFontHeight + RubyOffsetY;
-        SetTextColor(DC, LyricsColorToColorRef(BeforeColor));
-        TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
-          Length(RubyText));
-        if UnitProgress > 0 then
+        ResolvedUnits[UnitIndex].Ruby.OriginX :=
+          ResolvedUnits[UnitIndex].PivotX +
+          RubyX * ResolvedUnits[UnitIndex].ScaleX;
+        ResolvedUnits[UnitIndex].Ruby.OriginY :=
+          ResolvedUnits[UnitIndex].PivotY +
+          RubyY * ResolvedUnits[UnitIndex].ScaleY;
+        ResolvedUnits[UnitIndex].Ruby.Bounds.Left :=
+          ResolvedUnits[UnitIndex].Ruby.OriginX;
+        ResolvedUnits[UnitIndex].Ruby.Bounds.Top :=
+          ResolvedUnits[UnitIndex].Ruby.OriginY;
+        ResolvedUnits[UnitIndex].Ruby.Bounds.Right :=
+          ResolvedUnits[UnitIndex].PivotX +
+          (RubyX + RubyWidth) * ResolvedUnits[UnitIndex].ScaleX;
+        ResolvedUnits[UnitIndex].Ruby.Bounds.Bottom :=
+          ResolvedUnits[UnitIndex].PivotY +
+          (RubyY + RubyFontHeight) * ResolvedUnits[UnitIndex].ScaleY;
+        IncludeResolvedRect(ResolvedUnits[UnitIndex].Bounds,
+          GroupHasBounds, ResolvedUnits[UnitIndex].Ruby.Bounds);
+        if EffectState.DrawBefore then
+        begin
+          SetTextColor(DC, LyricsColorToColorRef(BeforeColor));
+          TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
+            Length(RubyText));
+        end;
+        if EffectState.AfterProgress > 0 then
         begin
           ClipState := SaveDC(DC);
           try
             IntersectClipRect(DC, RubyX, RubyY,
-              RubyX + Round(RubyWidth * UnitProgress),
+              RubyX + Round(RubyWidth * EffectState.AfterProgress),
               RubyY + RubyFontHeight);
             SetTextColor(DC, LyricsColorToColorRef(AfterColor));
             TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
@@ -690,6 +880,8 @@ begin
           end;
         end;
       end;
+      IncludeResolvedRect(Layout.Bounds, Layout.HasBounds,
+        ResolvedUnits[UnitIndex].Bounds);
       RestoreDC(DC, UnitState);
     end;
     SetTextCharacterExtra(DC, OldCharacterSpacing);

@@ -24,8 +24,9 @@ type
   TSetObjectItemValueFunc = function(Obj: OBJECT_HANDLE; Effect: LPCWSTR;
     Item: LPCWSTR; Value: PAnsiChar): LongBool; cdecl;
   TGetFocusObjectFunc = function: OBJECT_HANDLE; cdecl;
+  TSetObjectNameFunc = procedure(Obj: OBJECT_HANDLE; Name: LPCWSTR); cdecl;
 
-  // ボタンコールバックで、選択中オブジェクトのGUI項目を一括変更する最小編集API。
+  // ボタンコールバックで、選択中オブジェクトのGUI項目と表示名を変更する編集API。
   TEDIT_SECTION = record
     Info: Pointer;
     CreateObjectFromAlias: Pointer;
@@ -38,6 +39,22 @@ type
     MoveObject: Pointer;
     DeleteObject: Pointer;
     GetFocusObject: TGetFocusObjectFunc;
+    SetFocusObject: Pointer;
+    GetProjectFile: Pointer;
+    GetSelectedObject: Pointer;
+    GetSelectedObjectNum: Pointer;
+    GetMouseLayerFrame: Pointer;
+    PosToLayerFrame: Pointer;
+    IsSupportMediaFile: Pointer;
+    GetMediaInfo: Pointer;
+    CreateObjectFromMediaFile: Pointer;
+    CreateObject: Pointer;
+    SetCursorLayerFrame: Pointer;
+    SetDisplayLayerFrame: Pointer;
+    SetSelectRange: Pointer;
+    SetGridBpm: Pointer;
+    GetObjectName: Pointer;
+    SetObjectName: TSetObjectNameFunc;
   end;
 
   PSCENE_INFO = ^TSCENE_INFO;

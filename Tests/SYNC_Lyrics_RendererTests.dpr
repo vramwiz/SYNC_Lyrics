@@ -10,6 +10,8 @@ uses
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
+  SYNC_Lyrics_ResolvedDisplayUnits in
+    'Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas',
   SYNC_Lyrics_Animation in
     'Source\Common\Render\SYNC_Lyrics_Animation.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas';
@@ -196,6 +198,103 @@ begin
   ParseLyrics('[世界](せかい', PlainText, RubySpans);
   Check(PlainText = '[世界](せかい', 'broken syntax was not preserved');
   Check(Length(RubySpans) = 0, 'broken syntax created a ruby span');
+end;
+
+procedure TestResolvedDisplayUnits;
+var
+  BaseStyle: TResolvedLyricsStyle;
+  LogicalUnits: TLyricsDisplayUnits;
+  PlainText: string;
+  Placements: TDisplayPlacementItems;
+  ResolvedUnits: TResolvedLyricsDisplayUnits;
+  RubySpans: TLyricsRubySpans;
+  RubyStyle: TResolvedLyricsStyle;
+begin
+  BaseStyle.FontName := 'Base default';
+  BaseStyle.FontHeight := 96;
+  BaseStyle.FontStyle := 1;
+  BaseStyle.CharacterSpacing := 2;
+  BaseStyle.BeforeColor := $00112233;
+  BaseStyle.AfterColor := $00445566;
+  RubyStyle.FontName := 'Ruby default';
+  RubyStyle.FontHeight := 42;
+  RubyStyle.FontStyle := 2;
+  RubyStyle.CharacterSpacing := 3;
+  RubyStyle.BeforeColor := $00112233;
+  RubyStyle.AfterColor := $00445566;
+
+  SetLength(Placements, 0);
+  Check(BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
+    BaseStyle, RubyStyle, Placements, False, PlainText, RubySpans,
+    LogicalUnits, ResolvedUnits), 'line resolved-unit build failed');
+  Check((PlainText = '私漢字') and (Length(ResolvedUnits) = 2),
+    'line resolved-unit text or count mismatch');
+  Check((ResolvedUnits[0].Base.Text = '私') and
+    (ResolvedUnits[1].Base.Text = '漢字') and
+    ResolvedUnits[1].HasRuby and
+    (ResolvedUnits[1].Ruby.Text = 'かんじ'),
+    'line resolved-unit parts mismatch');
+  Check((ResolvedUnits[0].ScaleX = 1) and
+    (ResolvedUnits[0].ScaleY = 1) and
+    (ResolvedUnits[1].Base.Style.FontName = BaseStyle.FontName) and
+    (ResolvedUnits[1].Ruby.Style.FontName = RubyStyle.FontName),
+    'line resolved-unit defaults mismatch');
+
+  SetLength(Placements, 2);
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[1].X := 120;
+  Placements[1].Y := -40;
+  Placements[1].ScaleX := 1.5;
+  Placements[1].ScaleY := 0.75;
+  Placements[1].BaseFontName := 'Base override';
+  Placements[1].RubyFontName := 'Ruby override';
+  Placements[1].HasBeforeColor := True;
+  Placements[1].BeforeColor := $00010203;
+  Placements[1].HasAfterColor := True;
+  Placements[1].AfterColor := $00040506;
+  Placements[1].HasBaseFontHeight := True;
+  Placements[1].BaseFontHeight := 120;
+  Placements[1].HasRubyFontHeight := True;
+  Placements[1].RubyFontHeight := 50;
+  Placements[1].HasBaseFontStyle := True;
+  Placements[1].BaseFontStyle := 6;
+  Placements[1].HasRubyFontStyle := True;
+  Placements[1].RubyFontStyle := 9;
+  Placements[1].HasBaseCharacterSpacing := True;
+  Placements[1].BaseCharacterSpacing := 8;
+  Placements[1].HasRubyCharacterSpacing := True;
+  Placements[1].RubyCharacterSpacing := 9;
+  Placements[1].HasRubyOffsetX := True;
+  Placements[1].RubyOffsetX := 10;
+  Placements[1].HasRubyOffsetY := True;
+  Placements[1].RubyOffsetY := -11;
+  Check(BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
+    BaseStyle, RubyStyle, Placements, True, PlainText, RubySpans,
+    LogicalUnits, ResolvedUnits), 'free resolved-unit build failed');
+  Check((ResolvedUnits[1].X = 120) and (ResolvedUnits[1].Y = -40) and
+    (ResolvedUnits[1].ScaleX = 1.5) and
+    (ResolvedUnits[1].ScaleY = 0.75),
+    'free resolved-unit placement mismatch');
+  Check((ResolvedUnits[1].Base.Style.FontName = 'Base override') and
+    (ResolvedUnits[1].Ruby.Style.FontName = 'Ruby override') and
+    (ResolvedUnits[1].Base.Style.FontHeight = 120) and
+    (ResolvedUnits[1].Ruby.Style.FontHeight = 50) and
+    (ResolvedUnits[1].Base.Style.FontStyle = 6) and
+    (ResolvedUnits[1].Ruby.Style.FontStyle = 9),
+    'free resolved-unit font override mismatch');
+  Check((ResolvedUnits[1].Base.Style.BeforeColor = $00010203) and
+    (ResolvedUnits[1].Ruby.Style.AfterColor = $00040506) and
+    (ResolvedUnits[1].Base.Style.CharacterSpacing = 8) and
+    (ResolvedUnits[1].Ruby.Style.CharacterSpacing = 9) and
+    (ResolvedUnits[1].Ruby.OffsetX = 10) and
+    (ResolvedUnits[1].Ruby.OffsetY = -11),
+    'free resolved-unit style override mismatch');
+
+  SetLength(Placements, 1);
+  Check(not BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
+    BaseStyle, RubyStyle, Placements, True, PlainText, RubySpans,
+    LogicalUnits, ResolvedUnits), 'placement-count mismatch was accepted');
 end;
 
 procedure TestVisibleJapaneseLyrics;
@@ -507,8 +606,10 @@ end;
 
 procedure TestDisplayTypes;
 var
+  FreeKaraokeAfterPixels: Integer;
   KaraokeAfterPixels: Integer;
   ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
   Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
@@ -540,6 +641,35 @@ begin
     'unit-reveal active render failed');
   Check(CountVisiblePixels > 0,
     'unit reveal did not display the active unit');
+
+  SetLength(Placements, 2);
+  Placements[0].X := -40;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[1].X := 40;
+  Placements[1].ScaleX := 1;
+  Placements[1].ScaleY := 1;
+
+  Settings.DisplayType := ldtKaraoke;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.1, Settings,
+    Placements, 0, 0), 'free karaoke display-type render failed');
+  FreeKaraokeAfterPixels := CountAfterColorPixels;
+
+  Settings.DisplayType := ldtUnitEmphasis;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.1, Settings,
+    Placements, 0, 0), 'free unit-emphasis display-type render failed');
+  Check(CountAfterColorPixels > FreeKaraokeAfterPixels,
+    'free unit emphasis did not color the whole active unit');
+
+  Settings.DisplayType := ldtUnitReveal;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0, Settings,
+    Placements, 0, 0), 'free unit-reveal initial render failed');
+  Check(CountVisiblePixels = 0,
+    'free unit reveal displayed lyrics before the first unit');
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.1, Settings,
+    Placements, 0, 0), 'free unit-reveal active render failed');
+  Check(CountVisiblePixels > 0,
+    'free unit reveal did not display the active unit');
 end;
 
 procedure TestLyricsAnimations;
@@ -547,11 +677,32 @@ var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
   AnimationSettings: TLyricsAnimationSettings;
+  EffectState: TLyricsUnitEffectState;
   FullAlpha: Integer;
   ObjectInfo: TOBJECT_INFO;
   Settings: TLyricsRenderSettings;
   Video: TFILTER_PROC_VIDEO;
 begin
+  ResolveLyricsUnitEffect(ludeKaraoke, 0.25, EffectState);
+  Check(EffectState.DrawBefore and
+    (Abs(EffectState.AfterProgress - 0.25) < 0.000001),
+    'karaoke unit-effect state mismatch');
+  ResolveLyricsUnitEffect(ludeUnitEmphasis, 0.25, EffectState);
+  Check(EffectState.DrawBefore and
+    (Abs(EffectState.AfterProgress - 1) < 0.000001),
+    'unit-emphasis state mismatch');
+  ResolveLyricsUnitEffect(ludeUnitReveal, 0, EffectState);
+  Check(not EffectState.DrawBefore and
+    (EffectState.AfterProgress = 0),
+    'unit-reveal initial state mismatch');
+  ResolveLyricsUnitEffect(ludeUnitReveal, 0.25, EffectState);
+  Check(not EffectState.DrawBefore and
+    (Abs(EffectState.AfterProgress - 1) < 0.000001) and
+    (EffectState.Opacity = 1) and (EffectState.ScaleX = 1) and
+    (EffectState.ScaleY = 1) and (EffectState.OffsetX = 0) and
+    (EffectState.OffsetY = 0),
+    'unit-reveal active state mismatch');
+
   AnimationSettings.SyncAnimation := lsaBounce;
   AnimationSettings.StartAnimation := leaFade;
   AnimationSettings.EndAnimation := leaFade;
@@ -1020,6 +1171,7 @@ begin
   InitializeLyricsRenderer;
   try
     TestRubyParser;
+    TestResolvedDisplayUnits;
     TestVisibleJapaneseLyrics;
     TestRubyIsDrawnAboveLyrics;
     TestConsumedLyricsUseAfterColor;
