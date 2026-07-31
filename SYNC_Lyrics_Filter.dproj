@@ -116,6 +116,9 @@
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_Time.pas"/>
         <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas"/>
+        <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas"/>
+        <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsData.pas"/>
+        <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsRuntime.pas"/>
         <DCCReference Include="Source\Lib\SongReader\RTTIPersistent.pas"/>
         <DCCReference Include="Source\Lib\SongReader\RTTIPersistentIni.pas"/>
         <DCCReference Include="Source\Lib\SongReader\SectionFileManager.pas"/>
@@ -170,9 +173,17 @@
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas">
             <Form>FormLyricsMusicSyncSettings</Form>
         </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas">
             <Form>FormLyricsManualSyncSettings</Form>
+        </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas">
+            <Form>FrameLyricsInitialInput</Form>
+            <DesignClass>TFrame</DesignClass>
+        </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas">
+            <Form>FormLyricsSyncEditor</Form>
         </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas"/>
         <BuildConfiguration Include="Base">

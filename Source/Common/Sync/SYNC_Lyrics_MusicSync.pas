@@ -35,6 +35,17 @@ function ResolveAdjustedMusicSyncProgress(const FileName: string; Track: Integer
   SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
   const SyncParameters: array of Integer; out ProgressUnits: Double): Boolean;
 
+// 同じ曲同期開始位置から先行行が消費した音数を飛ばし、対象行の進捗を返す。
+function ResolveAdjustedMusicSyncProgressWithOffset(const FileName: string;
+  Track: Integer; SyncStartSeconds, CurrentSeconds: Double;
+  StartNoteIndex, DisplayUnitCount: Integer;
+  const SyncParameters: array of Integer; out ProgressUnits: Double): Boolean;
+
+// 共通音符列の開始番号と消費音数から、行同期の先頭開始秒と最終終了秒を返す。
+function TryResolveMusicSyncTimeRange(const FileName: string; Track: Integer;
+  SequenceStartSeconds: Double; StartNoteIndex, RequiredNoteCount: Integer;
+  out SyncStartSeconds, SyncEndSeconds: Double): Boolean;
+
 // 音楽データキャッシュの排他資源をFilter読込時に初期化する。
 procedure InitializeMusicSync;
 
@@ -255,8 +266,9 @@ begin
     Result := 0;
 end;
 
-function ResolveAdjustedMusicSyncProgress(const FileName: string; Track: Integer;
-  SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
+function ResolveAdjustedMusicSyncProgressWithOffset(const FileName: string;
+  Track: Integer; SyncStartSeconds, CurrentSeconds: Double;
+  StartNoteIndex, DisplayUnitCount: Integer;
   const SyncParameters: array of Integer; out ProgressUnits: Double): Boolean;
 var
   Duration: Double;
@@ -268,6 +280,7 @@ var
   ParameterIndex: Integer;
   RequiredNoteCount: Integer;
   SelectedNoteCount: Integer;
+  SkippedNoteCount: Integer;
   StageNoteIndex: Integer;
   StageProgress: Double;
   SyncValue: Integer;
@@ -276,6 +289,7 @@ var
 begin
   Result := False;
   ProgressUnits := 0;
+  StartNoteIndex := Max(0, StartNoteIndex);
   if DisplayUnitCount <= 0 then
     Exit(True);
   if CurrentSeconds < SyncStartSeconds - MUSIC_TIME_EPSILON then
@@ -301,12 +315,18 @@ begin
 
     SetLength(FilteredNotes, RequiredNoteCount);
     SelectedNoteCount := 0;
+    SkippedNoteCount := 0;
     for I := 0 to High(CacheNotes) do
     begin
       if CacheNotes[I].Seconds < SyncStartSeconds - MUSIC_TIME_EPSILON then
         Continue;
       if (Track >= 0) and (CacheNotes[I].TrackIndex <> Track) then
         Continue;
+      if SkippedNoteCount < StartNoteIndex then
+      begin
+        Inc(SkippedNoteCount);
+        Continue;
+      end;
       if SelectedNoteCount >= RequiredNoteCount then
         Break;
       FilteredNotes[SelectedNoteCount] := CacheNotes[I];
@@ -355,6 +375,59 @@ begin
       Inc(ParameterIndex);
     end;
     Result := True;
+  finally
+    LeaveCriticalSection(CacheLock);
+  end;
+end;
+
+function ResolveAdjustedMusicSyncProgress(const FileName: string; Track: Integer;
+  SyncStartSeconds, CurrentSeconds: Double; DisplayUnitCount: Integer;
+  const SyncParameters: array of Integer; out ProgressUnits: Double): Boolean;
+begin
+  Result := ResolveAdjustedMusicSyncProgressWithOffset(FileName, Track,
+    SyncStartSeconds, CurrentSeconds, 0, DisplayUnitCount,
+    SyncParameters, ProgressUnits);
+end;
+
+function TryResolveMusicSyncTimeRange(const FileName: string; Track: Integer;
+  SequenceStartSeconds: Double; StartNoteIndex, RequiredNoteCount: Integer;
+  out SyncStartSeconds, SyncEndSeconds: Double): Boolean;
+var
+  EligibleNoteIndex: Integer;
+  I: Integer;
+  LastNoteIndex: Integer;
+begin
+  Result := False;
+  SyncStartSeconds := 0;
+  SyncEndSeconds := 0;
+  StartNoteIndex := Max(0, StartNoteIndex);
+  RequiredNoteCount := Max(0, RequiredNoteCount);
+  if (RequiredNoteCount = 0) or (Trim(FileName) = '') or
+    not TFile.Exists(FileName) then
+    Exit;
+  EnterCriticalSection(CacheLock);
+  try
+    if not EnsureMusicCache(FileName) then
+      Exit;
+    EligibleNoteIndex := 0;
+    LastNoteIndex := StartNoteIndex + RequiredNoteCount - 1;
+    for I := 0 to High(CacheNotes) do
+    begin
+      if CacheNotes[I].Seconds <
+        SequenceStartSeconds - MUSIC_TIME_EPSILON then
+        Continue;
+      if (Track >= 0) and (CacheNotes[I].TrackIndex <> Track) then
+        Continue;
+      if EligibleNoteIndex = StartNoteIndex then
+        SyncStartSeconds := CacheNotes[I].Seconds;
+      if EligibleNoteIndex = LastNoteIndex then
+      begin
+        SyncEndSeconds := Max(CacheNotes[I].EndSeconds,
+          CacheNotes[I].Seconds);
+        Exit(True);
+      end;
+      Inc(EligibleNoteIndex);
+    end;
   finally
     LeaveCriticalSection(CacheLock);
   end;

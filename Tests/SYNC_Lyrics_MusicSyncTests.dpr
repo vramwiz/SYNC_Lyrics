@@ -564,7 +564,9 @@ var
   Notes: TMusicNoteStarts;
   ProgressUnits: Double;
   SyncData: TSyncTextData;
+  SyncEndSeconds: Double;
   SyncParameters: TArray<Integer>;
+  SyncStartSeconds: Double;
   SyncText: string;
 begin
   FileName := TPath.Combine(TPath.GetTempPath, 'SYNC_Lyrics_MusicSyncTests.mid');
@@ -628,7 +630,20 @@ begin
         SyncParameters, ProgressUnits), 'second multi-note sync resolve failed');
       Check(Abs(ProgressUnits - 0.75) < 0.000001,
         'second of two notes did not continue the same display unit');
+      SetLength(SyncParameters, 0);
+      Check(ResolveAdjustedMusicSyncProgressWithOffset(FileName, -1,
+        0.0, 0.75, 1, 1, SyncParameters, ProgressUnits),
+        'line note offset resolve failed');
+      Check(Abs(ProgressUnits - 0.5) < 0.000001,
+        'the second line did not begin with the next music note');
+      Check(TryResolveMusicSyncTimeRange(FileName, -1, 0.0,
+        0, 2, SyncStartSeconds, SyncEndSeconds),
+        'music synchronization time range resolve failed');
+      Check((Abs(SyncStartSeconds) < 0.000001) and
+        (Abs(SyncEndSeconds - 1.0) < 0.000001),
+        'music synchronization time range mismatch');
 
+      SetLength(SyncParameters, 1);
       SyncParameters[0] := -1;
       Check(ResolveAdjustedMusicSyncProgress(FileName, -1, 0.0, 0.25, 2,
         SyncParameters, ProgressUnits), 'multi-unit sync resolve failed');
@@ -852,7 +867,7 @@ begin
     Bitmap.SetSize(1800, 1240);
     SetLength(Notes, 0);
     DrawMusicSyncPianoRoll(Bitmap.Canvas, Bitmap.Width, Bitmap.Height,
-      Notes, 0, 0, 0, MUSIC_SYNC_DISPLAY_SECONDS, 192, Layout);
+      Notes, 0, 0, 0, 0, MUSIC_SYNC_DISPLAY_SECONDS, 192, Layout);
     Check((Layout.Dpi = 192) and
       (Layout.KeyboardWidth = 152) and
       (Layout.RollHeight = 1124) and
@@ -922,10 +937,11 @@ var
 begin
   InitializeMusicSyncAnchor;
   try
-    RecordMusicSyncAnchor(101, 1001, 1, 0, 99, 300, 30, 1);
-    RecordMusicSyncAnchor(102, 1002, 1, 100, 199, 600, 30, 1);
+    RecordMusicSyncAnchor(101, 1001, 1, 0, 99, 300, 10, 30, 1);
+    RecordMusicSyncAnchor(102, 1002, 1, 100, 199, 600, 20, 30, 1);
     Check(TryGetMusicSyncAnchor(1, 0, 99, Anchor) and
-      (Anchor.ObjectID = 101) and (Anchor.Frame = 300),
+      (Anchor.ObjectID = 101) and (Anchor.Frame = 300) and
+      (Anchor.CurrentFrame = 10),
       'first object music-sync anchor mismatch');
     Check(TryGetMusicSyncAnchor(1, 100, 199, Anchor) and
       (Anchor.ObjectID = 102) and (Anchor.Frame = 600),
@@ -933,7 +949,7 @@ begin
     Check(not TryGetMusicSyncAnchor(1, 200, 299, Anchor),
       'unexpected anchor found for unknown object');
 
-    RecordMusicSyncAnchor(102, 1002, 2, 200, 299, 900, 30, 1);
+    RecordMusicSyncAnchor(102, 1002, 2, 200, 299, 900, 30, 30, 1);
     Check(not TryGetMusicSyncAnchor(1, 100, 199, Anchor),
       'moved object retained its stale anchor');
     Check(TryGetMusicSyncAnchor(2, 200, 299, Anchor) and

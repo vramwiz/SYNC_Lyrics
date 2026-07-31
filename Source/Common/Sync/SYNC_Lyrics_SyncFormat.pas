@@ -29,6 +29,10 @@ function SerializeMusicSyncText(const Stages: array of Integer): string;
 // 手動同期の境界秒列を、現在の形式バージョンを持つ共通テキストへ変換する。
 function SerializeManualSyncText(const Boundaries: array of Double): string;
 
+// Returns how many sequential music notes the stages consume for the given units.
+function CountMusicSyncRequiredNotes(const Text: string;
+  DisplayUnitCount: Integer): Integer;
+
 implementation
 
 uses
@@ -233,6 +237,45 @@ begin
       Result := Result + ',';
     Result := Result + FloatToStr(Boundary, TFormatSettings.Invariant);
     Previous := Boundary;
+  end;
+end;
+
+function CountMusicSyncRequiredNotes(const Text: string;
+  DisplayUnitCount: Integer): Integer;
+var
+  Data: TSyncTextData;
+  NoteCount: Integer;
+  StageIndex: Integer;
+  StageValue: Integer;
+  UnitCount: Integer;
+  UnitIndex: Integer;
+begin
+  Result := 0;
+  DisplayUnitCount := Max(0, DisplayUnitCount);
+  if not TryParseSyncText(Text, Data) or (Data.Mode <> smMusic) then
+    SetLength(Data.MusicStages, 0);
+  StageIndex := 0;
+  UnitIndex := 0;
+  while UnitIndex < DisplayUnitCount do
+  begin
+    if StageIndex <= High(Data.MusicStages) then
+      StageValue := Data.MusicStages[StageIndex]
+    else
+      StageValue := 0;
+    if StageValue < 0 then
+    begin
+      UnitCount := Min(Abs(StageValue) + 1,
+        DisplayUnitCount - UnitIndex);
+      NoteCount := 1;
+    end
+    else
+    begin
+      UnitCount := 1;
+      NoteCount := StageValue + 1;
+    end;
+    Inc(Result, NoteCount);
+    Inc(UnitIndex, UnitCount);
+    Inc(StageIndex);
   end;
 end;
 

@@ -29,6 +29,8 @@ uses
   SYNC_Lyrics_CharacterLayoutSettingsForm,
   SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
+  SYNC_Lyrics_SongLyricsModel,
+  SYNC_Lyrics_SongLyricsRuntime,
   SYNC_Lyrics_LastFrameCapture,
   SYNC_Lyrics_ManualSync,
   SYNC_Lyrics_ManualSyncSettingsForm,
@@ -36,6 +38,7 @@ uses
   SYNC_Lyrics_MusicSync,
   SYNC_Lyrics_MusicSyncAnchor,
   SYNC_Lyrics_MusicSyncSettingsForm,
+  SYNC_Lyrics_SyncEditorForm,
   SYNC_Lyrics_LineDisplaySettingsForm,
   SYNC_Lyrics_Animation,
   SYNC_Lyrics_Renderer,
@@ -46,6 +49,7 @@ uses
   Vcl.Forms;
 
 function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
+function LyricsProcVideoMulti(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure PresetSaveButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
@@ -59,6 +63,11 @@ var
   LyricsItem: TFILTER_ITEM_STRING = (
     ItemType: 'string';
     Name: '歌詞';
+    Value: ''
+  );
+  SongLyricsDataItem: TFILTER_ITEM_STRING = (
+    ItemType: 'string';
+    Name: '曲全体データ';
     Value: ''
   );
   MusicFileItem: TFILTER_ITEM_FILE = (
@@ -206,14 +215,14 @@ var
     Name: '表示設定';
     Value: ''
   );
-  PluginItems: array[0..18] of Pointer;
+  PluginItems: array[0..19] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
     Label_: 'SYNC';
     Information: '音楽データに同期する歌詞テロップフィルター';
     Items: nil;
-    Func_Proc_Video: LyricsProcVideo;
+    Func_Proc_Video: LyricsProcVideoMulti;
     Func_Proc_Audio: nil
   );
 
@@ -645,6 +654,7 @@ var
   CurrentLyrics: string;
   CurrentMusicFileName: string;
   CurrentPreDisplaySeconds: Double;
+  CurrentSongDataText: string;
   CurrentSyncText: string;
   LyricsChanged: Boolean;
   ManualSyncForm: TFormLyricsManualSyncSettings;
@@ -652,15 +662,18 @@ var
   ObjectLayerFrame: TOBJECT_LAYER_FRAME;
   SelectedLyrics: string;
   SelectedPreDisplaySeconds: Double;
+  SelectedSongDataText: string;
   SelectedSyncText: string;
   PreDisplayChanged: Boolean;
   SyncChanged: Boolean;
+  SyncEditorForm: TFormLyricsSyncEditor;
   SyncForm: TFormLyricsMusicSyncSettings;
   Utf8Lyrics: UTF8String;
   Utf8OriginalLyrics: UTF8String;
   Utf8OriginalPreDisplay: UTF8String;
   Utf8OriginalSyncText: UTF8String;
   Utf8PreDisplay: UTF8String;
+  Utf8SongDataText: UTF8String;
   Utf8SyncText: UTF8String;
 begin
   Obj := nil;
@@ -676,6 +689,59 @@ begin
   CurrentSyncText := DEFAULT_MUSIC_SYNC_TEXT;
   if Assigned(SyncDataItem.Value) then
     CurrentSyncText := string(SyncDataItem.Value);
+  CurrentSongDataText := '';
+  if Assigned(SongLyricsDataItem.Value) then
+    CurrentSongDataText := string(SongLyricsDataItem.Value);
+  CurrentPreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
+  if Trim(CurrentLyrics) = '' then
+  begin
+    SyncEditorForm := TFormLyricsSyncEditor.Create(nil);
+    try
+      SyncEditorForm.ConfigureMusicSource(CurrentMusicFileName,
+        Round(TrackItem.Value), CurrentPreDisplaySeconds);
+      if (Obj <> nil) and (Edit <> nil) and
+        Assigned(Edit^.GetObjectLayerFrame) then
+      begin
+        ObjectLayerFrame := Edit^.GetObjectLayerFrame(Obj);
+        if TryGetMusicSyncAnchor(ObjectLayerFrame.Layer,
+          ObjectLayerFrame.StartFrame, ObjectLayerFrame.EndFrame,
+          Anchor) then
+        begin
+          SyncEditorForm.SetAnchor(Anchor.Frame, Anchor.Rate, Anchor.Scale);
+          SyncEditorForm.SetCurrentObjectFrame(Anchor.CurrentFrame);
+        end
+        else
+          SyncEditorForm.SetAnchorUnavailable;
+      end
+      else
+        SyncEditorForm.SetAnchorUnavailable;
+      if (CurrentSongDataText <> '') and
+        not SyncEditorForm.TryLoadSongData(CurrentSongDataText,
+          AudioProbeError) then
+        MessageDlg('曲全体データを解析できませんでした。'#13#10 +
+          AudioProbeError, mtError, [mbOK], 0);
+      if SyncEditorForm.ShowModal <> mrOk then
+        Exit;
+      SelectedSongDataText := SyncEditorForm.SongDataText;
+    finally
+      SyncEditorForm.Free;
+    end;
+    if SelectedSongDataText = CurrentSongDataText then
+      Exit;
+    if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
+      (Obj = nil) then
+    begin
+      ShowFontSettingsError(
+        '曲全体データを反映する対象オブジェクトを取得できませんでした。');
+      Exit;
+    end;
+    Utf8SongDataText := UTF8String(SelectedSongDataText);
+    if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+      '曲全体データ', PAnsiChar(Utf8SongDataText)) then
+      ShowFontSettingsError(
+        '曲全体データを歌詞テロップへ反映できませんでした。');
+    Exit;
+  end;
   if not IsMusicScoreFileName(CurrentMusicFileName) then
   begin
     if not TryProbeSyncAudioFile(CurrentMusicFileName,
@@ -735,8 +801,6 @@ begin
     end;
     Exit;
   end;
-  CurrentPreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
-
   SyncForm := TFormLyricsMusicSyncSettings.Create(nil);
   try
     if (Obj <> nil) and Assigned(Edit^.GetObjectLayerFrame) then
@@ -832,15 +896,202 @@ begin
   end;
 end;
 
-function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
+procedure RenderLyricsLine(Video: PFILTER_PROC_VIDEO;
+  const FrameState: TSyncLyricsFrameState; HasFrameState: Boolean;
+  ObjectStartSeconds: Double; const MusicFileName: string; Track,
+  SelectedPlacementMode: Integer; const LyricsText: string;
+  HasSongLine: Boolean; const SongLine: TLyricsSongLine);
 var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
   AnimationSettings: TLyricsAnimationSettings;
   CommonSettings: TDisplayCommonSettings;
+  CurrentSyncSeconds: Double;
   DisplayUnitCount: Integer;
+  EffectivePreDisplaySeconds: Double;
+  EffectiveSyncText: string;
+  HasBoundaryProgress: Boolean;
+  HasFreePlacement: Boolean;
+  LocalSeconds: Double;
+  PlacementItems: TDisplayPlacementItems;
+  PlacementPlainText: string;
+  PlacementRubySpans: TLyricsRubySpans;
+  PlacementsMatchLyrics: Boolean;
+  PlacementUnits: TLyricsDisplayUnits;
+  RemainingSeconds: Double;
+  RenderSettings: TLyricsRenderSettings;
+  SyncData: TSyncTextData;
+  SyncProgress: Double;
+  SyncStartSeconds: Double;
+begin
+  AnimationOffsetY := 0;
+  AnimationOpacity := 1;
+  CommonSettings := DefaultDisplayCommonSettings;
+  PlacementItems := nil;
+  PlacementsMatchLyrics := False;
+  if Assigned(DisplaySettingsTextItem.Value) then
+    TryDecodeDisplaySettingsText(string(DisplaySettingsTextItem.Value),
+      LyricsText, CommonSettings, PlacementItems,
+      PlacementsMatchLyrics);
+  if HasSongLine then
+    Inc(CommonSettings.PositionY, (SongLine.DisplayLane - 1) *
+      (CommonSettings.BaseFontHeight +
+       CommonSettings.RubyFontHeight + 16));
+
+  RenderSettings := DefaultLyricsRenderSettings;
+  RenderSettings.DisplayType := TLyricsDisplayType(
+    EnsureRange(DisplayEffectItem.Value,
+      Ord(Low(TLyricsDisplayType)), Ord(High(TLyricsDisplayType))));
+  RenderSettings.BaseFontName := CommonSettings.BaseFontName;
+  RenderSettings.RubyFontName := CommonSettings.RubyFontName;
+  RenderSettings.BaseBold := (CommonSettings.BaseFontStyle and 1) <> 0;
+  RenderSettings.BaseItalic := (CommonSettings.BaseFontStyle and 2) <> 0;
+  RenderSettings.BaseUnderline :=
+    (CommonSettings.BaseFontStyle and 4) <> 0;
+  RenderSettings.BaseStrikeOut :=
+    (CommonSettings.BaseFontStyle and 8) <> 0;
+  RenderSettings.RubyBold := (CommonSettings.RubyFontStyle and 1) <> 0;
+  RenderSettings.RubyItalic :=
+    (CommonSettings.RubyFontStyle and 2) <> 0;
+  RenderSettings.RubyUnderline :=
+    (CommonSettings.RubyFontStyle and 4) <> 0;
+  RenderSettings.RubyStrikeOut :=
+    (CommonSettings.RubyFontStyle and 8) <> 0;
+  RenderSettings.BaseFontHeight := CommonSettings.BaseFontHeight;
+  RenderSettings.RubyFontHeight := CommonSettings.RubyFontHeight;
+  RenderSettings.RubyGapAdjustment :=
+    CommonSettings.RubyGapAdjustment;
+  RenderSettings.BaseCharacterSpacing :=
+    CommonSettings.BaseCharacterSpacing;
+  RenderSettings.RubyCharacterSpacing :=
+    CommonSettings.RubyCharacterSpacing;
+  RenderSettings.BeforeColor.R := CommonSettings.BeforeColor and $FF;
+  RenderSettings.BeforeColor.G :=
+    (CommonSettings.BeforeColor shr 8) and $FF;
+  RenderSettings.BeforeColor.B :=
+    (CommonSettings.BeforeColor shr 16) and $FF;
+  RenderSettings.AfterColor.R := CommonSettings.AfterColor and $FF;
+  RenderSettings.AfterColor.G :=
+    (CommonSettings.AfterColor shr 8) and $FF;
+  RenderSettings.AfterColor.B :=
+    (CommonSettings.AfterColor shr 16) and $FF;
+
+  HasFreePlacement := False;
+  if SelectedPlacementMode = PLACEMENT_MODE_FREE then
+  begin
+    ParseLyrics(LyricsText, PlacementPlainText, PlacementRubySpans);
+    BuildLyricsDisplayUnits(PlacementPlainText, PlacementRubySpans,
+      PlacementUnits);
+    HasFreePlacement := PlacementsMatchLyrics and
+      (Length(PlacementItems) = Length(PlacementUnits));
+  end;
+
+  DisplayUnitCount := CountLyricsDisplayUnits(LyricsText);
+  SyncProgress := 0;
+  HasBoundaryProgress := False;
+  if HasSongLine and (Video <> nil) and (Video^.Object_ <> nil) then
+    HasBoundaryProgress := TryResolveSongLyricsLineBoundaryProgress(
+      SongLine, Video^.Object_^.Frame, DisplayUnitCount, SyncProgress);
+  EffectivePreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
+  EffectiveSyncText := '';
+  if Assigned(SyncDataItem.Value) then
+    EffectiveSyncText := string(SyncDataItem.Value);
+  if HasSongLine then
+    EffectiveSyncText := SongLine.SyncText;
+  if HasFrameState then
+  begin
+    CurrentSyncSeconds := FrameState.TimeSeconds;
+    SyncStartSeconds := ObjectStartSeconds +
+      EffectivePreDisplaySeconds;
+    if HasSongLine and (Video <> nil) and
+      (Video^.Object_ <> nil) and (FrameState.Rate > 0) then
+    begin
+      CurrentSyncSeconds := Video^.Object_^.Frame *
+        FrameState.Scale / FrameState.Rate;
+      SyncStartSeconds := EffectivePreDisplaySeconds;
+    end;
+    if not HasBoundaryProgress and
+      TryParseSyncText(EffectiveSyncText, SyncData) then
+      case SyncData.Mode of
+        smMusic:
+          if HasSongLine then
+            ResolveAdjustedMusicSyncProgressWithOffset(MusicFileName,
+              Track, SyncStartSeconds, CurrentSyncSeconds,
+              SongLine.StartNoteIndex, DisplayUnitCount,
+              SyncData.MusicStages, SyncProgress)
+          else
+            ResolveAdjustedMusicSyncProgress(MusicFileName, Track,
+              SyncStartSeconds, CurrentSyncSeconds, DisplayUnitCount,
+              SyncData.MusicStages, SyncProgress);
+        smManual:
+          ResolveManualSyncProgress(CurrentSyncSeconds,
+            DisplayUnitCount, SyncData.ManualBoundaries, SyncProgress);
+      end;
+    if (Video <> nil) and (Video^.Object_ <> nil) and
+      (FrameState.Rate > 0) then
+    begin
+      LocalSeconds := Video^.Object_^.Frame *
+        FrameState.Scale / FrameState.Rate;
+      RemainingSeconds := Max(0,
+        Video^.Object_^.FrameTotal - 1 - Video^.Object_^.Frame) *
+        FrameState.Scale / FrameState.Rate;
+      if HasSongLine and (SongLine.DisplayStartFrame >= 0) then
+        LocalSeconds := Max(0,
+          Video^.Object_^.Frame - SongLine.DisplayStartFrame) *
+          FrameState.Scale / FrameState.Rate;
+      if HasSongLine and (SongLine.DisplayEndFrame >= 0) then
+        RemainingSeconds := Max(0,
+          SongLine.DisplayEndFrame - Video^.Object_^.Frame) *
+          FrameState.Scale / FrameState.Rate;
+      AnimationSettings.SyncAnimation := TLyricsSyncAnimation(
+        EnsureRange(SyncAnimationItem.Value,
+          Ord(Low(TLyricsSyncAnimation)),
+          Ord(High(TLyricsSyncAnimation))));
+      AnimationSettings.StartAnimation := TLyricsEdgeAnimation(
+        EnsureRange(StartAnimationItem.Value,
+          Ord(Low(TLyricsEdgeAnimation)),
+          Ord(High(TLyricsEdgeAnimation))));
+      AnimationSettings.EndAnimation := TLyricsEdgeAnimation(
+        EnsureRange(EndAnimationItem.Value,
+          Ord(Low(TLyricsEdgeAnimation)),
+          Ord(High(TLyricsEdgeAnimation))));
+      AnimationSettings.StartDurationSeconds :=
+        Max(0.01, StartAnimationTimeItem.Value);
+      AnimationSettings.EndDurationSeconds :=
+        Max(0.01, EndAnimationTimeItem.Value);
+      AnimationSettings.BaseFontHeight :=
+        RenderSettings.BaseFontHeight;
+      ResolveLyricsAnimation(AnimationSettings, LocalSeconds,
+        RemainingSeconds, SyncProgress, AnimationOpacity,
+        AnimationOffsetY);
+    end;
+  end;
+  RenderSettings.Opacity := AnimationOpacity;
+  if HasFreePlacement then
+    RenderFreePlacementLyrics(Video, PWideChar(LyricsText), SyncProgress,
+      RenderSettings, PlacementItems, CommonSettings.PositionX,
+      CommonSettings.PositionY + AnimationOffsetY)
+  else
+    RenderLyrics(Video, PWideChar(LyricsText), SyncProgress,
+      RenderSettings, CommonSettings.PositionX,
+      CommonSettings.PositionY + AnimationOffsetY);
+end;
+
+function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
+var
+  ActiveSongLine: TLyricsSongLine;
+  ActiveSongLineIndex: Integer;
+  AnimationOffsetY: Integer;
+  AnimationOpacity: Double;
+  AnimationSettings: TLyricsAnimationSettings;
+  CommonSettings: TDisplayCommonSettings;
+  DisplayUnitCount: Integer;
+  EffectivePreDisplaySeconds: Double;
+  EffectiveSyncText: string;
   FrameState: TSyncLyricsFrameState;
   HasFreePlacement: Boolean;
+  HasSongData: Boolean;
+  HasSongLine: Boolean;
   LyricsText: string;
   MusicFileName: string;
   LocalSeconds: Double;
@@ -848,6 +1099,7 @@ var
   ObjectStartSeconds: Double;
   RenderSettings: TLyricsRenderSettings;
   RemainingSeconds: Double;
+  SongLines: TLyricsSongLines;
   PlacementItems: TDisplayPlacementItems;
   PlacementPlainText: string;
   PlacementRubySpans: TLyricsRubySpans;
@@ -872,6 +1124,28 @@ begin
     LyricsText := '';
     if Assigned(LyricsItem.Value) then
       LyricsText := string(LyricsItem.Value);
+    HasSongData := False;
+    HasSongLine := False;
+    SongLines := nil;
+    if Assigned(SongLyricsDataItem.Value) then
+      HasSongData := TryGetSongLyricsLines(
+        string(SongLyricsDataItem.Value), SongLines);
+    if HasSongData then
+    begin
+      ActiveSongLineIndex := -1;
+      if (Video <> nil) and (Video^.Object_ <> nil) then
+        ActiveSongLineIndex := ResolveSongLyricsLineIndex(
+          SongLines, Video^.Object_^.Frame);
+      HasSongLine := (ActiveSongLineIndex >= 0) and
+        (ActiveSongLineIndex < Length(SongLines));
+      if HasSongLine then
+      begin
+        ActiveSongLine := SongLines[ActiveSongLineIndex];
+        LyricsText := ActiveSongLine.SourceText;
+      end
+      else
+        LyricsText := '';
+    end;
     CommonSettings := DefaultDisplayCommonSettings;
     PlacementItems := nil;
     PlacementsMatchLyrics := False;
@@ -879,6 +1153,10 @@ begin
       TryDecodeDisplaySettingsText(string(DisplaySettingsTextItem.Value),
         LyricsText, CommonSettings, PlacementItems,
         PlacementsMatchLyrics);
+    if HasSongLine then
+      Inc(CommonSettings.PositionY, (ActiveSongLine.DisplayLane - 1) *
+        (CommonSettings.BaseFontHeight +
+         CommonSettings.RubyFontHeight + 16));
     RenderSettings.BaseFontName := CommonSettings.BaseFontName;
     RenderSettings.RubyFontName := CommonSettings.RubyFontName;
     RenderSettings.BaseBold := (CommonSettings.BaseFontStyle and 1) <> 0;
@@ -917,6 +1195,14 @@ begin
     end;
     DisplayUnitCount := CountLyricsDisplayUnits(LyricsText);
     SyncProgress := 0;
+    EffectivePreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
+    EffectiveSyncText := '';
+    if Assigned(SyncDataItem.Value) then
+      EffectiveSyncText := string(SyncDataItem.Value);
+    if HasSongLine then
+    begin
+      EffectiveSyncText := ActiveSongLine.SyncText;
+    end;
     if TryGetLyricsFrameState(Video, FrameState) then
     begin
       MusicFileName := '';
@@ -931,18 +1217,25 @@ begin
           Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate;
         RecordMusicSyncAnchor(Video^.Object_^.ID, Video^.Object_^.EffectID,
           Video^.Object_^.Layer, Video^.Object_^.FrameS,
-          Video^.Object_^.FrameE, ObjectStartFrame, FrameState.Rate,
-          FrameState.Scale);
+          Video^.Object_^.FrameE, ObjectStartFrame,
+          Video^.Object_^.Frame, FrameState.Rate, FrameState.Scale);
       end;
       SyncStartSeconds := ObjectStartSeconds +
-        Max(0.0, PreDisplayTimeItem.Value);
-      if Assigned(SyncDataItem.Value) and
-        TryParseSyncText(string(SyncDataItem.Value), SyncData) then
+        EffectivePreDisplaySeconds;
+      if TryParseSyncText(EffectiveSyncText, SyncData) then
         case SyncData.Mode of
           smMusic:
-            ResolveAdjustedMusicSyncProgress(MusicFileName, Track,
-              SyncStartSeconds, FrameState.TimeSeconds, DisplayUnitCount,
-              SyncData.MusicStages, SyncProgress);
+            if HasSongLine then
+              ResolveAdjustedMusicSyncProgressWithOffset(MusicFileName,
+                Track, EffectivePreDisplaySeconds,
+                Video^.Object_^.Frame *
+                  FrameState.Scale / FrameState.Rate,
+                ActiveSongLine.StartNoteIndex, DisplayUnitCount,
+                SyncData.MusicStages, SyncProgress)
+            else
+              ResolveAdjustedMusicSyncProgress(MusicFileName, Track,
+                SyncStartSeconds, FrameState.TimeSeconds, DisplayUnitCount,
+                SyncData.MusicStages, SyncProgress);
           smManual:
             ResolveManualSyncProgress(FrameState.TimeSeconds,
               DisplayUnitCount, SyncData.ManualBoundaries, SyncProgress);
@@ -955,6 +1248,15 @@ begin
         RemainingSeconds := Max(0,
           Video^.Object_^.FrameTotal - 1 - Video^.Object_^.Frame) *
           FrameState.Scale / FrameState.Rate;
+        if HasSongLine and (ActiveSongLine.DisplayStartFrame >= 0) then
+          LocalSeconds := Max(0,
+            Video^.Object_^.Frame - ActiveSongLine.DisplayStartFrame) *
+            FrameState.Scale / FrameState.Rate;
+        if HasSongLine and (ActiveSongLine.DisplayEndFrame >= 0) then
+          RemainingSeconds := Max(0,
+            ActiveSongLine.DisplayEndFrame -
+            Video^.Object_^.Frame) *
+            FrameState.Scale / FrameState.Rate;
         AnimationSettings.SyncAnimation := TLyricsSyncAnimation(
           EnsureRange(SyncAnimationItem.Value,
             Ord(Low(TLyricsSyncAnimation)),
@@ -993,30 +1295,95 @@ begin
   Result := 1;
 end;
 
+function LyricsProcVideoMulti(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
+var
+  ActiveIndexes: TLyricsSongLineIndexes;
+  FrameState: TSyncLyricsFrameState;
+  HasFrameState: Boolean;
+  I: Integer;
+  MusicFileName: string;
+  ObjectStartFrame: Integer;
+  ObjectStartSeconds: Double;
+  SelectedPlacementMode: Integer;
+  SongDataText: string;
+  SongLines: TLyricsSongLines;
+  Track: Integer;
+begin
+  try
+    SongDataText := '';
+    if Assigned(SongLyricsDataItem.Value) then
+      SongDataText := string(SongLyricsDataItem.Value);
+    if (SongDataText = '') or
+      not TryGetSongLyricsLines(SongDataText, SongLines) then
+      Exit(LyricsProcVideo(Video));
+
+    CaptureLastFrame(Video);
+    HasFrameState := TryGetLyricsFrameState(Video, FrameState);
+    ObjectStartSeconds := 0;
+    if HasFrameState then
+      ObjectStartSeconds := FrameState.TimeSeconds;
+    if HasFrameState and (Video <> nil) and
+      (Video^.Object_ <> nil) and (FrameState.Rate > 0) then
+    begin
+      ObjectStartFrame := FrameState.Frame - Video^.Object_^.Frame;
+      ObjectStartSeconds := ObjectStartSeconds -
+        Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate;
+      RecordMusicSyncAnchor(Video^.Object_^.ID,
+        Video^.Object_^.EffectID, Video^.Object_^.Layer,
+        Video^.Object_^.FrameS, Video^.Object_^.FrameE,
+        ObjectStartFrame, Video^.Object_^.Frame,
+        FrameState.Rate, FrameState.Scale);
+    end;
+
+    SetLength(ActiveIndexes, 0);
+    if (Video <> nil) and (Video^.Object_ <> nil) then
+      ActiveIndexes := ResolveSongLyricsLineIndexes(SongLines,
+        Video^.Object_^.Frame);
+    MusicFileName := '';
+    if Assigned(MusicFileItem.Value) then
+      MusicFileName := string(MusicFileItem.Value);
+    Track := Round(TrackItem.Value);
+    SelectedPlacementMode := EnsureRange(PlacementModeItem.Value,
+      PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE);
+    for I := 0 to High(ActiveIndexes) do
+      if (ActiveIndexes[I] >= 0) and
+        (ActiveIndexes[I] < Length(SongLines)) then
+        RenderLyricsLine(Video, FrameState, HasFrameState,
+          ObjectStartSeconds, MusicFileName, Track,
+          SelectedPlacementMode,
+          SongLines[ActiveIndexes[I]].SourceText, True,
+          SongLines[ActiveIndexes[I]]);
+  except
+    // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
+  end;
+  Result := 1;
+end;
+
 function GetLyricsFilterTable: PFILTER_PLUGIN_TABLE;
 begin
   if Plugin.Items = nil then
   begin
     // AviUtl2はnil終端された項目ポインター配列を参照する。
     PluginItems[0] := @MusicSyncSettingsButton;
-    PluginItems[1] := @LyricsItem;
-    PluginItems[2] := @MusicFileItem;
-    PluginItems[3] := @TrackItem;
-    PluginItems[4] := @PlacementModeItem;
-    PluginItems[5] := @DisplayEffectItem;
-    PluginItems[6] := @DisplaySettingsButton;
-    PluginItems[7] := @PresetItem;
-    PluginItems[8] := @PresetSaveButton;
-    PluginItems[9] := @PresetLoadButton;
-    PluginItems[10] := @SyncAnimationItem;
-    PluginItems[11] := @StartAnimationItem;
-    PluginItems[12] := @StartAnimationTimeItem;
-    PluginItems[13] := @EndAnimationItem;
-    PluginItems[14] := @EndAnimationTimeItem;
-    PluginItems[15] := @PreDisplayTimeItem;
-    PluginItems[16] := @SyncDataItem;
-    PluginItems[17] := @DisplaySettingsTextItem;
-    PluginItems[18] := nil;
+    PluginItems[1] := @SongLyricsDataItem;
+    PluginItems[2] := @LyricsItem;
+    PluginItems[3] := @MusicFileItem;
+    PluginItems[4] := @TrackItem;
+    PluginItems[5] := @PlacementModeItem;
+    PluginItems[6] := @DisplayEffectItem;
+    PluginItems[7] := @DisplaySettingsButton;
+    PluginItems[8] := @PresetItem;
+    PluginItems[9] := @PresetSaveButton;
+    PluginItems[10] := @PresetLoadButton;
+    PluginItems[11] := @SyncAnimationItem;
+    PluginItems[12] := @StartAnimationItem;
+    PluginItems[13] := @StartAnimationTimeItem;
+    PluginItems[14] := @EndAnimationItem;
+    PluginItems[15] := @EndAnimationTimeItem;
+    PluginItems[16] := @PreDisplayTimeItem;
+    PluginItems[17] := @SyncDataItem;
+    PluginItems[18] := @DisplaySettingsTextItem;
+    PluginItems[19] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;
@@ -1027,6 +1394,7 @@ begin
   InitializeLastFrameCapture;
   InitializeLyricsFrameShared;
   InitializeLyricsContexts;
+  InitializeSongLyricsRuntime;
   InitializeMusicSyncAnchor;
   InitializeMusicSync;
   InitializeLyricsRenderer;
@@ -1037,6 +1405,7 @@ begin
   FinalizeLyricsRenderer;
   FinalizeMusicSync;
   FinalizeMusicSyncAnchor;
+  FinalizeSongLyricsRuntime;
   FinalizeLyricsContexts;
   FinalizeLyricsFrameShared;
   FinalizeLastFrameCapture;

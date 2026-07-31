@@ -51,14 +51,24 @@ type
     FFilterLyricHitRects: TArray<TRect>;
     FFixedLyricHitRects: TArray<TRect>;
     FHasTrackNotes: Boolean;
+    FHoldSeconds: Double;
     FLastTrackNoteEndSeconds: Double;
+    FLineSyncEndSeconds: Double;
+    FLineSyncStartSeconds: Double;
     FLoadMessage: string;
     FLyricDragStartX: Integer;
     FLyricDragStep: Integer;
     FNotes: TMusicNoteStarts;
     FPianoRollBuffer: TBitmap;
     FPreDisplaySeconds: Double;
+    FSequencePreDisplaySeconds: Double;
+    FStartNoteIndex: Integer;
     FMusicLoaded: Boolean;
+    FNextLyricsModel: TMusicSyncEditModel;
+    FNextStartNoteIndex: Integer;
+    FOnSyncChanged: TNotifyEvent;
+    FPreviousLyricsModel: TMusicSyncEditModel;
+    FPreviousStartNoteIndex: Integer;
     FViewStartOffsetSeconds: Double;
     FViewDragStartOffsetSeconds: Double;
     FViewDragStartX: Integer;
@@ -67,6 +77,7 @@ type
     procedure LoadPianoRoll(const MusicFileName: string; Track: Integer);
     procedure RebuildFilterLyricUnits;
     procedure SetPreDisplayFromMouse(X: Integer);
+    procedure UpdateLineSyncTimeRange;
     procedure UpdateNoteAvailabilityMessage;
   public
     constructor Create(AOwner: TComponent); override;
@@ -74,12 +85,26 @@ type
     // Filterが最後に発火した絶対位置を、この編集画面の基準とする。
     procedure SetAnchor(Frame, Rate, Scale: Integer);
     procedure SetAnchorUnavailable;
+    // Supplies the common first-line synchronization offset from the object start.
+    procedure SetSequencePreDisplaySeconds(Value: Double);
+    // Supplies the fixed post-synchronization display duration.
+    procedure SetHoldSeconds(Value: Double);
+    // Supplies neighboring song lines for read-only piano-roll context.
+    procedure SetReferenceLyrics(const PreviousLyrics,
+      PreviousSyncText: string; PreviousStartNoteIndex: Integer;
+      const NextLyrics, NextSyncText: string;
+      NextStartNoteIndex: Integer);
+    // Skips notes already assigned to preceding whole-song lyric lines.
+    procedure SetStartNoteIndex(Value: Integer);
     // Filter項目をモデルへ読み込み、ピアノロール表示を準備する。
     procedure LoadSettings(const MusicFileName: string; Track: Integer;
       PreDisplaySeconds: Double; const FilterLyrics, SyncText: string);
     function LyricsText: string;
     function PreDisplaySeconds: Double;
     function SyncText: string;
+    // Notifies an embedding editor after each user synchronization change.
+    property OnSyncChanged: TNotifyEvent read FOnSyncChanged
+      write FOnSyncChanged;
   end;
 
 implementation
@@ -90,7 +115,8 @@ uses
   Winapi.Windows,
   SYNC_Lyrics_MusicSyncFixedLyrics,
   SYNC_Lyrics_MusicSyncNoteLyrics,
-  SYNC_Lyrics_MusicSyncPianoRoll;
+  SYNC_Lyrics_MusicSyncPianoRoll,
+  SYNC_Lyrics_SyncFormat;
 
 {$R *.dfm}
 
@@ -110,7 +136,14 @@ constructor TFormLyricsMusicSyncSettings.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FDisplaySeconds := MUSIC_SYNC_DISPLAY_SECONDS;
+  FLineSyncStartSeconds := 0;
+  FLineSyncEndSeconds := 0;
+  FHoldSeconds := 0.5;
+  FSequencePreDisplaySeconds := 0;
+  FStartNoteIndex := 0;
   FEditModel := TMusicSyncEditModel.Create;
+  FPreviousLyricsModel := TMusicSyncEditModel.Create;
+  FNextLyricsModel := TMusicSyncEditModel.Create;
   FPianoRollBuffer := Vcl.Graphics.TBitmap.Create;
   FPianoRollBuffer.PixelFormat := pf32bit;
 end;
@@ -118,6 +151,8 @@ end;
 destructor TFormLyricsMusicSyncSettings.Destroy;
 begin
   FPianoRollBuffer.Free;
+  FNextLyricsModel.Free;
+  FPreviousLyricsModel.Free;
   FEditModel.Free;
   inherited Destroy;
 end;
@@ -140,12 +175,14 @@ begin
   Result := -1;
   TimeWidth := PianoRollPaintBox.ClientWidth -
     MusicSyncKeyboardWidth(CurrentPPI);
+  RelativeSeconds := FLineSyncStartSeconds - FPreDisplaySeconds -
+    FAnchorSeconds;
   if (TimeWidth <= 0) or
-    (FPreDisplaySeconds < FViewStartOffsetSeconds) or
-    (FPreDisplaySeconds >
+    (RelativeSeconds < FViewStartOffsetSeconds) or
+    (RelativeSeconds >
       FViewStartOffsetSeconds + FDisplaySeconds) then
     Exit;
-  RelativeSeconds := FPreDisplaySeconds - FViewStartOffsetSeconds;
+  RelativeSeconds := RelativeSeconds - FViewStartOffsetSeconds;
   Result := MusicSyncKeyboardWidth(CurrentPPI) +
     Round(RelativeSeconds / FDisplaySeconds * TimeWidth);
 end;
@@ -216,6 +253,7 @@ var
   I: Integer;
   LastTrackNoteEndSeconds: Double;
   NoteCount: Integer;
+  TargetOffsetSeconds: Double;
 begin
   SetLength(FNotes, 0);
   FMusicLoaded := False;
@@ -223,6 +261,8 @@ begin
   FAvailableNoteCount := 0;
   FLastTrackNoteEndSeconds := 0;
   FLoadMessage := '';
+  FLineSyncStartSeconds := FAnchorSeconds +
+    FSequencePreDisplaySeconds;
   if not FAnchorAvailable then
     FLoadMessage := '基準位置を取得できません。'
   else if MusicFileName = '' then
@@ -249,6 +289,10 @@ begin
     end;
     SetLength(FNotes, NoteCount);
     FLastTrackNoteEndSeconds := LastTrackNoteEndSeconds;
+    UpdateLineSyncTimeRange;
+    TargetOffsetSeconds := FLineSyncStartSeconds -
+      FPreDisplaySeconds - FAnchorSeconds;
+    FViewStartOffsetSeconds := Max(0, TargetOffsetSeconds);
     UpdateNoteAvailabilityMessage;
   end;
   PianoRollPaintBox.Invalidate;
@@ -358,6 +402,9 @@ begin
     begin
       FLyricDragStep := DragStep;
       FEditModel.ApplyDragStep(DragStep);
+      UpdateLineSyncTimeRange;
+      if Assigned(FOnSyncChanged) then
+        FOnSyncChanged(Self);
       PianoRollPaintBox.Invalidate;
     end;
     PianoRollPaintBox.Cursor := crSizeWE;
@@ -440,9 +487,13 @@ begin
   Canvas := FPianoRollBuffer.Canvas;
   try
     DrawMusicSyncPianoRoll(Canvas, PianoWidth, PianoHeight, FNotes,
-      FAnchorSeconds, FPreDisplaySeconds,
+      FAnchorSeconds, FSequencePreDisplaySeconds, FStartNoteIndex,
       FAnchorSeconds + FViewStartOffsetSeconds,
       FDisplaySeconds, Dpi, Layout);
+    DrawReferenceNoteLyrics(Canvas, FPreviousLyricsModel,
+      FPreviousStartNoteIndex, Layout, PianoWidth);
+    DrawReferenceNoteLyrics(Canvas, FNextLyricsModel,
+      FNextStartNoteIndex, Layout, PianoWidth);
     DrawNoteFollowingLyrics(Canvas, FEditModel, Layout, PianoWidth,
       FFilterLyricHitRects);
     DrawFixedLyrics(Canvas, PianoWidth, PianoHeight, FEditModel, Layout,
@@ -450,7 +501,8 @@ begin
     DrawUnassignedLyrics(Canvas, PianoWidth, FEditModel, Layout,
       FAvailableNoteCount);
     DrawMusicSyncMarkers(Canvas, PianoHeight, PianoWidth,
-      FPreDisplaySeconds, Layout);
+      FLineSyncStartSeconds, FPreDisplaySeconds,
+      FLineSyncEndSeconds + FHoldSeconds, Layout);
 
     if FLoadMessage <> '' then
     begin
@@ -483,23 +535,33 @@ procedure TFormLyricsMusicSyncSettings.ResetSyncButtonClick(
   Sender: TObject);
 begin
   FEditModel.Reset;
+  UpdateLineSyncTimeRange;
   FDraggingLyric := False;
+  if Assigned(FOnSyncChanged) then
+    FOnSyncChanged(Self);
   PianoRollPaintBox.Invalidate;
 end;
 
 procedure TFormLyricsMusicSyncSettings.SetPreDisplayFromMouse(X: Integer);
 var
+  MouseSeconds: Double;
+  PreviousPreDisplaySeconds: Double;
   TimeWidth: Integer;
 begin
   TimeWidth := PianoRollPaintBox.ClientWidth -
     MusicSyncKeyboardWidth(CurrentPPI);
   if TimeWidth <= 0 then
     Exit;
+  MouseSeconds := FAnchorSeconds + FViewStartOffsetSeconds +
+    (X - MusicSyncKeyboardWidth(CurrentPPI)) / TimeWidth *
+      FDisplaySeconds;
+  PreviousPreDisplaySeconds := FPreDisplaySeconds;
   FPreDisplaySeconds := Round(EnsureRange(
-    FViewStartOffsetSeconds +
-      (X - MusicSyncKeyboardWidth(CurrentPPI)) / TimeWidth *
-        FDisplaySeconds,
+    FLineSyncStartSeconds - MouseSeconds,
     0.0, MAX_DISPLAY_SECONDS) * 100) / 100;
+  if (Abs(FPreDisplaySeconds - PreviousPreDisplaySeconds) >= 0.005) and
+    Assigned(FOnSyncChanged) then
+    FOnSyncChanged(Self);
   UpdateNoteAvailabilityMessage;
   PianoRollPaintBox.Invalidate;
 end;
@@ -508,7 +570,6 @@ procedure TFormLyricsMusicSyncSettings.UpdateNoteAvailabilityMessage;
 const
   TIME_EPSILON = 0.000000001;
 var
-  HasEligibleNote: Boolean;
   I: Integer;
   SyncStartSeconds: Double;
 begin
@@ -521,20 +582,50 @@ begin
     Exit;
   end;
 
-  SyncStartSeconds := FAnchorSeconds + FPreDisplaySeconds;
-  HasEligibleNote := False;
+  SyncStartSeconds := FAnchorSeconds + FSequencePreDisplaySeconds;
   FAvailableNoteCount := 0;
   for I := 0 to High(FNotes) do
     if FNotes[I].Seconds >= SyncStartSeconds - TIME_EPSILON then
-    begin
-      HasEligibleNote := True;
       Inc(FAvailableNoteCount);
-    end;
-  if not HasEligibleNote then
+  FAvailableNoteCount := Max(0,
+    FAvailableNoteCount - FStartNoteIndex);
+  if FAvailableNoteCount = 0 then
     FLoadMessage := Format(
       '同期開始 %.3f 秒以降に対象ノートがありません（曲データ最終 %.3f 秒）。',
       [SyncStartSeconds, FLastTrackNoteEndSeconds],
       TFormatSettings.Invariant);
+end;
+
+procedure TFormLyricsMusicSyncSettings.UpdateLineSyncTimeRange;
+var
+  EligibleNoteIndex: Integer;
+  I: Integer;
+  LastNoteIndex: Integer;
+  RequiredNoteCount: Integer;
+begin
+  FLineSyncStartSeconds := FAnchorSeconds +
+    FSequencePreDisplaySeconds;
+  FLineSyncEndSeconds := FLineSyncStartSeconds;
+  RequiredNoteCount := CountMusicSyncRequiredNotes(
+    FEditModel.SerializeSyncText, Length(FEditModel.Units));
+  if RequiredNoteCount <= 0 then
+    Exit;
+  EligibleNoteIndex := 0;
+  LastNoteIndex := FStartNoteIndex + RequiredNoteCount - 1;
+  for I := 0 to High(FNotes) do
+    if FNotes[I].Seconds >=
+      FAnchorSeconds + FSequencePreDisplaySeconds then
+    begin
+      if EligibleNoteIndex = FStartNoteIndex then
+        FLineSyncStartSeconds := FNotes[I].Seconds;
+      if EligibleNoteIndex = LastNoteIndex then
+      begin
+        FLineSyncEndSeconds := Max(FNotes[I].EndSeconds,
+          FNotes[I].Seconds);
+        Exit;
+      end;
+      Inc(EligibleNoteIndex);
+    end;
 end;
 
 procedure TFormLyricsMusicSyncSettings.SetAnchor(Frame, Rate,
@@ -550,6 +641,39 @@ procedure TFormLyricsMusicSyncSettings.SetAnchorUnavailable;
 begin
   FAnchorAvailable := False;
   FAnchorSeconds := 0;
+end;
+
+procedure TFormLyricsMusicSyncSettings.SetHoldSeconds(Value: Double);
+begin
+  FHoldSeconds := Max(0.0, Value);
+  PianoRollPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsMusicSyncSettings.SetStartNoteIndex(Value: Integer);
+begin
+  FStartNoteIndex := Max(0, Value);
+  UpdateNoteAvailabilityMessage;
+  PianoRollPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsMusicSyncSettings.SetSequencePreDisplaySeconds(
+  Value: Double);
+begin
+  FSequencePreDisplaySeconds := Max(0.0, Value);
+end;
+
+procedure TFormLyricsMusicSyncSettings.SetReferenceLyrics(
+  const PreviousLyrics, PreviousSyncText: string;
+  PreviousStartNoteIndex: Integer; const NextLyrics,
+  NextSyncText: string; NextStartNoteIndex: Integer);
+begin
+  FPreviousLyricsModel.SetLyrics(PreviousLyrics);
+  FPreviousLyricsModel.LoadSyncText(PreviousSyncText);
+  FPreviousStartNoteIndex := Max(0, PreviousStartNoteIndex);
+  FNextLyricsModel.SetLyrics(NextLyrics);
+  FNextLyricsModel.LoadSyncText(NextSyncText);
+  FNextStartNoteIndex := Max(0, NextStartNoteIndex);
+  PianoRollPaintBox.Invalidate;
 end;
 
 end.

@@ -19,6 +19,9 @@ uses
   SYNC_Lyrics_ContextManager in 'Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas',
   SYNC_Lyrics_Time in 'Source\Common\Timeline\SYNC_Lyrics_Time.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
+  SYNC_Lyrics_SongLyricsModel in 'Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
+  SYNC_Lyrics_SongLyricsData in 'Source\Common\Lyrics\SYNC_Lyrics_SongLyricsData.pas',
+  SYNC_Lyrics_SongLyricsRuntime in 'Source\Common\Lyrics\SYNC_Lyrics_SongLyricsRuntime.pas',
   RTTIPersistent in 'Source\Lib\SongReader\RTTIPersistent.pas',
   RTTIPersistentIni in 'Source\Lib\SongReader\RTTIPersistentIni.pas',
   SectionFileManager in 'Source\Lib\SongReader\SectionFileManager.pas',
@@ -65,8 +68,11 @@ uses
   SYNC_Lyrics_MusicSyncNoteLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas',
   SYNC_Lyrics_MusicSyncFixedLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas',
   SYNC_Lyrics_MusicSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas' {FormLyricsMusicSyncSettings},
+  SYNC_Lyrics_MusicSyncEditorFrame in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas',
   SYNC_Lyrics_TimeRuler in 'Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas',
   SYNC_Lyrics_ManualSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas' {FormLyricsManualSyncSettings},
+  SYNC_Lyrics_InitialLyricsFrame in 'Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas' {FrameLyricsInitialInput: TFrame},
+  SYNC_Lyrics_SyncEditorForm in 'Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas' {FormLyricsSyncEditor},
   SYNC_Lyrics_FilterPlugin in 'Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas';
 
 function InitializePlugin(Version: Cardinal): Byte; cdecl;

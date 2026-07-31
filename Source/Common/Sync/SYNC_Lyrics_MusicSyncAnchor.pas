@@ -12,6 +12,7 @@ type
     StartFrame: Integer;   // タイムライン上のオブジェクト開始フレーム
     EndFrame: Integer;     // タイムライン上のオブジェクト終了フレーム
     Frame: Integer;        // Input素材上のオブジェクト先頭絶対フレーム
+    CurrentFrame: Integer; // 最後にFilterが処理したオブジェクト内フレーム
     Rate: Integer;         // フレームレートの分子
     Scale: Integer;        // フレームレートの分母
   end;
@@ -24,7 +25,7 @@ procedure FinalizeMusicSyncAnchor;
 
 // Filterが正常に発火した素材先頭位置を、オブジェクト配置ごとに記録する。
 procedure RecordMusicSyncAnchor(ObjectID, EffectID: Int64;
-  Layer, StartFrame, EndFrame, Frame, Rate, Scale: Integer);
+  Layer, StartFrame, EndFrame, Frame, CurrentFrame, Rate, Scale: Integer);
 
 // 選択オブジェクトの配置に一致する基準位置を返す。
 function TryGetMusicSyncAnchor(Layer, StartFrame, EndFrame: Integer;
@@ -56,7 +57,7 @@ begin
 end;
 
 procedure RecordMusicSyncAnchor(ObjectID, EffectID: Int64;
-  Layer, StartFrame, EndFrame, Frame, Rate, Scale: Integer);
+  Layer, StartFrame, EndFrame, Frame, CurrentFrame, Rate, Scale: Integer);
 var
   Anchor: TMusicSyncAnchor;
   I: Integer;
@@ -80,7 +81,8 @@ begin
     Anchor.Layer := Layer;
     Anchor.StartFrame := StartFrame;
     Anchor.EndFrame := EndFrame;
-    Anchor.Frame := Frame;
+  Anchor.Frame := Frame;
+  Anchor.CurrentFrame := CurrentFrame;
     Anchor.Rate := Rate;
     Anchor.Scale := Scale;
     Anchors.Add(Anchor);
