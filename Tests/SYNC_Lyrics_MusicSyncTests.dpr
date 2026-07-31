@@ -31,6 +31,8 @@ uses
   SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
   SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
+  SYNC_Lyrics_SongLyricsModel in
+    'Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
   SYNC_Lyrics_DisplaySettingsData in
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_DisplayPresetData in
@@ -562,6 +564,7 @@ var
   FileName: string;
   I: Integer;
   Notes: TMusicNoteStarts;
+  SongModel: TLyricsSongModel;
   ProgressUnits: Double;
   SyncData: TSyncTextData;
   SyncEndSeconds: Double;
@@ -569,6 +572,12 @@ var
   SyncStartSeconds: Double;
   SyncText: string;
 begin
+  Check(Abs(ObjectSecondsToMusicSeconds(0.5, 0.5)) < 0.000001,
+    'positive music offset did not preserve pre-display time');
+  Check(Abs(MusicSecondsToObjectSeconds(0.0, 0.5) - 0.5) < 0.000001,
+    'positive music offset did not delay the source note');
+  Check(Abs(ObjectSecondsToMusicSeconds(0.0, -0.25) - 0.25) <
+    0.000001, 'negative music offset did not advance the source note');
   FileName := TPath.Combine(TPath.GetTempPath, 'SYNC_Lyrics_MusicSyncTests.mid');
   SetLength(Bytes, Length(TEST_MIDI));
   for I := 0 to High(TEST_MIDI) do
@@ -586,6 +595,18 @@ begin
 
     InitializeMusicSync;
     try
+      SongModel := TLyricsSongModel.Create;
+      try
+        SongModel.SetLyricsText('a');
+        SongModel.RecalculateMusicFrameRanges(FileName, -1,
+          0.5, 0.5, 0.5, 30, 1);
+        Check(SongModel[0].SyncStartFrame = 15,
+          'music offset did not delay the generated sync range');
+        Check(SongModel[0].DisplayStartFrame = 0,
+          'pre-display range was not generated before an immediate note');
+      finally
+        SongModel.Free;
+      end;
       Check(CountConsumedMusicNotes(FileName, -1, 0.0, 0.0) = 1,
         'first consumed note count mismatch');
       Check(CountConsumedMusicNotes(FileName, -1, 0.0, 0.5) = 2,

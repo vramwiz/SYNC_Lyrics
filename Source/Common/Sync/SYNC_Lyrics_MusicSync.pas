@@ -14,6 +14,13 @@ type
   end;
   TMusicNoteStarts = TArray<TMusicNoteStart>;
 
+// Converts between the object/timeline clock and the source music clock.
+// A positive offset places the music source later on the object timeline.
+function ObjectSecondsToMusicSeconds(ObjectSeconds,
+  MusicOffsetSeconds: Double): Double;
+function MusicSecondsToObjectSeconds(MusicSeconds,
+  MusicOffsetSeconds: Double): Double;
+
 // SongReaderの対応形式を読み、全トラックのノート開始時刻を秒位置順で返す。
 function LoadMusicNoteStarts(const FileName: string; out Notes: TMusicNoteStarts): Boolean;
 
@@ -71,6 +78,18 @@ var
   CacheLock: TRTLCriticalSection;
   CacheNotes: TMusicNoteStarts;
   CacheValid: Boolean;
+
+function ObjectSecondsToMusicSeconds(ObjectSeconds,
+  MusicOffsetSeconds: Double): Double;
+begin
+  Result := ObjectSeconds - MusicOffsetSeconds;
+end;
+
+function MusicSecondsToObjectSeconds(MusicSeconds,
+  MusicOffsetSeconds: Double): Double;
+begin
+  Result := MusicSeconds + MusicOffsetSeconds;
+end;
 
 function CompareNoteStarts(const Left, Right: TMusicNoteStart): Integer;
 begin

@@ -22,6 +22,8 @@ uses
 
 type
   TFormLyricsCharacterLayoutSettings = class(TForm)
+    CandidateLabel: TLabel;
+    CandidateCombo: TComboBox;
     DescriptionLabel: TLabel;
     BackgroundPaintBox: TPaintBox;
     ButtonPanel: TPanel;
@@ -42,6 +44,7 @@ type
     procedure BackgroundPaintBoxPaint(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure CandidateComboChange(Sender: TObject);
     procedure ElementListViewSelectItem(Sender: TObject; Item: TListItem;
       Selected: Boolean);
     procedure ButtonMoveToCenterClick(Sender: TObject);
@@ -91,6 +94,9 @@ type
     FToolbarItalic: TSyncLyricsToolbarButton;
     FToolbarStrikeOut: TSyncLyricsToolbarButton;
     FToolbarUnderline: TSyncLyricsToolbarButton;
+    FCandidateLyrics: TArray<string>;
+    FCandidateSettings: TArray<TDisplayCommonSettings>;
+    FCandidateSettingsText: TArray<string>;
     FViewPan: TPointF;
     FViewZoom: Double;
     FDragStartViewPan: TPointF;
@@ -140,6 +146,10 @@ type
     procedure Configure(const Lyrics: string;
       const CommonSettings: TDisplayCommonSettings;
       const SettingsText: string);
+    procedure ConfigureCandidates(const Captions, Lyrics: TArray<string>;
+      const CommonSettings: TArray<TDisplayCommonSettings>;
+      const SettingsText: TArray<string>; InitialIndex: Integer);
+    function SelectedCandidateIndex: Integer;
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
     procedure SetCaptureStatus(const Value: string);
@@ -1902,6 +1912,47 @@ begin
   BackgroundPaintBox.Invalidate;
 end;
 
+procedure TFormLyricsCharacterLayoutSettings.ConfigureCandidates(
+  const Captions, Lyrics: TArray<string>;
+  const CommonSettings: TArray<TDisplayCommonSettings>;
+  const SettingsText: TArray<string>; InitialIndex: Integer);
+var
+  I: Integer;
+begin
+  FCandidateLyrics := Copy(Lyrics);
+  FCandidateSettings := Copy(CommonSettings);
+  FCandidateSettingsText := Copy(SettingsText);
+  CandidateCombo.Items.BeginUpdate;
+  try
+    CandidateCombo.Items.Clear;
+    for I := 0 to High(Captions) do
+      CandidateCombo.Items.Add(Captions[I]);
+  finally
+    CandidateCombo.Items.EndUpdate;
+  end;
+  CandidateLabel.Visible := CandidateCombo.Items.Count > 0;
+  CandidateCombo.Visible := CandidateLabel.Visible;
+  if CandidateCombo.Items.Count = 0 then
+    Exit;
+  CandidateCombo.ItemIndex := EnsureRange(InitialIndex, 0,
+    CandidateCombo.Items.Count - 1);
+  CandidateComboChange(CandidateCombo);
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.CandidateComboChange(
+  Sender: TObject);
+var
+  Index: Integer;
+begin
+  Index := CandidateCombo.ItemIndex;
+  if (Index < 0) or (Index >= Length(FCandidateLyrics)) or
+    (Index >= Length(FCandidateSettings)) or
+    (Index >= Length(FCandidateSettingsText)) then
+    Exit;
+  Configure(FCandidateLyrics[Index], FCandidateSettings[Index],
+    FCandidateSettingsText[Index]);
+end;
+
 procedure TFormLyricsCharacterLayoutSettings.SetBackgroundRgba(
   const Pixels: TBytes; Width, Height: Integer);
 var
@@ -1944,6 +1995,12 @@ function TFormLyricsCharacterLayoutSettings.TryBuildSettingsText(
 begin
   Result := TryEncodeDisplaySettingsText(FLyrics, FCommonSettings,
     FPlacements, SettingsText);
+end;
+
+function TFormLyricsCharacterLayoutSettings.SelectedCandidateIndex:
+  Integer;
+begin
+  Result := CandidateCombo.ItemIndex;
 end;
 
 end.

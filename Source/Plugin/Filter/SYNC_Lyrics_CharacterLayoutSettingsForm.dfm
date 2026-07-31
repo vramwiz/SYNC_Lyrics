@@ -3,7 +3,7 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   Top = 0
   BorderStyle = bsSizeable
   Caption = #25991#23383#21336#20301#33258#30001#37197#32622#35373#23450
-  ClientHeight = 646
+  ClientHeight = 682
   ClientWidth = 920
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -15,9 +15,17 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   OnDestroy = FormDestroy
   Position = poScreenCenter
   TextHeight = 15
-  object DescriptionLabel: TLabel
+  object CandidateLabel: TLabel
     Left = 12
     Top = 12
+    Width = 48
+    Height = 15
+    Caption = #32232#38598#23550#35937
+    Visible = False
+  end
+  object DescriptionLabel: TLabel
+    Left = 12
+    Top = 48
     Width = 896
     Height = 24
     Anchors = [akLeft, akTop, akRight]
@@ -26,7 +34,7 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   end
   object BackgroundPaintBox: TPaintBox
     Left = 12
-    Top = 78
+    Top = 114
     Width = 668
     Height = 510
     Anchors = [akLeft, akTop, akRight, akBottom]
@@ -37,12 +45,12 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   end
   object ElementPanel: TPanel
     Left = 692
-    Top = 78
+    Top = 114
     Width = 216
     Height = 510
     Anchors = [akTop, akRight, akBottom]
     BevelOuter = bvNone
-    TabOrder = 0
+    TabOrder = 1
     object ElementListLabel: TLabel
       Left = 0
       Top = 0
@@ -75,14 +83,25 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
       OnSelectItem = ElementListViewSelectItem
     end
   end
+  object CandidateCombo: TComboBox
+    Left = 68
+    Top = 8
+    Width = 840
+    Height = 23
+    Anchors = [akLeft, akTop, akRight]
+    Style = csDropDownList
+    TabOrder = 0
+    Visible = False
+    OnChange = CandidateComboChange
+  end
   object ButtonPanel: TPanel
     Left = 0
-    Top = 596
+    Top = 632
     Width = 920
     Height = 50
     Align = alBottom
     BevelOuter = bvNone
-    TabOrder = 1
+    TabOrder = 2
     object ButtonOK: TButton
       Left = 748
       Top = 12

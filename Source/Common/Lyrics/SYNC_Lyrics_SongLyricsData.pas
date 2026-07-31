@@ -23,7 +23,8 @@ uses
 
 const
   FILE_HEADER = 'SLS1';
-  LINE_FIELD_COUNT = 14;
+  LEGACY_LINE_FIELD_COUNT = 14;
+  LINE_FIELD_COUNT = 15;
 
 function DecodeTextField(const Value: string; out Decoded: string): Boolean;
 begin
@@ -60,6 +61,7 @@ var
   IntegerValue: Integer;
   Lines: TLyricsSongLines;
   Records: TArray<string>;
+  SyncStateValue: Integer;
 begin
   Result := False;
   ErrorText := '';
@@ -83,7 +85,8 @@ begin
   for I := 1 to High(Records) do
   begin
     Fields := Records[I].Split([',']);
-    if (Length(Fields) <> LINE_FIELD_COUNT) or (Fields[0] <> 'L') or
+    if ((Length(Fields) <> LEGACY_LINE_FIELD_COUNT) and
+      (Length(Fields) <> LINE_FIELD_COUNT)) or (Fields[0] <> 'L') or
       not TryStrToInt64(Fields[1], Lines[I - 1].LineID) or
       (Lines[I - 1].LineID <= 0) or
       HasDuplicateLineID(Lines, I - 1, Lines[I - 1].LineID) or
@@ -94,9 +97,9 @@ begin
       Exit;
     end;
     Lines[I - 1].DisplayLane := IntegerValue;
-    if not TryStrToInt(Fields[3], IntegerValue) or
-      (IntegerValue < Ord(Low(TLyricsLineSyncState))) or
-      (IntegerValue > Ord(High(TLyricsLineSyncState))) or
+    if not TryStrToInt(Fields[3], SyncStateValue) or
+      (SyncStateValue < Ord(Low(TLyricsLineSyncState))) or
+      (SyncStateValue > Ord(High(TLyricsLineSyncState))) or
       not TryStrToFloat(Fields[4], Lines[I - 1].PreDisplaySeconds,
         TFormatSettings.Invariant) or
       not TryStrToFloat(Fields[5], Lines[I - 1].HoldSeconds,
@@ -112,7 +115,18 @@ begin
       ErrorText := 'A whole-song timing field is invalid.';
       Exit;
     end;
-    Lines[I - 1].SyncState := TLyricsLineSyncState(IntegerValue);
+    Lines[I - 1].SyncState := TLyricsLineSyncState(SyncStateValue);
+    Lines[I - 1].TimingMusicOffsetSeconds := 0;
+    if (Length(Fields) = LINE_FIELD_COUNT) and
+      (not TryStrToFloat(Fields[14],
+        Lines[I - 1].TimingMusicOffsetSeconds,
+        TFormatSettings.Invariant) or
+       (Lines[I - 1].TimingMusicOffsetSeconds < -5.0) or
+       (Lines[I - 1].TimingMusicOffsetSeconds > 5.0)) then
+    begin
+      ErrorText := 'A whole-song music offset field is invalid.';
+      Exit;
+    end;
     if not DecodeTextField(Fields[11], Lines[I - 1].SourceText) or
       (Trim(Lines[I - 1].SourceText) = '') or
       not DecodeTextField(Fields[12], Lines[I - 1].SyncText) or
@@ -159,7 +173,9 @@ begin
       IntToStr(LineData.StartNoteIndex) + ',' +
       EncodeTextField(LineData.SourceText) + ',' +
       EncodeTextField(LineData.SyncText) + ',' +
-      EncodeTextField(LineData.PlacementText);
+      EncodeTextField(LineData.PlacementText) + ',' +
+      FloatToStr(LineData.TimingMusicOffsetSeconds,
+        TFormatSettings.Invariant);
     if Length(Text) > MAX_SONG_LYRICS_TEXT_LENGTH then
     begin
       Text := '';

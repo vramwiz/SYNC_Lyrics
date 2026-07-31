@@ -1,4 +1,4 @@
-unit SYNC_Lyrics_LineDisplaySettingsForm;
+﻿unit SYNC_Lyrics_LineDisplaySettingsForm;
 
 // Provides the minimal line-layout preview and whole-base/whole-ruby selection.
 
@@ -25,6 +25,8 @@ type
     lddResizeBottomRight, lddSpacingLeft, lddSpacingRight);
 
   TFormLyricsLineDisplaySettings = class(TForm)
+    CandidateLabel: TLabel;
+    CandidateCombo: TComboBox;
     DescriptionLabel: TLabel;
     LyricsLabel: TLabel;
     LyricsEdit: TEdit;
@@ -39,6 +41,7 @@ type
     ButtonCancel: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure CandidateComboChange(Sender: TObject);
     procedure BaseFontComboChange(Sender: TObject);
     procedure RubyFontComboChange(Sender: TObject);
     procedure LyricsEditChange(Sender: TObject);
@@ -90,6 +93,8 @@ type
     FToolbarStrikeOut: TSyncLyricsToolbarButton;
     FToolbarUnderline: TSyncLyricsToolbarButton;
     FUpdatingControls: Boolean;
+    FCandidateLyrics: TArray<string>;
+    FCandidateSettings: TArray<TDisplayCommonSettings>;
     function BackgroundDestinationRect: TRect;
     function BackgroundScale: Double;
     procedure CalculateLayout(Canvas: TCanvas; DrawText: Boolean);
@@ -108,8 +113,13 @@ type
   public
     procedure Configure(const Lyrics: string;
       const CommonSettings: TDisplayCommonSettings);
+    procedure ConfigureCandidates(const Captions, Lyrics: TArray<string>;
+      const CommonSettings: TArray<TDisplayCommonSettings>;
+      InitialIndex: Integer);
     function EnteredLyrics: string;
+    function SelectedCandidateIndex: Integer;
     function SelectedCommonSettings: TDisplayCommonSettings;
+    procedure SetLyricsEditingEnabled(Value: Boolean);
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
   end;
@@ -240,6 +250,45 @@ begin
   PreviewPaintBox.Invalidate;
 end;
 
+procedure TFormLyricsLineDisplaySettings.ConfigureCandidates(
+  const Captions, Lyrics: TArray<string>;
+  const CommonSettings: TArray<TDisplayCommonSettings>;
+  InitialIndex: Integer);
+var
+  I: Integer;
+begin
+  FCandidateLyrics := Copy(Lyrics);
+  FCandidateSettings := Copy(CommonSettings);
+  CandidateCombo.Items.BeginUpdate;
+  try
+    CandidateCombo.Items.Clear;
+    for I := 0 to High(Captions) do
+      CandidateCombo.Items.Add(Captions[I]);
+  finally
+    CandidateCombo.Items.EndUpdate;
+  end;
+  CandidateLabel.Visible := CandidateCombo.Items.Count > 0;
+  CandidateCombo.Visible := CandidateLabel.Visible;
+  if CandidateCombo.Items.Count = 0 then
+    Exit;
+  CandidateCombo.ItemIndex := EnsureRange(InitialIndex, 0,
+    CandidateCombo.Items.Count - 1);
+  CandidateComboChange(CandidateCombo);
+end;
+
+procedure TFormLyricsLineDisplaySettings.CandidateComboChange(
+  Sender: TObject);
+var
+  Index: Integer;
+begin
+  Index := CandidateCombo.ItemIndex;
+  if (Index < 0) or (Index >= Length(FCandidateLyrics)) or
+    (Index >= Length(FCandidateSettings)) then
+    Exit;
+  Configure(FCandidateLyrics[Index], FCandidateSettings[Index]);
+  SetLyricsEditingEnabled(False);
+end;
+
 procedure TFormLyricsLineDisplaySettings.CreateFormattingToolbar;
 var
   Extent: Integer;
@@ -321,6 +370,11 @@ begin
   Result := LyricsEdit.Text;
 end;
 
+function TFormLyricsLineDisplaySettings.SelectedCandidateIndex: Integer;
+begin
+  Result := CandidateCombo.ItemIndex;
+end;
+
 function TFormLyricsLineDisplaySettings.SelectedCommonSettings:
   TDisplayCommonSettings;
 begin
@@ -337,6 +391,13 @@ begin
   Result.RubyGapAdjustment := FRubyGapAdjustment;
   Result.BaseCharacterSpacing := FBaseCharacterSpacing;
   Result.RubyCharacterSpacing := FRubyCharacterSpacing;
+end;
+
+procedure TFormLyricsLineDisplaySettings.SetLyricsEditingEnabled(
+  Value: Boolean);
+begin
+  LyricsEdit.ReadOnly := not Value;
+  LyricsEdit.TabStop := Value;
 end;
 
 procedure TFormLyricsLineDisplaySettings.FormCreate(Sender: TObject);

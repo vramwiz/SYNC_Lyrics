@@ -26,6 +26,7 @@ type
     DisplayEndFrame: Int64;
     SyncStartFrame: Int64;
     SyncEndFrame: Int64;
+    TimingMusicOffsetSeconds: Double;
     PlacementText: string;
   end;
   TLyricsSongLines = TArray<TLyricsSongLine>;
@@ -59,6 +60,8 @@ type
     function TrySetEndFrames(Index: Integer; DisplayEndFrame,
       SyncEndFrame: Int64): Boolean;
     function TrySetDisplayLane(Index, DisplayLane: Integer): Boolean;
+    function TrySetPlacementText(Index: Integer;
+      const PlacementText: string): Boolean;
     function TryConfirmSync(Index: Integer; PreDisplaySeconds: Double;
       const SyncText: string): Boolean;
     function TrySetSync(Index: Integer; PreDisplaySeconds: Double;
@@ -67,8 +70,8 @@ type
       SyncState: TLyricsLineSyncState): Boolean;
     // Rebuilds object-local display ranges from the shared music-note sequence.
     procedure RecalculateMusicFrameRanges(const MusicFileName: string;
-      Track: Integer; SequenceStartSeconds, DefaultPreDisplaySeconds: Double;
-      Rate, Scale: Integer);
+      Track: Integer; SequenceStartSeconds, MusicOffsetSeconds,
+      DefaultPreDisplaySeconds: Double; Rate, Scale: Integer);
     property LineCount: Integer read GetLineCount;
     property Lines[Index: Integer]: TLyricsSongLine read GetLine; default;
   end;
@@ -132,12 +135,14 @@ begin
   LineData.DisplayEndFrame := -1;
   LineData.SyncStartFrame := -1;
   LineData.SyncEndFrame := -1;
+  LineData.TimingMusicOffsetSeconds := 0;
   LineData.PlacementText := '';
 end;
 
 procedure TLyricsSongModel.RecalculateMusicFrameRanges(
   const MusicFileName: string; Track: Integer; SequenceStartSeconds,
-  DefaultPreDisplaySeconds: Double; Rate, Scale: Integer);
+  MusicOffsetSeconds, DefaultPreDisplaySeconds: Double;
+  Rate, Scale: Integer);
 var
   DisplayStartSeconds: Double;
   EffectivePreDisplaySeconds: Double;
@@ -154,7 +159,8 @@ begin
       FLines[I].SyncText,
       CountLyricsDisplayUnits(FLines[I].SourceText));
     if not TryResolveMusicSyncTimeRange(MusicFileName, Track,
-      SequenceStartSeconds, FLines[I].StartNoteIndex,
+      ObjectSecondsToMusicSeconds(SequenceStartSeconds,
+        MusicOffsetSeconds), FLines[I].StartNoteIndex,
       RequiredNoteCount, SyncStartSeconds, SyncEndSeconds) then
     begin
       FLines[I].DisplayStartFrame := -1;
@@ -163,6 +169,10 @@ begin
       FLines[I].SyncEndFrame := -1;
       Continue;
     end;
+    SyncStartSeconds := MusicSecondsToObjectSeconds(
+      SyncStartSeconds, MusicOffsetSeconds);
+    SyncEndSeconds := MusicSecondsToObjectSeconds(
+      SyncEndSeconds, MusicOffsetSeconds);
     EffectivePreDisplaySeconds := FLines[I].PreDisplaySeconds;
     if EffectivePreDisplaySeconds < 0 then
       EffectivePreDisplaySeconds := DefaultPreDisplaySeconds;
@@ -177,6 +187,7 @@ begin
     FLines[I].DisplayEndFrame := Max(FLines[I].DisplayStartFrame,
       Ceil((SyncEndSeconds + Max(0, FLines[I].HoldSeconds)) *
         Rate / Scale) - 1);
+    FLines[I].TimingMusicOffsetSeconds := MusicOffsetSeconds;
   end;
 end;
 
@@ -293,6 +304,7 @@ begin
   FLines[Index].SourceText := SourceText;
   ParseLyrics(FLines[Index].SourceText, FLines[Index].PlainText,
     FLines[Index].RubySpans);
+  FLines[Index].PlacementText := '';
   if (FLines[Index].SyncState <> lssUnset) or
     (FLines[Index].SyncText <> '') then
     FLines[Index].SyncState := lssInconsistent;
@@ -339,6 +351,15 @@ begin
     (DisplayLane >= 1) and (DisplayLane <= 3);
   if Result then
     FLines[Index].DisplayLane := DisplayLane;
+end;
+
+function TLyricsSongModel.TrySetPlacementText(Index: Integer;
+  const PlacementText: string): Boolean;
+begin
+  Result := (Index >= 0) and (Index < Length(FLines)) and
+    (Pos(#10, PlacementText) = 0) and (Pos(#13, PlacementText) = 0);
+  if Result then
+    FLines[Index].PlacementText := PlacementText;
 end;
 
 function TLyricsSongModel.TryConfirmSync(Index: Integer;

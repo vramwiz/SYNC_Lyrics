@@ -7,16 +7,22 @@ uses
   System.UITypes,
   Vcl.Forms,
   SYNC_Lyrics_LyricParser in '..\Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
+  SYNC_Lyrics_DisplaySettingsData in '..\Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_SyncFormat in '..\Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_SongLyricsData in '..\Source\Common\Lyrics\SYNC_Lyrics_SongLyricsData.pas',
   SYNC_Lyrics_SongLyricsModel in '..\Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
   SYNC_Lyrics_InitialLyricsFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas',
   SYNC_Lyrics_MusicSyncEditorFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas',
+  SYNC_Lyrics_LineDisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas',
   SYNC_Lyrics_SyncEditorForm in '..\Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas';
 
 var
+  CandidateCaptions: TArray<string>;
+  CandidateCommon: TArray<TDisplayCommonSettings>;
+  CandidateLyrics: TArray<string>;
   EditorForm: TFormLyricsSyncEditor;
   InputFrame: TFrameLyricsInitialInput;
+  LineDisplayForm: TFormLyricsLineDisplaySettings;
   MusicSyncFrame: TFrameLyricsMusicSyncEditor;
   Key: Word;
   ErrorText: string;
@@ -27,6 +33,30 @@ var
 begin
   try
     Application.Initialize;
+    LineDisplayForm := TFormLyricsLineDisplaySettings.Create(nil);
+    try
+      if (LineDisplayForm.DescriptionLabel.Caption = '') or
+        (Ord(LineDisplayForm.DescriptionLabel.Caption[1]) <> $672C) then
+        raise Exception.Create(
+          'The line display instructions were not compiled as Unicode.');
+      CandidateCaptions := ['1: first', '2: second'];
+      CandidateLyrics := ['first', 'second'];
+      SetLength(CandidateCommon, 2);
+      CandidateCommon[0] := DefaultDisplayCommonSettings;
+      CandidateCommon[1] := DefaultDisplayCommonSettings;
+      LineDisplayForm.ConfigureCandidates(CandidateCaptions,
+        CandidateLyrics, CandidateCommon, 1);
+      if not LineDisplayForm.CandidateCombo.Visible or
+        (LineDisplayForm.SelectedCandidateIndex <> 1) or
+        (LineDisplayForm.LyricsEdit.Text <> 'second') then
+        raise Exception.Create(
+          'The initial placement candidate was not loaded.');
+      if not LineDisplayForm.LyricsEdit.ReadOnly then
+        raise Exception.Create(
+          'The placement candidate lyric remained editable.');
+    finally
+      LineDisplayForm.Free;
+    end;
     EditorForm := TFormLyricsSyncEditor.Create(nil);
     try
       EditorForm.SetAnchor(100, 30, 1);

@@ -43,6 +43,7 @@ begin
     Lines[0].DisplayEndFrame := 240;
     Lines[0].SyncStartFrame := 135;
     Lines[0].SyncEndFrame := 220;
+    Lines[0].TimingMusicOffsetSeconds := 0.5;
     Lines[0].PlacementText := 'PL1';
     Model.ReplaceLines(Lines);
 
@@ -63,6 +64,8 @@ begin
       'The display start frame was not preserved.');
     Check(Decoded[0].SyncEndFrame = 220,
       'The synchronization end frame was not preserved.');
+    Check(Abs(Decoded[0].TimingMusicOffsetSeconds - 0.5) < 0.000001,
+      'The timing music offset was not preserved.');
     Check(Abs(Decoded[0].HoldSeconds - 0.5) < 0.000001,
       'The temporary hold duration was not preserved.');
     Check(Decoded[1].StartNoteIndex = Model[1].StartNoteIndex,
@@ -78,6 +81,13 @@ begin
       'The runtime cache did not decode valid Filter text.');
     Check(ResolveSongLyricsLineIndex(RuntimeLines, 150) = 0,
       'The persisted timed line was not resolved.');
+    RuntimeLines := ApplyMusicOffsetToSongLyricsLines(
+      RuntimeLines, 1.0, 30, 1);
+    Check((RuntimeLines[0].DisplayStartFrame = 135) and
+      (RuntimeLines[0].SyncStartFrame = 150) and
+      (RuntimeLines[0].DisplayEndFrame = 255) and
+      (RuntimeLines[0].SyncEndFrame = 235),
+      'Changing the music offset did not shift persisted ranges.');
     RuntimeLines[0].DisplayStartFrame := -1;
     RuntimeLines[0].DisplayEndFrame := -1;
     RuntimeLines[1].DisplayStartFrame := -1;
@@ -132,6 +142,27 @@ begin
     ActiveIndexes := ResolveSongLyricsLineIndexes(RuntimeLines, 10);
     Check((Length(ActiveIndexes) = 1) and (ActiveIndexes[0] = 1),
       'The newer line did not replace the older line in the same lane.');
+
+    Lines[0].DisplayStartFrame := 0;
+    Lines[0].DisplayEndFrame := 30;
+    Lines[0].SyncStartFrame := 5;
+    Lines[0].SyncEndFrame := 10;
+    Lines[1].DisplayStartFrame := 8;
+    Lines[1].DisplayEndFrame := 25;
+    Lines[1].SyncStartFrame := 12;
+    Lines[1].SyncEndFrame := 18;
+    ActiveIndexes := ResolveSongLyricsPlacementCandidateIndexes(
+      Lines, 14);
+    Check((Length(ActiveIndexes) = 2) and
+      (ActiveIndexes[0] = 0) and (ActiveIndexes[1] = 1),
+      'Every overlapping placement candidate was not returned.');
+    Check(ResolveSongLyricsPlacementInitialCandidate(
+      Lines, ActiveIndexes, 14) = 1,
+      'The line inside its synchronization range was not preferred.');
+    ActiveIndexes := ResolveSongLyricsPlacementCandidateIndexes(
+      Lines, 40);
+    Check((Length(ActiveIndexes) = 1) and (ActiveIndexes[0] = 1),
+      'The nearest synchronized line was not used outside display ranges.');
 
     Lines[1].SyncStartFrame := 12;
     Lines[1].SyncEndFrame := 18;

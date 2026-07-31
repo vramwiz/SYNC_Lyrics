@@ -3,7 +3,7 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
   Top = 0
   BorderStyle = bsSizeable
   Caption = #49#34892#34920#31034#35373#23450
-  ClientHeight = 646
+  ClientHeight = 682
   ClientWidth = 920
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -15,9 +15,17 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
   OnDestroy = FormDestroy
   Position = poScreenCenter
   TextHeight = 15
-  object DescriptionLabel: TLabel
+  object CandidateLabel: TLabel
     Left = 12
     Top = 12
+    Width = 48
+    Height = 15
+    Caption = #32232#38598#23550#35937
+    Visible = False
+  end
+  object DescriptionLabel: TLabel
+    Left = 12
+    Top = 48
     Width = 896
     Height = 20
     Anchors = [akLeft, akTop, akRight]
@@ -26,14 +34,14 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
   end
   object LyricsLabel: TLabel
     Left = 12
-    Top = 47
+    Top = 83
     Width = 24
     Height = 15
     Caption = #27468#35422
   end
   object SelectionLabel: TLabel
     Left = 12
-    Top = 78
+    Top = 114
     Width = 896
     Height = 20
     Anchors = [akLeft, akTop, akRight]
@@ -42,21 +50,21 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
   end
   object BaseFontLabel: TLabel
     Left = 12
-    Top = 109
+    Top = 145
     Width = 72
     Height = 15
     Caption = #27468#35422#12501#12457#12531#12488
   end
   object RubyFontLabel: TLabel
     Left = 412
-    Top = 109
+    Top = 145
     Width = 72
     Height = 15
     Caption = #12523#12499#12501#12457#12531#12488
   end
   object PreviewPaintBox: TPaintBox
     Left = 12
-    Top = 169
+    Top = 205
     Width = 896
     Height = 415
     Anchors = [akLeft, akTop, akRight, akBottom]
@@ -65,46 +73,57 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
     OnMouseUp = PreviewPaintBoxMouseUp
     OnPaint = PreviewPaintBoxPaint
   end
+  object CandidateCombo: TComboBox
+    Left = 68
+    Top = 8
+    Width = 840
+    Height = 23
+    Anchors = [akLeft, akTop, akRight]
+    Style = csDropDownList
+    TabOrder = 0
+    Visible = False
+    OnChange = CandidateComboChange
+  end
   object LyricsEdit: TEdit
     Left = 52
-    Top = 44
+    Top = 80
     Width = 856
     Height = 23
     Anchors = [akLeft, akTop, akRight]
     MaxLength = 32767
-    TabOrder = 0
+    TabOrder = 1
     OnChange = LyricsEditChange
   end
   object BaseFontCombo: TComboBox
     Left = 92
-    Top = 104
-    Width = 300
-    Height = 23
-    Style = csDropDownList
-    DropDownCount = 16
-    Sorted = True
-    TabOrder = 1
-    OnChange = BaseFontComboChange
-  end
-  object RubyFontCombo: TComboBox
-    Left = 492
-    Top = 104
+    Top = 140
     Width = 300
     Height = 23
     Style = csDropDownList
     DropDownCount = 16
     Sorted = True
     TabOrder = 2
+    OnChange = BaseFontComboChange
+  end
+  object RubyFontCombo: TComboBox
+    Left = 492
+    Top = 140
+    Width = 300
+    Height = 23
+    Style = csDropDownList
+    DropDownCount = 16
+    Sorted = True
+    TabOrder = 3
     OnChange = RubyFontComboChange
   end
   object ButtonPanel: TPanel
     Left = 0
-    Top = 596
+    Top = 632
     Width = 920
     Height = 50
     Align = alBottom
     BevelOuter = bvNone
-    TabOrder = 3
+    TabOrder = 4
     object ButtonOK: TButton
       Left = 748
       Top = 12

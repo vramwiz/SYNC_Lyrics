@@ -60,6 +60,7 @@ type
     FLyricDragStep: Integer;
     FNotes: TMusicNoteStarts;
     FPianoRollBuffer: TBitmap;
+    FMusicOffsetSeconds: Double;
     FPreDisplaySeconds: Double;
     FSequencePreDisplaySeconds: Double;
     FStartNoteIndex: Integer;
@@ -85,6 +86,8 @@ type
     // Filterが最後に発火した絶対位置を、この編集画面の基準とする。
     procedure SetAnchor(Frame, Rate, Scale: Integer);
     procedure SetAnchorUnavailable;
+    // Places source music later for positive values and earlier for negative.
+    procedure SetMusicOffsetSeconds(Value: Double);
     // Supplies the common first-line synchronization offset from the object start.
     procedure SetSequencePreDisplaySeconds(Value: Double);
     // Supplies the fixed post-synchronization display duration.
@@ -139,6 +142,7 @@ begin
   FLineSyncStartSeconds := 0;
   FLineSyncEndSeconds := 0;
   FHoldSeconds := 0.5;
+  FMusicOffsetSeconds := 0;
   FSequencePreDisplaySeconds := 0;
   FStartNoteIndex := 0;
   FEditModel := TMusicSyncEditModel.Create;
@@ -253,6 +257,7 @@ var
   I: Integer;
   LastTrackNoteEndSeconds: Double;
   NoteCount: Integer;
+  ShiftedNote: TMusicNoteStart;
   TargetOffsetSeconds: Double;
 begin
   SetLength(FNotes, 0);
@@ -280,11 +285,16 @@ begin
       if (Track >= 0) and (AllNotes[I].TrackIndex <> Track) then
         Continue;
       FHasTrackNotes := True;
+      ShiftedNote := AllNotes[I];
+      ShiftedNote.Seconds := MusicSecondsToObjectSeconds(
+        ShiftedNote.Seconds, FMusicOffsetSeconds);
+      ShiftedNote.EndSeconds := MusicSecondsToObjectSeconds(
+        ShiftedNote.EndSeconds, FMusicOffsetSeconds);
       LastTrackNoteEndSeconds := Max(LastTrackNoteEndSeconds,
-        AllNotes[I].EndSeconds);
-      if AllNotes[I].EndSeconds < FAnchorSeconds then
+        ShiftedNote.EndSeconds);
+      if ShiftedNote.EndSeconds < FAnchorSeconds then
         Continue;
-      FNotes[NoteCount] := AllNotes[I];
+      FNotes[NoteCount] := ShiftedNote;
       Inc(NoteCount);
     end;
     SetLength(FNotes, NoteCount);
@@ -654,6 +664,11 @@ begin
   FStartNoteIndex := Max(0, Value);
   UpdateNoteAvailabilityMessage;
   PianoRollPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsMusicSyncSettings.SetMusicOffsetSeconds(Value: Double);
+begin
+  FMusicOffsetSeconds := EnsureRange(Value, -5.0, 5.0);
 end;
 
 procedure TFormLyricsMusicSyncSettings.SetSequencePreDisplaySeconds(

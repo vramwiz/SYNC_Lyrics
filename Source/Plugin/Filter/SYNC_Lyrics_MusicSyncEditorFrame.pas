@@ -24,6 +24,7 @@ type
     // Supplies the current Filter position used as the piano-roll time origin.
     procedure SetAnchor(Frame, Rate, Scale: Integer);
     procedure SetAnchorUnavailable;
+    procedure SetMusicOffsetSeconds(Value: Double);
     procedure SetSequencePreDisplaySeconds(Value: Double);
     // Supplies the fixed post-synchronization display duration.
     procedure SetHoldSeconds(Value: Double);
@@ -127,6 +128,11 @@ end;
 procedure TFrameLyricsMusicSyncEditor.SetHoldSeconds(Value: Double);
 begin
   FEditorForm.SetHoldSeconds(Value);
+end;
+
+procedure TFrameLyricsMusicSyncEditor.SetMusicOffsetSeconds(Value: Double);
+begin
+  FEditorForm.SetMusicOffsetSeconds(Value);
 end;
 
 procedure TFrameLyricsMusicSyncEditor.SetStartNoteIndex(Value: Integer);

@@ -6,6 +6,7 @@ interface
 
 uses
   System.Classes,
+  System.SysUtils,
   System.Types,
   Vcl.Controls,
   Vcl.ExtCtrls,
@@ -63,6 +64,7 @@ type
     FAnchorFrame: Integer;
     FAnchorRate: Integer;
     FAnchorScale: Integer;
+    FDefaultMusicOffsetSeconds: Double;
     FDefaultPreDisplaySeconds: Double;
     FLoadedLineIndex: Integer;
     FSongDataText: string;
@@ -84,7 +86,7 @@ type
   public
     // Supplies the shared music source used while individual lines are selected.
     procedure ConfigureMusicSource(const MusicFileName: string; Track: Integer;
-      PreDisplaySeconds: Double);
+      MusicOffsetSeconds, PreDisplaySeconds: Double);
     // Supplies the current Filter position used as the synchronization origin.
     procedure SetAnchor(Frame, Rate, Scale: Integer);
     procedure SetAnchorUnavailable;
@@ -99,7 +101,6 @@ implementation
 
 uses
   System.Math,
-  System.SysUtils,
   System.UITypes,
   Winapi.Windows,
   Vcl.Dialogs;
@@ -155,10 +156,13 @@ begin
 end;
 
 procedure TFormLyricsSyncEditor.ConfigureMusicSource(
-  const MusicFileName: string; Track: Integer; PreDisplaySeconds: Double);
+  const MusicFileName: string; Track: Integer; MusicOffsetSeconds,
+  PreDisplaySeconds: Double);
 begin
   FMusicFileName := MusicFileName;
   FMusicTrack := Track;
+  FDefaultMusicOffsetSeconds := EnsureRange(
+    MusicOffsetSeconds, -5.0, 5.0);
   FDefaultPreDisplaySeconds := PreDisplaySeconds;
 end;
 
@@ -276,6 +280,7 @@ begin
   FCurrentObjectFrameAvailable := False;
   FMusicFileName := '';
   FMusicTrack := -1;
+  FDefaultMusicOffsetSeconds := 0;
   FDefaultPreDisplaySeconds := 0;
   FLoadedLineIndex := -1;
   FSongDataText := '';
@@ -441,6 +446,8 @@ begin
     FMusicSyncFrame.SetAnchor(0, FAnchorRate, FAnchorScale);
   FMusicSyncFrame.SetSequencePreDisplaySeconds(
     FDefaultPreDisplaySeconds);
+  FMusicSyncFrame.SetMusicOffsetSeconds(
+    FDefaultMusicOffsetSeconds);
   FMusicSyncFrame.SetHoldSeconds(LineData.HoldSeconds);
   FMusicSyncFrame.SetStartNoteIndex(LineData.StartNoteIndex);
   UpdateMusicSyncReferences;
@@ -483,8 +490,8 @@ begin
   if not FAnchorAvailable then
     Exit;
   FSongModel.RecalculateMusicFrameRanges(FMusicFileName, FMusicTrack,
-    FDefaultPreDisplaySeconds, FDefaultPreDisplaySeconds,
-    FAnchorRate, FAnchorScale);
+    0, FDefaultMusicOffsetSeconds,
+    FDefaultPreDisplaySeconds, FAnchorRate, FAnchorScale);
 end;
 
 procedure TFormLyricsSyncEditor.SelectLine(Index: Integer);

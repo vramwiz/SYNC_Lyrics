@@ -44,6 +44,16 @@ begin
       'New lyric lines must inherit the editor pre-display time.');
     Check(Abs(Model[0].HoldSeconds - 0.5) < 0.000001,
       'New lyric lines must use the temporary hold duration.');
+    Check(Abs(Model[0].TimingMusicOffsetSeconds) < 0.000001,
+      'New lyric lines must start with a zero timing music offset.');
+    Check(Model.TrySetPlacementText(0, 'SL2 placement'),
+      'The placement text setup failed.');
+    Check(Model[0].PlacementText = 'SL2 placement',
+      'The placement text was not stored.');
+    Check(not Model.TrySetPlacementText(0, 'invalid'#13#10'placement'),
+      'Multiline placement text must be rejected.');
+    Check(Model[0].PlacementText = 'SL2 placement',
+      'Rejected placement text changed the current value.');
     Check(Model.TrySetDisplayLane(0, 3),
       'A supported display lane must be accepted.');
     Check(Model[0].DisplayLane = 3,
@@ -84,6 +94,8 @@ begin
       'Inserting must preserve the identity of following lines.');
     Check(Model[1].DisplayLane = 1,
       'An inserted line must use the default display lane.');
+    Check(Model.TrySetPlacementText(2, 'line placement'),
+      'A following line placement could not be stored.');
     Check(Model.TrySetLineText(2,
       '['#21531']('#12365#12415')'#12398#26032#12375#12356#22768),
       'An existing lyric syntax must be editable.');
@@ -93,6 +105,8 @@ begin
       'Editing lyric syntax must rebuild the parsed list text.');
     Check(Model[2].SyncState = lssInconsistent,
       'Editing a synchronized lyric must flag an inconsistency.');
+    Check(Model[2].PlacementText = '',
+      'Editing lyric syntax must clear its stale placement override.');
     Check(Model.TryDeleteLine(1),
       'The inserted lyric line must be deletable.');
     Check(Model.LineCount = 3, 'Deleting must reduce the line count.');
