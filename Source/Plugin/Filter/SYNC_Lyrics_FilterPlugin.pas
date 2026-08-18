@@ -1040,10 +1040,14 @@ var
   CommonSettings: TDisplayCommonSettings;
   CurrentSyncSeconds: Double;
   DisplayUnitCount: Integer;
+  EffectiveRestoreDuration: Double;
   EffectivePreDisplaySeconds: Double;
   EffectiveSyncText: string;
   HasBoundaryProgress: Boolean;
   HasFreePlacement: Boolean;
+  HasSyncData: Boolean;
+  HoldDurationSeconds: Double;
+  LastStageDuration: Double;
   LineCommonSettings: TDisplayCommonSettings;
   LinePlacementItems: TDisplayPlacementItems;
   LinePlacementsMatchLyrics: Boolean;
@@ -1056,6 +1060,7 @@ var
   PlacementUnits: TLyricsDisplayUnits;
   RemainingSeconds: Double;
   RenderSettings: TLyricsRenderSettings;
+  RestoreElapsedSeconds: Double;
   SyncData: TSyncTextData;
   SyncProgress: Double;
   SyncStartSeconds: Double;
@@ -1162,8 +1167,8 @@ begin
       SyncStartSeconds := ObjectSecondsToMusicSeconds(
         EffectivePreDisplaySeconds, MusicOffsetSeconds);
     end;
-    if not HasBoundaryProgress and
-      TryParseSyncText(EffectiveSyncText, SyncData) then
+    HasSyncData := TryParseSyncText(EffectiveSyncText, SyncData);
+    if not HasBoundaryProgress and HasSyncData then
       case SyncData.Mode of
         smMusic:
           if HasSongLine then
@@ -1179,6 +1184,41 @@ begin
           ResolveManualSyncProgress(CurrentSyncSeconds,
             DisplayUnitCount, SyncData.ManualBoundaries, SyncProgress);
       end;
+    if HasSongLine and (Video <> nil) and (Video^.Object_ <> nil) and
+      (FrameState.Rate > 0) and (FrameState.Scale > 0) and
+      (SongLine.SyncEndFrame >= 0) and
+      (SongLine.DisplayEndFrame > SongLine.SyncEndFrame) and
+      (Video^.Object_^.Frame >= SongLine.SyncEndFrame) then
+    begin
+      LastStageDuration := 0.3;
+      if HasSyncData then
+        case SyncData.Mode of
+          smMusic:
+            if not TryResolveMusicSyncLastStageDuration(MusicFileName,
+              Track, SyncStartSeconds, SongLine.StartNoteIndex,
+              DisplayUnitCount, SyncData.MusicStages,
+              LastStageDuration) then
+              LastStageDuration := 0.3;
+          smManual:
+            if Length(SyncData.ManualBoundaries) >= 2 then
+              LastStageDuration :=
+                SyncData.ManualBoundaries[High(SyncData.ManualBoundaries)] -
+                SyncData.ManualBoundaries[High(SyncData.ManualBoundaries) - 1];
+        end;
+      HoldDurationSeconds :=
+        (SongLine.DisplayEndFrame - SongLine.SyncEndFrame) *
+        FrameState.Scale / FrameState.Rate;
+      EffectiveRestoreDuration := Min(HoldDurationSeconds,
+        EnsureRange(LastStageDuration, 0.15, 0.60));
+      RestoreElapsedSeconds :=
+        (Video^.Object_^.Frame - SongLine.SyncEndFrame) *
+        FrameState.Scale / FrameState.Rate;
+      if EffectiveRestoreDuration <= 0.000001 then
+        RenderSettings.CompletionRestoreProgress := 1
+      else
+        RenderSettings.CompletionRestoreProgress := EnsureRange(
+          RestoreElapsedSeconds / EffectiveRestoreDuration, 0.0, 1.0);
+    end;
     if (Video <> nil) and (Video^.Object_ <> nil) and
       (FrameState.Rate > 0) then
     begin

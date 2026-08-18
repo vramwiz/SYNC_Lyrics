@@ -53,6 +53,12 @@ function TryResolveMusicSyncTimeRange(const FileName: string; Track: Integer;
   SequenceStartSeconds: Double; StartNoteIndex, RequiredNoteCount: Integer;
   out SyncStartSeconds, SyncEndSeconds: Double): Boolean;
 
+// Returns the duration of the final synchronization stage assigned to a line.
+function TryResolveMusicSyncLastStageDuration(const FileName: string;
+  Track: Integer; SequenceStartSeconds: Double; StartNoteIndex,
+  DisplayUnitCount: Integer; const SyncParameters: array of Integer;
+  out DurationSeconds: Double): Boolean;
+
 // 音楽データキャッシュの排他資源をFilter読込時に初期化する。
 procedure InitializeMusicSync;
 
@@ -450,6 +456,47 @@ begin
   finally
     LeaveCriticalSection(CacheLock);
   end;
+end;
+
+function TryResolveMusicSyncLastStageDuration(const FileName: string;
+  Track: Integer; SequenceStartSeconds: Double; StartNoteIndex,
+  DisplayUnitCount: Integer; const SyncParameters: array of Integer;
+  out DurationSeconds: Double): Boolean;
+var
+  LastNoteCount: Integer;
+  LastNoteOffset: Integer;
+  NoteCount: Integer;
+  ParameterIndex: Integer;
+  StageEndSeconds: Double;
+  StageStartSeconds: Double;
+  SyncValue: Integer;
+  UnitCount: Integer;
+  UnitIndex: Integer;
+begin
+  Result := False;
+  DurationSeconds := 0;
+  if DisplayUnitCount <= 0 then
+    Exit;
+  LastNoteCount := 0;
+  LastNoteOffset := 0;
+  ParameterIndex := 0;
+  UnitIndex := 0;
+  while UnitIndex < DisplayUnitCount do
+  begin
+    SyncValue := GetSyncParameter(SyncParameters, ParameterIndex);
+    ResolveSyncStage(SyncValue, DisplayUnitCount - UnitIndex,
+      NoteCount, UnitCount);
+    LastNoteOffset := LastNoteOffset + LastNoteCount;
+    LastNoteCount := NoteCount;
+    Inc(UnitIndex, UnitCount);
+    Inc(ParameterIndex);
+  end;
+  if not TryResolveMusicSyncTimeRange(FileName, Track,
+    SequenceStartSeconds, Max(0, StartNoteIndex) + LastNoteOffset,
+    LastNoteCount, StageStartSeconds, StageEndSeconds) then
+    Exit;
+  DurationSeconds := StageEndSeconds - StageStartSeconds;
+  Result := DurationSeconds > MUSIC_TIME_EPSILON;
 end;
 
 function ResolveMusicSyncProgressForUnits(const FileName: string; Track: Integer;

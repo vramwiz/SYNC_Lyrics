@@ -782,6 +782,8 @@ end;
 
 procedure TestFourColorChangeModes;
 var
+  CompletionHalfPixels: Integer;
+  CompletionStartPixels: Integer;
   EarlySmoothRestorePixels: Integer;
   NarrowBandPixels: Integer;
   CharacterKeepPixels: Integer;
@@ -831,10 +833,24 @@ begin
     'smooth restore boundary state failed');
   Check(CountAfterColorPixels > 0,
     'smooth restore color band disappeared at a unit boundary');
+  Settings.CompletionRestoreProgress := 0;
   Check(RenderLyrics(@Video, 'AB', 2.0, Settings, 0, 0),
-    'smooth restore completion state failed');
+    'smooth restore hold-start state failed');
+  CompletionStartPixels := CountAfterColorPixels;
+  Check(CompletionStartPixels > 0,
+    'smooth restore mode removed the final band at hold start');
+  Settings.CompletionRestoreProgress := 0.5;
+  Check(RenderLyrics(@Video, 'AB', 2.0, Settings, 0, 0),
+    'smooth restore hold-middle state failed');
+  CompletionHalfPixels := CountAfterColorPixels;
+  Check((CompletionHalfPixels > 0) and
+    (CompletionHalfPixels < CompletionStartPixels),
+    'smooth restore mode did not wipe the final band during hold');
+  Settings.CompletionRestoreProgress := 1;
+  Check(RenderLyrics(@Video, 'AB', 2.0, Settings, 0, 0),
+    'smooth restore hold-end state failed');
   Check(CountAfterColorPixels = 0,
-    'smooth restore mode retained the last display unit after completion');
+    'smooth restore mode retained the final band at hold end');
 
   Settings.ColorFillMode := lcfCharacter;
   Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),

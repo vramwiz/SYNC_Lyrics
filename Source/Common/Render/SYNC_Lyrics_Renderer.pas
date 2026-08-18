@@ -32,6 +32,7 @@ type
     ColorFillMode: TLyricsColorFillMode;
     ColorAfterMode: TLyricsColorAfterMode;
     ColorBandSizePercent: Double;
+    CompletionRestoreProgress: Double; // 0 at sync end, 1 at hold end.
     SyncKind: TLyricsSyncKind;
     SyncShape: Integer;
     SyncOffsetX: Double;
@@ -156,6 +157,7 @@ begin
   Result.ColorFillMode := lcfSmooth;
   Result.ColorAfterMode := lcaKeep;
   Result.ColorBandSizePercent := 100;
+  Result.CompletionRestoreProgress := 1;
   Result.SyncKind := lskColor;
   Result.SyncShape := 0;
   Result.SyncOffsetX := 0;
@@ -273,10 +275,6 @@ begin
   ClipEnd := 0;
   if ProgressUnits <= 0.000001 then
     Exit;
-  if (Settings.ColorFillMode = lcfSmooth) and
-    (Settings.ColorAfterMode = lcaRestore) and
-    (ProgressUnits >= SyncUnitCount - 0.000001) then
-    Exit;
   if (Settings.ColorFillMode <> lcfSmooth) or
     (Settings.ColorAfterMode <> lcaRestore) then
   begin
@@ -292,6 +290,9 @@ begin
     CurrentIndex, CurrentProgress);
   CalculateSerifSyncSmoothWindow(CurrentIndex, CurrentProgress,
     Settings.ColorBandSizePercent, BandStart, BandEnd);
+  if ProgressUnits >= SyncUnitCount - 0.000001 then
+    BandStart := BandStart + (BandEnd - BandStart) *
+      EnsureRange(Settings.CompletionRestoreProgress, 0.0, 1.0);
   UnitStart := SyncUnitIndex;
   ClipStart := EnsureRange(BandStart - UnitStart, 0.0, 1.0);
   ClipEnd := EnsureRange(BandEnd - UnitStart, 0.0, 1.0);

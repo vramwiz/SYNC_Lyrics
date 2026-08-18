@@ -506,6 +506,7 @@ var
   Bytes: TBytes;
   FileName: string;
   I: Integer;
+  LastStageDuration: Double;
   Notes: TMusicNoteStarts;
   SongModel: TLyricsSongModel;
   ProgressUnits: Double;
@@ -608,6 +609,11 @@ begin
       Check((Abs(SyncStartSeconds) < 0.000001) and
         (Abs(SyncEndSeconds - 1.0) < 0.000001),
         'music synchronization time range mismatch');
+      Check(TryResolveMusicSyncLastStageDuration(FileName, -1, 0.0,
+        0, 2, SyncParameters, LastStageDuration),
+        'last synchronization stage duration resolve failed');
+      Check(Abs(LastStageDuration - 0.5) < 0.000001,
+        'last synchronization stage duration mismatch');
 
       SetLength(SyncParameters, 1);
       SyncParameters[0] := -1;
