@@ -71,7 +71,8 @@ type
     // Rebuilds object-local display ranges from the shared music-note sequence.
     procedure RecalculateMusicFrameRanges(const MusicFileName: string;
       Track: Integer; SequenceStartSeconds, MusicOffsetSeconds,
-      DefaultPreDisplaySeconds: Double; Rate, Scale: Integer);
+      DefaultPreDisplaySeconds, DefaultHoldSeconds: Double;
+      Rate, Scale: Integer);
     property LineCount: Integer read GetLineCount;
     property Lines[Index: Integer]: TLyricsSongLine read GetLine; default;
   end;
@@ -141,7 +142,7 @@ end;
 
 procedure TLyricsSongModel.RecalculateMusicFrameRanges(
   const MusicFileName: string; Track: Integer; SequenceStartSeconds,
-  MusicOffsetSeconds, DefaultPreDisplaySeconds: Double;
+  MusicOffsetSeconds, DefaultPreDisplaySeconds, DefaultHoldSeconds: Double;
   Rate, Scale: Integer);
 var
   DisplayStartSeconds: Double;
@@ -173,9 +174,9 @@ begin
       SyncStartSeconds, MusicOffsetSeconds);
     SyncEndSeconds := MusicSecondsToObjectSeconds(
       SyncEndSeconds, MusicOffsetSeconds);
-    EffectivePreDisplaySeconds := FLines[I].PreDisplaySeconds;
-    if EffectivePreDisplaySeconds < 0 then
-      EffectivePreDisplaySeconds := DefaultPreDisplaySeconds;
+    EffectivePreDisplaySeconds := Max(0, DefaultPreDisplaySeconds);
+    FLines[I].PreDisplaySeconds := EffectivePreDisplaySeconds;
+    FLines[I].HoldSeconds := Max(0, DefaultHoldSeconds);
     DisplayStartSeconds := Max(0,
       SyncStartSeconds - Max(0, EffectivePreDisplaySeconds));
     FLines[I].SyncStartFrame := Floor(
@@ -185,7 +186,7 @@ begin
     FLines[I].DisplayStartFrame := Floor(
       DisplayStartSeconds * Rate / Scale);
     FLines[I].DisplayEndFrame := Max(FLines[I].DisplayStartFrame,
-      Ceil((SyncEndSeconds + Max(0, FLines[I].HoldSeconds)) *
+      Ceil((SyncEndSeconds + FLines[I].HoldSeconds) *
         Rate / Scale) - 1);
     FLines[I].TimingMusicOffsetSeconds := MusicOffsetSeconds;
   end;

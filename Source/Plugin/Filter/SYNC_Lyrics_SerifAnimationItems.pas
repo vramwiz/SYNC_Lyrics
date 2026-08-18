@@ -1,7 +1,7 @@
 ﻿unit SYNC_Lyrics_SerifAnimationItems;
 
 // 参照元セリフ表示と同じ固定スキーマのアニメーション項目を提供する。
-// 現段階ではUIと保存値を先に揃え、描画側は既存機能で表現できる種類だけ使用する。
+// 固定スキーマを保ったまま、同期種類をSYNC_Lyricsの描画設定へ渡す。
 
 interface
 
@@ -17,6 +17,14 @@ const
   SERIF_SYNC_ZOOM = 5;
   SERIF_SYNC_GLOW = 6;
   SERIF_SYNC_JUMP = 7;
+  SERIF_COLOR_FILL_CHARACTER = 0;
+  SERIF_COLOR_FILL_SMOOTH = 1;
+  SERIF_COLOR_AFTER_RESTORE = 0;
+  SERIF_COLOR_AFTER_KEEP = 1;
+  SERIF_SYNC_SHAPE_AUTO = 0;
+  SERIF_SYNC_SHAPE_CIRCLE = 1;
+  SERIF_SYNC_SHAPE_SQUARE = 2;
+  SERIF_SYNC_SHAPE_TRIANGLE = 3;
 
 var
   SerifBeforeGroup: TFILTER_ITEM_GROUP = (
@@ -39,12 +47,13 @@ var
   SerifSyncGroup: TFILTER_ITEM_GROUP = (
     ItemType: 'group'; Name: '同期'; DefaultVisible: 1);
   SerifSyncTypeItem: TFILTER_ITEM_SELECT;
-  SerifSyncModeItem: TFILTER_ITEM_SELECT;
+  SerifSyncFillItem: TFILTER_ITEM_SELECT;
+  SerifSyncAfterItem: TFILTER_ITEM_SELECT;
   SerifSyncShapeItem: TFILTER_ITEM_SELECT;
   SerifSyncColorItem: TFILTER_ITEM_COLOR = (
     ItemType: 'color'; Name: '同期 色'; B: 0; G: 255; R: 255; X: 255);
   SerifSyncSizeItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track'; Name: '同期 サイズ'; Value: 120; S: 1; E: 1000;
+    ItemType: 'track'; Name: '同期 サイズ'; Value: 100; S: 1; E: 1000;
     Step: 0.01);
   SerifSyncOffsetXItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track'; Name: '同期 オフセットX'; Value: 0; S: -100; E: 100;
@@ -99,15 +108,19 @@ var
     (Name: '発光'; Value: SERIF_SYNC_GLOW),
     (Name: 'ジャンプ'; Value: SERIF_SYNC_JUMP),
     (Name: nil; Value: 0));
-  SyncModeList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
-    (Name: '標準'; Value: 0),
-    (Name: '軌跡'; Value: 1),
+  SyncFillList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
+    (Name: '文字単位'; Value: SERIF_COLOR_FILL_CHARACTER),
+    (Name: 'なめらか'; Value: SERIF_COLOR_FILL_SMOOTH),
+    (Name: nil; Value: 0));
+  SyncAfterList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
+    (Name: '戻す'; Value: SERIF_COLOR_AFTER_RESTORE),
+    (Name: '維持'; Value: SERIF_COLOR_AFTER_KEEP),
     (Name: nil; Value: 0));
   SyncShapeList: array[0..4] of TFILTER_ITEM_SELECT_ITEM = (
-    (Name: '自動'; Value: 0),
-    (Name: '丸'; Value: 1),
-    (Name: '四角'; Value: 2),
-    (Name: '三角'; Value: 3),
+    (Name: '自動'; Value: SERIF_SYNC_SHAPE_AUTO),
+    (Name: '丸'; Value: SERIF_SYNC_SHAPE_CIRCLE),
+    (Name: '四角'; Value: SERIF_SYNC_SHAPE_SQUARE),
+    (Name: '三角'; Value: SERIF_SYNC_SHAPE_TRIANGLE),
     (Name: nil; Value: 0));
   AfterTypeList: array[0..7] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: 'なし'; Value: 0),
@@ -142,13 +155,17 @@ begin
   SerifSyncTypeItem.Name := '同期 種類';
   SerifSyncTypeItem.Value := SERIF_SYNC_COLOR;
   SerifSyncTypeItem.List := @SyncTypeList[0];
-  SerifSyncModeItem.ItemType := 'select';
-  SerifSyncModeItem.Name := '同期 形態';
-  SerifSyncModeItem.Value := 0;
-  SerifSyncModeItem.List := @SyncModeList[0];
+  SerifSyncFillItem.ItemType := 'select';
+  SerifSyncFillItem.Name := '色塗り';
+  SerifSyncFillItem.Value := SERIF_COLOR_FILL_SMOOTH;
+  SerifSyncFillItem.List := @SyncFillList[0];
+  SerifSyncAfterItem.ItemType := 'select';
+  SerifSyncAfterItem.Name := '通過後';
+  SerifSyncAfterItem.Value := SERIF_COLOR_AFTER_KEEP;
+  SerifSyncAfterItem.List := @SyncAfterList[0];
   SerifSyncShapeItem.ItemType := 'select';
   SerifSyncShapeItem.Name := '同期 形';
-  SerifSyncShapeItem.Value := 0;
+  SerifSyncShapeItem.Value := SERIF_SYNC_SHAPE_AUTO;
   SerifSyncShapeItem.List := @SyncShapeList[0];
 
   SerifAfterTypeItem.ItemType := 'select';

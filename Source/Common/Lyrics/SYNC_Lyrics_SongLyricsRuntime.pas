@@ -21,6 +21,10 @@ function ResolveSongLyricsLineIndexes(const Lines: TLyricsSongLines;
 // Returns a copy whose saved ranges follow the currently selected music offset.
 function ApplyMusicOffsetToSongLyricsLines(const Lines: TLyricsSongLines;
   MusicOffsetSeconds: Double; Rate, Scale: Integer): TLyricsSongLines;
+// Returns a copy whose display ranges use the current global lead and hold times.
+function ApplyDisplayDurationsToSongLyricsLines(const Lines: TLyricsSongLines;
+  PreDisplaySeconds, HoldSeconds: Double;
+  Rate, Scale: Integer): TLyricsSongLines;
 // Returns every line whose raw display range contains the frame. If none
 // contains it, the single line nearest to its synchronization range is used.
 function ResolveSongLyricsPlacementCandidateIndexes(
@@ -78,6 +82,35 @@ begin
     Result[I].SyncEndFrame := ShiftFrame(
       Result[I].SyncEndFrame, DeltaFrames);
     Result[I].TimingMusicOffsetSeconds := MusicOffsetSeconds;
+  end;
+end;
+
+function ApplyDisplayDurationsToSongLyricsLines(const Lines: TLyricsSongLines;
+  PreDisplaySeconds, HoldSeconds: Double;
+  Rate, Scale: Integer): TLyricsSongLines;
+var
+  HoldFrames: Int64;
+  I: Integer;
+  PreDisplayFrames: Int64;
+begin
+  Result := Copy(Lines);
+  if (Rate <= 0) or (Scale <= 0) then
+    Exit;
+  PreDisplaySeconds := Max(0.0, PreDisplaySeconds);
+  HoldSeconds := Max(0.0, HoldSeconds);
+  PreDisplayFrames := Round(PreDisplaySeconds * Rate / Scale);
+  HoldFrames := Round(HoldSeconds * Rate / Scale);
+  for I := 0 to High(Result) do
+  begin
+    if (Result[I].SyncStartFrame < 0) or
+      (Result[I].SyncEndFrame < Result[I].SyncStartFrame) then
+      Continue;
+    Result[I].PreDisplaySeconds := PreDisplaySeconds;
+    Result[I].HoldSeconds := HoldSeconds;
+    Result[I].DisplayStartFrame := Max(0,
+      Result[I].SyncStartFrame - PreDisplayFrames);
+    Result[I].DisplayEndFrame := Max(Result[I].DisplayStartFrame,
+      Result[I].SyncEndFrame + HoldFrames);
   end;
 end;
 

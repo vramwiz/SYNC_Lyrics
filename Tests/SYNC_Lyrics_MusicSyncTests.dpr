@@ -542,11 +542,13 @@ begin
       try
         SongModel.SetLyricsText('a');
         SongModel.RecalculateMusicFrameRanges(FileName, -1,
-          0.5, 0.5, 0.5, 30, 1);
+          0.5, 0.5, 0.5, 2.0, 30, 1);
         Check(SongModel[0].SyncStartFrame = 15,
           'music offset did not delay the generated sync range');
         Check(SongModel[0].DisplayStartFrame = 0,
           'pre-display range was not generated before an immediate note');
+        Check(SongModel[0].DisplayEndFrame = 89,
+          'global hold time was not added to the generated display range');
       finally
         SongModel.Free;
       end;

@@ -26,6 +26,7 @@ var
   ActiveIndexes: TLyricsSongLineIndexes;
   ProgressUnits: Double;
   RuntimeLines: TLyricsSongLines;
+  ThreeLaneLines: TLyricsSongLines;
   Model: TLyricsSongModel;
 begin
   Model := TLyricsSongModel.Create;
@@ -93,6 +94,11 @@ begin
       (RuntimeLines[0].DisplayEndFrame = 255) and
       (RuntimeLines[0].SyncEndFrame = 235),
       'Changing the music offset did not shift persisted ranges.');
+    RuntimeLines := ApplyDisplayDurationsToSongLyricsLines(
+      RuntimeLines, 1.0, 2.0, 30, 1);
+    Check((RuntimeLines[0].DisplayStartFrame = 120) and
+      (RuntimeLines[0].DisplayEndFrame = 295),
+      'Global pre-display and hold times did not rebuild display ranges.');
     RuntimeLines[0].DisplayStartFrame := -1;
     RuntimeLines[0].DisplayEndFrame := -1;
     RuntimeLines[1].DisplayStartFrame := -1;
@@ -132,22 +138,16 @@ begin
     Check((Length(ActiveIndexes) = 2) and
       (ActiveIndexes[0] = 0) and (ActiveIndexes[1] = 1),
       'Overlapping display lanes were not resolved together.');
+    ThreeLaneLines := Copy(RuntimeLines);
+    SetLength(ThreeLaneLines, 3);
+    ThreeLaneLines[2] := ThreeLaneLines[1];
+    ThreeLaneLines[2].DisplayLane := 3;
+    ActiveIndexes := ResolveSongLyricsLineIndexes(ThreeLaneLines, 10);
+    Check((Length(ActiveIndexes) = 3) and
+      (ActiveIndexes[0] = 0) and (ActiveIndexes[1] = 1) and
+      (ActiveIndexes[2] = 2),
+      'Three simultaneous display lanes were not resolved together.');
     Lines := Model.CopyLines;
-    Lines[0].DisplayLane := 1;
-    Lines[0].DisplayStartFrame := 0;
-    Lines[0].DisplayEndFrame := 20;
-    Lines[1].DisplayLane := 1;
-    Lines[1].DisplayStartFrame := 10;
-    Lines[1].DisplayEndFrame := 30;
-    Model.ReplaceLines(Lines);
-    Check(TryEncodeSongLyrics(Model, EncodedText, ErrorText),
-      'Same-lane overlap encoding failed: ' + ErrorText);
-    Check(TryGetSongLyricsLines(EncodedText, RuntimeLines),
-      'Same-lane overlap data was not cached.');
-    ActiveIndexes := ResolveSongLyricsLineIndexes(RuntimeLines, 10);
-    Check((Length(ActiveIndexes) = 1) and (ActiveIndexes[0] = 1),
-      'The newer line did not replace the older line in the same lane.');
-
     Lines[0].DisplayStartFrame := 0;
     Lines[0].DisplayEndFrame := 30;
     Lines[0].SyncStartFrame := 5;

@@ -99,6 +99,7 @@
         <DCCReference Include="Source\Lib\TextRenderer\TextRenderer.pas"/>
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas"/>
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkia.pas"/>
+        <DCCReference Include="Source\Lib\SerifSyncAnimation\PluginFilterSerifDrawSyncHighlight.pas"/>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SharedMemoryBase.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ToolbarButtons.pas"/>

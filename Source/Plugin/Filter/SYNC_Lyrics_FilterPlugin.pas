@@ -171,7 +171,15 @@ var
   );
   PreDisplayTimeItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track';
-    Name: '事前表示 (秒)';
+    Name: '同期前表示 (秒)';
+    Value: 0.5;
+    S: 0;
+    E: 60;
+    Step: 0.01
+  );
+  HoldTimeItem: TFILTER_ITEM_TRACK = (
+    ItemType: 'track';
+    Name: '同期後維持 (秒)';
     Value: 0.5;
     S: 0;
     E: 60;
@@ -192,7 +200,7 @@ var
     Name: '表示設定';
     Value: ''
   );
-  PluginItems: array[0..26] of Pointer;
+  PluginItems: array[0..29] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -223,13 +231,31 @@ type
     InitialCandidate: Integer;
   end;
 
-procedure ApplyMinimalSerifSyncStyle(var Settings: TLyricsRenderSettings);
+procedure ApplySerifSyncStyle(var Settings: TLyricsRenderSettings);
 begin
+  Settings.SyncKind := TLyricsSyncKind(EnsureRange(
+    SerifSyncTypeItem.Value, Ord(Low(TLyricsSyncKind)),
+    Ord(High(TLyricsSyncKind))));
+  Settings.SyncShape := EnsureRange(SerifSyncShapeItem.Value,
+    SERIF_SYNC_SHAPE_AUTO, SERIF_SYNC_SHAPE_TRIANGLE);
+  Settings.ColorFillMode := TLyricsColorFillMode(EnsureRange(
+    SerifSyncFillItem.Value, Ord(Low(TLyricsColorFillMode)),
+    Ord(High(TLyricsColorFillMode))));
+  Settings.ColorAfterMode := TLyricsColorAfterMode(EnsureRange(
+    SerifSyncAfterItem.Value, Ord(Low(TLyricsColorAfterMode)),
+    Ord(High(TLyricsColorAfterMode))));
+  Settings.ColorBandSizePercent := EnsureRange(
+    SerifSyncSizeItem.Value, 1.0, 1000.0);
+  Settings.SyncOffsetX := EnsureRange(SerifSyncOffsetXItem.Value,
+    -100.0, 100.0);
+  Settings.SyncOffsetY := EnsureRange(SerifSyncOffsetYItem.Value,
+    -100.0, 100.0);
+  Settings.SyncColor.R := SerifSyncColorItem.R;
+  Settings.SyncColor.G := SerifSyncColorItem.G;
+  Settings.SyncColor.B := SerifSyncColorItem.B;
   if SerifSyncTypeItem.Value = SERIF_SYNC_COLOR then
   begin
-    Settings.AfterColor.R := SerifSyncColorItem.R;
-    Settings.AfterColor.G := SerifSyncColorItem.G;
-    Settings.AfterColor.B := SerifSyncColorItem.B;
+    Settings.AfterColor := Settings.SyncColor;
   end
   else
     Settings.AfterColor := Settings.BeforeColor;
@@ -237,10 +263,8 @@ end;
 
 function CurrentSerifSyncAnimation: TLyricsSyncAnimation;
 begin
-  if SerifSyncTypeItem.Value = SERIF_SYNC_JUMP then
-    Result := lsaBounce
-  else
-    Result := lsaNone;
+  // 同期変形は文字・ルビ単位のRendererへ移し、行全体は動かさない。
+  Result := lsaNone;
 end;
 
 function CurrentSerifStartAnimation: TLyricsEdgeAnimation;
@@ -375,6 +399,9 @@ begin
       AdjustedLines := ApplyMusicOffsetToSongLyricsLines(AdjustedLines,
         EnsureRange(MusicOffsetItem.Value, -5.0, 5.0),
         Anchor.Rate, Anchor.Scale);
+      AdjustedLines := ApplyDisplayDurationsToSongLyricsLines(
+        AdjustedLines, Max(0.0, PreDisplayTimeItem.Value),
+        Max(0.0, HoldTimeItem.Value), Anchor.Rate, Anchor.Scale);
     end;
   end;
   Context.CandidateIndexes :=
@@ -735,6 +762,7 @@ var
   Anchor: TMusicSyncAnchor;
   AudioInfo: TSyncAudioFileInfo;
   AudioProbeError: string;
+  CurrentHoldSeconds: Double;
   CurrentLyrics: string;
   CurrentMusicFileName: string;
   CurrentMusicOffsetSeconds: Double;
@@ -783,17 +811,21 @@ begin
     CurrentMusicOffsetSeconds := 0;
   CurrentMusicOffsetSeconds := EnsureRange(CurrentMusicOffsetSeconds,
     -5.0, 5.0);
-  if not TryGetObjectItemFloat(Edit, Obj, '事前表示 (秒)',
+  if not TryGetObjectItemFloat(Edit, Obj, '同期前表示 (秒)',
     CurrentPreDisplaySeconds) then
     CurrentPreDisplaySeconds := 0.5;
   CurrentPreDisplaySeconds := Max(0.0, CurrentPreDisplaySeconds);
+  if not TryGetObjectItemFloat(Edit, Obj, '同期後維持 (秒)',
+    CurrentHoldSeconds) then
+    CurrentHoldSeconds := 0.5;
+  CurrentHoldSeconds := Max(0.0, CurrentHoldSeconds);
   if Trim(CurrentLyrics) = '' then
   begin
     SyncEditorForm := TFormLyricsSyncEditor.Create(nil);
     try
       SyncEditorForm.ConfigureMusicSource(CurrentMusicFileName,
         CurrentTrack, CurrentMusicOffsetSeconds,
-        CurrentPreDisplaySeconds);
+        CurrentPreDisplaySeconds, CurrentHoldSeconds);
       if (Obj <> nil) and (Edit <> nil) and
         Assigned(Edit^.GetObjectLayerFrame) then
       begin
@@ -972,7 +1004,7 @@ begin
     Utf8PreDisplay := UTF8String(FormatFloat('0.00',
       SelectedPreDisplaySeconds, TFormatSettings.Invariant));
     if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-      '事前表示 (秒)', PAnsiChar(Utf8PreDisplay)) then
+      '同期前表示 (秒)', PAnsiChar(Utf8PreDisplay)) then
     begin
       if SyncChanged then
       begin
@@ -989,7 +1021,7 @@ begin
       Utf8OriginalPreDisplay := UTF8String(FormatFloat('0.00',
         CurrentPreDisplaySeconds, TFormatSettings.Invariant));
       Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-        '事前表示 (秒)', PAnsiChar(Utf8OriginalPreDisplay));
+        '同期前表示 (秒)', PAnsiChar(Utf8OriginalPreDisplay));
       ShowFontSettingsError('事前表示時間を歌詞テロップへ反映できませんでした。');
     end;
   end;
@@ -999,7 +1031,8 @@ procedure RenderLyricsLine(Video: PFILTER_PROC_VIDEO;
   const FrameState: TSyncLyricsFrameState; HasFrameState: Boolean;
   ObjectStartSeconds: Double; const MusicFileName: string; Track,
   SelectedPlacementMode: Integer; const LyricsText: string;
-  HasSongLine: Boolean; const SongLine: TLyricsSongLine);
+  HasSongLine: Boolean; const SongLine: TLyricsSongLine;
+  Buffer: PPIXEL_RGBA; RenderWidth, RenderHeight: Integer);
 var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
@@ -1046,7 +1079,8 @@ begin
     PlacementsMatchLyrics := LinePlacementsMatchLyrics;
   end;
   if HasSongLine then
-    Inc(CommonSettings.PositionY, (SongLine.DisplayLane - 1) *
+    // 3段分を中央基準で予約し、段1・2・3を上・中央・下へ固定する。
+    Inc(CommonSettings.PositionY, (SongLine.DisplayLane - 2) *
       (CommonSettings.BaseFontHeight +
        CommonSettings.RubyFontHeight + 16));
 
@@ -1087,7 +1121,7 @@ begin
     (CommonSettings.AfterColor shr 8) and $FF;
   RenderSettings.AfterColor.B :=
     (CommonSettings.AfterColor shr 16) and $FF;
-  ApplyMinimalSerifSyncStyle(RenderSettings);
+  ApplySerifSyncStyle(RenderSettings);
 
   HasFreePlacement := False;
   if SelectedPlacementMode = PLACEMENT_MODE_FREE then
@@ -1175,12 +1209,14 @@ begin
   end;
   RenderSettings.Opacity := AnimationOpacity;
   if HasFreePlacement then
-    RenderFreePlacementLyrics(Video, PWideChar(LyricsText), SyncProgress,
-      RenderSettings, PlacementItems, CommonSettings.PositionX,
+    DrawFreePlacementLyricsLayer(Buffer, RenderWidth, RenderHeight,
+      PWideChar(LyricsText), SyncProgress, RenderSettings, PlacementItems,
+      CommonSettings.PositionX,
       CommonSettings.PositionY + AnimationOffsetY)
   else
-    RenderLyrics(Video, PWideChar(LyricsText), SyncProgress,
-      RenderSettings, CommonSettings.PositionX,
+    DrawLyricsLayer(Buffer, RenderWidth, RenderHeight,
+      PWideChar(LyricsText), SyncProgress, RenderSettings,
+      CommonSettings.PositionX,
       CommonSettings.PositionY + AnimationOffsetY);
 end;
 
@@ -1262,7 +1298,7 @@ begin
         LyricsText, CommonSettings, PlacementItems,
         PlacementsMatchLyrics);
     if HasSongLine then
-      Inc(CommonSettings.PositionY, (ActiveSongLine.DisplayLane - 1) *
+      Inc(CommonSettings.PositionY, (ActiveSongLine.DisplayLane - 2) *
         (CommonSettings.BaseFontHeight +
          CommonSettings.RubyFontHeight + 16));
     RenderSettings.BaseFontName := CommonSettings.BaseFontName;
@@ -1292,7 +1328,7 @@ begin
       (CommonSettings.AfterColor shr 8) and $FF;
     RenderSettings.AfterColor.B :=
       (CommonSettings.AfterColor shr 16) and $FF;
-    ApplyMinimalSerifSyncStyle(RenderSettings);
+    ApplySerifSyncStyle(RenderSettings);
     HasFreePlacement := False;
     if SelectedPlacementMode = PLACEMENT_MODE_FREE then
     begin
@@ -1403,8 +1439,10 @@ end;
 function LyricsProcVideoMulti(Video: PFILTER_PROC_VIDEO): Byte; cdecl;
 var
   ActiveIndexes: TLyricsSongLineIndexes;
+  Buffer: PPIXEL_RGBA;
   FrameState: TSyncLyricsFrameState;
   HasFrameState: Boolean;
+  Height: Integer;
   I: Integer;
   MusicFileName: string;
   MusicOffsetSeconds: Double;
@@ -1413,58 +1451,78 @@ var
   SelectedPlacementMode: Integer;
   SongDataText: string;
   SongLines: TLyricsSongLines;
+  PixelCount: NativeInt;
   Track: Integer;
+  Width: Integer;
 begin
+  Buffer := nil;
   try
-    SongDataText := '';
-    if Assigned(SongDocumentItem.Value) then
-      SongDataText := string(SongDocumentItem.Value);
-    if (SongDataText = '') or
-      not TryGetSongLyricsLines(SongDataText, SongLines) then
-      Exit(LyricsProcVideo(Video));
+    try
+      SongDataText := '';
+      if Assigned(SongDocumentItem.Value) then
+        SongDataText := string(SongDocumentItem.Value);
+      if (SongDataText = '') or
+        not TryGetSongLyricsLines(SongDataText, SongLines) then
+        Exit(LyricsProcVideo(Video));
 
-    CaptureLastFrame(Video);
-    HasFrameState := TryGetLyricsFrameState(Video, FrameState);
-    MusicOffsetSeconds := EnsureRange(MusicOffsetItem.Value, -5.0, 5.0);
-    if HasFrameState then
-      SongLines := ApplyMusicOffsetToSongLyricsLines(SongLines,
-        MusicOffsetSeconds, FrameState.Rate, FrameState.Scale);
-    ObjectStartSeconds := 0;
-    if HasFrameState then
-      ObjectStartSeconds := FrameState.TimeSeconds;
-    if HasFrameState and (Video <> nil) and
-      (Video^.Object_ <> nil) and (FrameState.Rate > 0) then
-    begin
-      ObjectStartFrame := FrameState.Frame - Video^.Object_^.Frame;
-      ObjectStartSeconds := ObjectStartSeconds -
-        Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate;
-      RecordMusicSyncAnchor(Video^.Object_^.ID,
-        Video^.Object_^.EffectID, Video^.Object_^.Layer,
-        Video^.Object_^.FrameS, Video^.Object_^.FrameE,
-        ObjectStartFrame, Video^.Object_^.Frame,
-        FrameState.Rate, FrameState.Scale);
+      CaptureLastFrame(Video);
+      if not TryGetLyricsRenderSize(Video, Width, Height) then
+        Exit(1);
+      PixelCount := NativeInt(Width) * Height;
+      GetMem(Buffer, PixelCount * SizeOf(TPIXEL_RGBA));
+      FillChar(Buffer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
+      HasFrameState := TryGetLyricsFrameState(Video, FrameState);
+      MusicOffsetSeconds := EnsureRange(MusicOffsetItem.Value, -5.0, 5.0);
+      if HasFrameState then
+      begin
+        SongLines := ApplyMusicOffsetToSongLyricsLines(SongLines,
+          MusicOffsetSeconds, FrameState.Rate, FrameState.Scale);
+        SongLines := ApplyDisplayDurationsToSongLyricsLines(SongLines,
+          Max(0.0, PreDisplayTimeItem.Value),
+          Max(0.0, HoldTimeItem.Value),
+          FrameState.Rate, FrameState.Scale);
+      end;
+      ObjectStartSeconds := 0;
+      if HasFrameState then
+        ObjectStartSeconds := FrameState.TimeSeconds;
+      if HasFrameState and (Video <> nil) and
+        (Video^.Object_ <> nil) and (FrameState.Rate > 0) then
+      begin
+        ObjectStartFrame := FrameState.Frame - Video^.Object_^.Frame;
+        ObjectStartSeconds := ObjectStartSeconds -
+          Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate;
+        RecordMusicSyncAnchor(Video^.Object_^.ID,
+          Video^.Object_^.EffectID, Video^.Object_^.Layer,
+          Video^.Object_^.FrameS, Video^.Object_^.FrameE,
+          ObjectStartFrame, Video^.Object_^.Frame,
+          FrameState.Rate, FrameState.Scale);
+      end;
+
+      SetLength(ActiveIndexes, 0);
+      if (Video <> nil) and (Video^.Object_ <> nil) then
+        ActiveIndexes := ResolveSongLyricsLineIndexes(SongLines,
+          Video^.Object_^.Frame);
+      MusicFileName := '';
+      if Assigned(MusicFileItem.Value) then
+        MusicFileName := string(MusicFileItem.Value);
+      Track := Round(TrackItem.Value);
+      SelectedPlacementMode := EnsureRange(PlacementModeItem.Value,
+        PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE);
+      for I := 0 to High(ActiveIndexes) do
+        if (ActiveIndexes[I] >= 0) and
+          (ActiveIndexes[I] < Length(SongLines)) then
+          RenderLyricsLine(Video, FrameState, HasFrameState,
+            ObjectStartSeconds, MusicFileName, Track,
+            SelectedPlacementMode,
+            SongLines[ActiveIndexes[I]].SourceText, True,
+            SongLines[ActiveIndexes[I]], Buffer, Width, Height);
+      Video^.SetImageData(Buffer, Width, Height);
+    except
+      // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
     end;
-
-    SetLength(ActiveIndexes, 0);
-    if (Video <> nil) and (Video^.Object_ <> nil) then
-      ActiveIndexes := ResolveSongLyricsLineIndexes(SongLines,
-        Video^.Object_^.Frame);
-    MusicFileName := '';
-    if Assigned(MusicFileItem.Value) then
-      MusicFileName := string(MusicFileItem.Value);
-    Track := Round(TrackItem.Value);
-    SelectedPlacementMode := EnsureRange(PlacementModeItem.Value,
-      PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE);
-    for I := 0 to High(ActiveIndexes) do
-      if (ActiveIndexes[I] >= 0) and
-        (ActiveIndexes[I] < Length(SongLines)) then
-        RenderLyricsLine(Video, FrameState, HasFrameState,
-          ObjectStartSeconds, MusicFileName, Track,
-          SelectedPlacementMode,
-          SongLines[ActiveIndexes[I]].SourceText, True,
-          SongLines[ActiveIndexes[I]]);
-  except
-    // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
+  finally
+    if Buffer <> nil then
+      FreeMem(Buffer);
   end;
   Result := 1;
 end;
@@ -1477,31 +1535,34 @@ begin
     InitializeSerifAnimationItems;
     PluginItems[0] := @MusicFileItem;
     PluginItems[1] := @MusicSyncSettingsButton;
-    PluginItems[2] := @DisplaySettingsButton;
-    PluginItems[3] := @SerifBeforeGroup;
-    PluginItems[4] := @SerifBeforeTypeItem;
-    PluginItems[5] := @SerifBeforeDirectionItem;
-    PluginItems[6] := @SerifBeforeZoomOriginItem;
-    PluginItems[7] := @SerifBeforeValue1Item;
-    PluginItems[8] := @SerifDuringGroup;
-    PluginItems[9] := @SerifDuringEmotionItem;
-    PluginItems[10] := @SerifDuringSpeedItem;
-    PluginItems[11] := @SerifSyncGroup;
-    PluginItems[12] := @SerifSyncTypeItem;
-    PluginItems[13] := @SerifSyncModeItem;
-    PluginItems[14] := @SerifSyncShapeItem;
-    PluginItems[15] := @SerifSyncColorItem;
-    PluginItems[16] := @SerifSyncSizeItem;
-    PluginItems[17] := @SerifSyncOffsetXItem;
-    PluginItems[18] := @SerifSyncOffsetYItem;
-    PluginItems[19] := @SerifAfterGroup;
-    PluginItems[20] := @SerifAfterTypeItem;
-    PluginItems[21] := @SerifAfterDirectionItem;
-    PluginItems[22] := @SerifAfterZoomDestinationItem;
-    PluginItems[23] := @SerifAfterValue1Item;
-    PluginItems[24] := @SongDocumentItem;
-    PluginItems[25] := @DisplaySettingsTextItem;
-    PluginItems[26] := nil;
+    PluginItems[2] := @PreDisplayTimeItem;
+    PluginItems[3] := @HoldTimeItem;
+    PluginItems[4] := @DisplaySettingsButton;
+    PluginItems[5] := @SerifBeforeGroup;
+    PluginItems[6] := @SerifBeforeTypeItem;
+    PluginItems[7] := @SerifBeforeDirectionItem;
+    PluginItems[8] := @SerifBeforeZoomOriginItem;
+    PluginItems[9] := @SerifBeforeValue1Item;
+    PluginItems[10] := @SerifDuringGroup;
+    PluginItems[11] := @SerifDuringEmotionItem;
+    PluginItems[12] := @SerifDuringSpeedItem;
+    PluginItems[13] := @SerifSyncGroup;
+    PluginItems[14] := @SerifSyncTypeItem;
+    PluginItems[15] := @SerifSyncFillItem;
+    PluginItems[16] := @SerifSyncAfterItem;
+    PluginItems[17] := @SerifSyncShapeItem;
+    PluginItems[18] := @SerifSyncColorItem;
+    PluginItems[19] := @SerifSyncSizeItem;
+    PluginItems[20] := @SerifSyncOffsetXItem;
+    PluginItems[21] := @SerifSyncOffsetYItem;
+    PluginItems[22] := @SerifAfterGroup;
+    PluginItems[23] := @SerifAfterTypeItem;
+    PluginItems[24] := @SerifAfterDirectionItem;
+    PluginItems[25] := @SerifAfterZoomDestinationItem;
+    PluginItems[26] := @SerifAfterValue1Item;
+    PluginItems[27] := @SongDocumentItem;
+    PluginItems[28] := @DisplaySettingsTextItem;
+    PluginItems[29] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

@@ -5,12 +5,15 @@
 {$APPTYPE CONSOLE}
 
 uses
+  System.Math,
   System.SysUtils,
   TextRendererSkiaBootstrap in 'Source\Lib\TextRenderer\TextRendererSkiaBootstrap.pas',
   TextRendererTypes in 'Source\Lib\TextRenderer\TextRendererTypes.pas',
   TextRenderer in 'Source\Lib\TextRenderer\TextRenderer.pas',
   TextRendererSkiaRuntime in 'Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
   TextRendererSkia in 'Source\Lib\TextRenderer\TextRendererSkia.pas',
+  PluginFilterSerifDrawSyncHighlight in
+    'Source\Lib\SerifSyncAnimation\PluginFilterSerifDrawSyncHighlight.pas',
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in
@@ -203,6 +206,237 @@ begin
   ParseLyrics('[世界](せかい', PlainText, RubySpans);
   Check(PlainText = '[世界](せかい', 'broken syntax was not preserved');
   Check(Length(RubySpans) = 0, 'broken syntax created a ruby span');
+end;
+
+procedure FindVisibleBoundsInColumns(FirstColumn, LastColumn: Integer;
+  out Left, Top, Right, Bottom: Integer);
+var
+  X: Integer;
+  Y: Integer;
+begin
+  Left := CapturedWidth;
+  Top := CapturedHeight;
+  Right := -1;
+  Bottom := -1;
+  FirstColumn := EnsureRange(FirstColumn, 0, CapturedWidth - 1);
+  LastColumn := EnsureRange(LastColumn, 0, CapturedWidth - 1);
+  for Y := 0 to CapturedHeight - 1 do
+    for X := FirstColumn to LastColumn do
+      if CapturedPixels[Y * CapturedWidth + X].A <> 0 then
+      begin
+        if X < Left then
+          Left := X;
+        if X > Right then
+          Right := X;
+        if Y < Top then
+          Top := Y;
+        if Y > Bottom then
+          Bottom := Y;
+      end;
+end;
+
+procedure TestSerifSyncEffects;
+var
+  BaseBottom: Integer;
+  BaseHash: UInt64;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  ColorAfterMode: TLyricsColorAfterMode;
+  ColorFillMode: TLyricsColorFillMode;
+  EffectBottom: Integer;
+  EffectHash: UInt64;
+  EffectLeft: Integer;
+  EffectRight: Integer;
+  EffectTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  PreSyncHash: UInt64;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+
+  procedure CheckEffectChangesImage(Kind: TLyricsSyncKind;
+    const MessageText: string);
+  begin
+    Settings.SyncKind := Kind;
+    Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0), MessageText);
+    EffectHash := CapturedPixelHash;
+    Check(EffectHash <> BaseHash, MessageText + ' did not change image');
+  end;
+
+  procedure CheckFreeEffectChangesImage(Kind: TLyricsSyncKind;
+    const MessageText: string);
+  begin
+    Settings.SyncKind := Kind;
+    Check(RenderFreePlacementLyrics(@Video, 'AB', 0.5, Settings,
+      Placements, 0, 0), MessageText);
+    Check(CapturedPixelHash <> BaseHash,
+      MessageText + ' did not change image');
+  end;
+
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Settings.BeforeColor.R := 32;
+  Settings.BeforeColor.G := 32;
+  Settings.BeforeColor.B := 32;
+  Settings.AfterColor := Settings.BeforeColor;
+  Settings.SyncColor.R := 255;
+  Settings.SyncColor.G := 64;
+  Settings.SyncColor.B := 32;
+  Settings.ColorFillMode := lcfSmooth;
+  Settings.ColorAfterMode := lcaRestore;
+  Settings.SyncKind := lskNone;
+  Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+    'pre-sync effect baseline failed');
+  PreSyncHash := CapturedPixelHash;
+  Settings.SyncKind := lskBacking;
+  Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+    'pre-sync backing render failed');
+  Check(CapturedPixelHash = PreSyncHash,
+    'pre-sync state activated the first display unit');
+  Settings.SyncKind := lskNone;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'sync effect baseline failed');
+  BaseHash := CapturedPixelHash;
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+
+  CheckEffectChangesImage(lskFront, 'front sync effect failed');
+  CheckEffectChangesImage(lskBacking, 'backing sync effect failed');
+  CheckEffectChangesImage(lskUnderline, 'underline sync effect failed');
+  CheckEffectChangesImage(lskGlow, 'glow sync effect failed');
+
+  Settings.ColorBandSizePercent := 150;
+  for ColorFillMode := Low(TLyricsColorFillMode) to
+    High(TLyricsColorFillMode) do
+    for ColorAfterMode := Low(TLyricsColorAfterMode) to
+      High(TLyricsColorAfterMode) do
+    begin
+      Settings.ColorFillMode := ColorFillMode;
+      Settings.ColorAfterMode := ColorAfterMode;
+      CheckEffectChangesImage(lskFront, 'front sync mode failed');
+      CheckEffectChangesImage(lskBacking, 'backing sync mode failed');
+      CheckEffectChangesImage(lskUnderline, 'underline sync mode failed');
+      CheckEffectChangesImage(lskZoom, 'zoom sync mode failed');
+      CheckEffectChangesImage(lskGlow, 'glow sync mode failed');
+      CheckEffectChangesImage(lskJump, 'jump sync mode failed');
+    end;
+
+  Settings.ColorFillMode := lcfSmooth;
+  Settings.ColorAfterMode := lcaRestore;
+  Settings.SyncKind := lskZoom;
+  Settings.ColorBandSizePercent := 150;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'zoom sync effect failed');
+  FindVisibleBounds(EffectLeft, EffectTop, EffectRight, EffectBottom);
+  Check(((EffectRight - EffectLeft) > (BaseRight - BaseLeft)) or
+    ((EffectBottom - EffectTop) > (BaseBottom - BaseTop)),
+    'zoom sync effect did not enlarge the active unit');
+  Check(Abs(EffectBottom - BaseBottom) <= 2,
+    'zoom sync effect moved the text bottom edge');
+
+  Settings.SyncKind := lskJump;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'jump sync effect failed');
+  FindVisibleBounds(EffectLeft, EffectTop, EffectRight, EffectBottom);
+  Check(EffectTop < BaseTop,
+    'jump sync effect did not move the active unit upward');
+
+  SetLength(Placements, 2);
+  Placements[0].Index := 0;
+  Placements[0].X := -60;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[1].Index := 1;
+  Placements[1].X := 60;
+  Placements[1].ScaleX := 1;
+  Placements[1].ScaleY := 1;
+  Settings.ColorBandSizePercent := 150;
+  Settings.SyncKind := lskNone;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.5, Settings,
+    Placements, 0, 0), 'free sync effect baseline failed');
+  BaseHash := CapturedPixelHash;
+  CheckFreeEffectChangesImage(lskFront, 'free front sync effect failed');
+  CheckFreeEffectChangesImage(lskBacking, 'free backing sync effect failed');
+  CheckFreeEffectChangesImage(lskUnderline,
+    'free underline sync effect failed');
+  CheckFreeEffectChangesImage(lskGlow, 'free glow sync effect failed');
+  CheckFreeEffectChangesImage(lskZoom, 'free zoom sync effect failed');
+  CheckFreeEffectChangesImage(lskJump, 'free jump sync effect failed');
+end;
+
+procedure TestLineUnitsShareBaseline;
+var
+  LeftBottom: Integer;
+  LeftLeft: Integer;
+  LeftRight: Integer;
+  LeftTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  RightBottom: Integer;
+  RightLeft: Integer;
+  RightRight: Integer;
+  RightTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.SyncKind := lskNone;
+  Settings.BaseCharacterSpacing := 40;
+
+  Check(RenderLyrics(@Video, 'Hx', 0, Settings, 0, 0),
+    'line baseline render failed');
+  FindVisibleBoundsInColumns(0, TEST_WIDTH div 2 - 1,
+    LeftLeft, LeftTop, LeftRight, LeftBottom);
+  FindVisibleBoundsInColumns(TEST_WIDTH div 2, TEST_WIDTH - 1,
+    RightLeft, RightTop, RightRight, RightBottom);
+  Check((LeftRight >= LeftLeft) and (RightRight >= RightLeft),
+    'line baseline glyph bounds were not found');
+  Check(Abs(LeftBottom - RightBottom) <= 2,
+    'line units did not share a common baseline');
+  Check(Abs(LeftTop - RightTop) >= 3,
+    'line baseline test glyphs did not have distinct ascents');
+end;
+
+procedure TestLyricsLayersAreComposited;
+var
+  Buffer: PPIXEL_RGBA;
+  PixelCount: NativeInt;
+  Settings: TLyricsRenderSettings;
+begin
+  PixelCount := NativeInt(TEST_WIDTH) * TEST_HEIGHT;
+  GetMem(Buffer, PixelCount * SizeOf(TPIXEL_RGBA));
+  try
+    FillChar(Buffer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
+    Settings := TestRenderSettings;
+    Settings.SyncKind := lskNone;
+    Check(DrawLyricsLayer(Buffer, TEST_WIDTH, TEST_HEIGHT, 'A', 0,
+      Settings, 0, -90), 'first lyrics layer render failed');
+    Check(DrawLyricsLayer(Buffer, TEST_WIDTH, TEST_HEIGHT, 'B', 0,
+      Settings, 0, 0), 'second lyrics layer render failed');
+    Check(DrawLyricsLayer(Buffer, TEST_WIDTH, TEST_HEIGHT, 'C', 0,
+      Settings, 0, 90), 'third lyrics layer render failed');
+    CaptureImage(Buffer, TEST_WIDTH, TEST_HEIGHT);
+    Check(CountVisiblePixelsInRows(0, 90) > 0,
+      'later lyrics layers erased the first layer');
+    Check(CountVisiblePixelsInRows(95, 180) > 0,
+      'second lyrics layer was not composited');
+    Check(CountVisiblePixelsInRows(185, 299) > 0,
+      'third lyrics layer was not composited');
+  finally
+    FreeMem(Buffer);
+  end;
 end;
 
 procedure TestResolvedDisplayUnits;
@@ -544,6 +778,96 @@ begin
   FindVisibleBounds(SpacedLeft, SpacedTop, SpacedRight, SpacedBottom);
   Check((SpacedRight - SpacedLeft) > (BaseRight - BaseLeft),
     'configured character spacing did not increase text width');
+end;
+
+procedure TestFourColorChangeModes;
+var
+  EarlySmoothRestorePixels: Integer;
+  NarrowBandPixels: Integer;
+  CharacterKeepPixels: Integer;
+  CharacterRestorePixels: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  SmoothKeepPixels: Integer;
+  SmoothRestorePixels: Integer;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Settings.DisplayType := ldtKaraoke;
+  Settings.ColorAfterMode := lcaRestore;
+  Settings.ColorFillMode := lcfSmooth;
+  Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+    'pre-sync smooth restore render failed');
+  Check(CountAfterColorPixels = 0,
+    'pre-sync state colored the first display unit');
+  Check(RenderLyrics(@Video, 'AB', 0.01, Settings, 0, 0),
+    'early smooth restore color mode failed');
+  EarlySmoothRestorePixels := CountAfterColorPixels;
+  Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+    'smooth restore color mode failed');
+  SmoothRestorePixels := CountAfterColorPixels;
+  Check(SmoothRestorePixels > 0,
+    'smooth restore mode produced no active color');
+  Check((EarlySmoothRestorePixels > 0) and
+    (EarlySmoothRestorePixels < SmoothRestorePixels),
+    'smooth restore color band filled the first unit at sync start');
+  Settings.ColorBandSizePercent := 25;
+  Check(RenderLyrics(@Video, 'AB', 1.25, Settings, 0, 0),
+    'narrow smooth restore color band failed');
+  NarrowBandPixels := CountAfterColorPixels;
+  Settings.ColorBandSizePercent := 100;
+  Check(RenderLyrics(@Video, 'AB', 1.25, Settings, 0, 0),
+    'full-width smooth restore color band failed');
+  Check(CountAfterColorPixels > NarrowBandPixels,
+    'sync size did not widen the smooth restore color band');
+  Check(RenderLyrics(@Video, 'AB', 1.0, Settings, 0, 0),
+    'smooth restore boundary state failed');
+  Check(CountAfterColorPixels > 0,
+    'smooth restore color band disappeared at a unit boundary');
+  Check(RenderLyrics(@Video, 'AB', 2.0, Settings, 0, 0),
+    'smooth restore completion state failed');
+  Check(CountAfterColorPixels = 0,
+    'smooth restore mode retained the last display unit after completion');
+
+  Settings.ColorFillMode := lcfCharacter;
+  Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+    'character restore color mode failed');
+  CharacterRestorePixels := CountAfterColorPixels;
+  Check(CharacterRestorePixels > 0,
+    'character restore mode produced no active color');
+  Check(RenderLyrics(@Video, 'AB', 1.0, Settings, 0, 0),
+    'character restore rest state failed');
+  Check(CountAfterColorPixels = 0,
+    'restore mode retained color while progress was between notes');
+
+  Settings.ColorAfterMode := lcaKeep;
+  Settings.ColorFillMode := lcfSmooth;
+  Check(RenderLyrics(@Video, 'AB', 1.25, Settings, 0, 0),
+    'smooth keep color mode failed');
+  SmoothKeepPixels := CountAfterColorPixels;
+  Settings.ColorAfterMode := lcaRestore;
+  Check(RenderLyrics(@Video, 'AB', 1.25, Settings, 0, 0),
+    'smooth restore comparison failed');
+  Check(SmoothKeepPixels > CountAfterColorPixels,
+    'smooth keep mode did not retain completed units');
+
+  Settings.ColorFillMode := lcfCharacter;
+  Settings.ColorAfterMode := lcaKeep;
+  Check(RenderLyrics(@Video, 'AB', 1.25, Settings, 0, 0),
+    'character keep color mode failed');
+  CharacterKeepPixels := CountAfterColorPixels;
+  Settings.ColorAfterMode := lcaRestore;
+  Check(RenderLyrics(@Video, 'AB', 1.25, Settings, 0, 0),
+    'character restore comparison failed');
+  Check(CharacterKeepPixels > CountAfterColorPixels,
+    'character keep mode did not retain completed units');
 end;
 
 function CountDominantGreenPixels: Integer;
@@ -1178,9 +1502,13 @@ begin
   try
     TestRubyParser;
     TestResolvedDisplayUnits;
+    TestSerifSyncEffects;
+    TestLineUnitsShareBaseline;
+    TestLyricsLayersAreComposited;
     TestVisibleJapaneseLyrics;
     TestRubyIsDrawnAboveLyrics;
     TestConsumedLyricsUseAfterColor;
+    TestFourColorChangeModes;
     TestRubyAndBaseShareProgress;
     TestPositionOffsetsMoveBaseAndRuby;
     TestConfiguredColorsAreUsed;

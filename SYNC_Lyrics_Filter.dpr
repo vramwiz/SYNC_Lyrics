@@ -10,6 +10,7 @@ uses
   TextRenderer in 'Source\Lib\TextRenderer\TextRenderer.pas',
   TextRendererSkiaRuntime in 'Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
   TextRendererSkia in 'Source\Lib\TextRenderer\TextRendererSkia.pas',
+  PluginFilterSerifDrawSyncHighlight in 'Source\Lib\SerifSyncAnimation\PluginFilterSerifDrawSyncHighlight.pas',
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SharedMemoryBase in 'Source\Lib\SharedMemoryBase.pas',
   SYNC_Lyrics_ToolbarButtons in 'Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
