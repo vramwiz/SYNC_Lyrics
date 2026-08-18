@@ -35,8 +35,6 @@ uses
     'Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
   SYNC_Lyrics_DisplaySettingsData in
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
-  SYNC_Lyrics_DisplayPresetData in
-    'Source\Common\Render\SYNC_Lyrics_DisplayPresetData.pas',
   SYNC_Lyrics_CharacterLayoutInteraction in
     'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
@@ -352,61 +350,6 @@ begin
   Check(not TryEncodeDisplaySettingsText('oversized', Common,
     OversizedItems, SettingsText),
     'oversized display placement list was accepted');
-end;
-
-procedure TestDisplayPresetData;
-var
-  Common: TDisplayCommonSettings;
-  Decoded: TDisplayPreset;
-  DisplayEffect: Integer;
-  EndAnimation: Integer;
-  EndSeconds: Double;
-  Preset: TDisplayPreset;
-  PresetText: string;
-  StartAnimation: Integer;
-  StartSeconds: Double;
-  SyncAnimation: Integer;
-begin
-  Common := DefaultDisplayCommonSettings;
-  Common.PositionX := 321;
-  Common.PositionY := -123;
-  Common.BaseFontName := '游ゴシック';
-  Common.RubyFontName := 'メイリオ';
-  Common.BaseFontHeight := 120;
-  Common.RubyFontHeight := 48;
-  Common.BaseFontStyle := 3;
-  Common.RubyFontStyle := 4;
-  Common.BeforeColor := $00112233;
-  Common.AfterColor := $00445566;
-  Common.RubyGapAdjustment := 17;
-  Common.BaseCharacterSpacing := -4;
-  Common.RubyCharacterSpacing := 8;
-  BuildDisplayPreset(Common, 2, 1, 1, 0.45, 1, 0.72, Preset);
-  Check(TryEncodeDisplayPreset(Preset, PresetText),
-    'display preset could not be encoded');
-  Check(TryDecodeDisplayPreset(PresetText, Decoded),
-    'display preset could not be decoded');
-
-  Common := DefaultDisplayCommonSettings;
-  Common.PositionX := 321;
-  Common.PositionY := -123;
-  ApplyDisplayPreset(Decoded, Common, DisplayEffect, SyncAnimation,
-    StartAnimation, StartSeconds, EndAnimation, EndSeconds);
-  Check((Common.PositionX = 321) and (Common.PositionY = -123) and
-    SameText(Common.BaseFontName, '游ゴシック') and
-    SameText(Common.RubyFontName, 'メイリオ') and
-    (Common.BaseFontHeight = 120) and (Common.RubyFontHeight = 48) and
-    (Common.BeforeColor = $00112233) and
-    (Common.AfterColor = $00445566) and
-    (Common.RubyGapAdjustment = 17) and
-    (Common.BaseCharacterSpacing = -4) and
-    (Common.RubyCharacterSpacing = 8) and
-    (DisplayEffect = 2) and (SyncAnimation = 1) and
-    (StartAnimation = 1) and (Abs(StartSeconds - 0.45) < 0.0001) and
-    (EndAnimation = 1) and (Abs(EndSeconds - 0.72) < 0.0001),
-    'display preset did not round-trip or preserve coordinates');
-  Check(not TryDecodeDisplayPreset('broken', Decoded),
-    'invalid display preset was accepted');
 end;
 
 procedure TestCharacterLayoutInteraction;
@@ -916,6 +859,44 @@ begin
   end;
 end;
 
+procedure TestGeneratedSyncFixture;
+var
+  FileName: string;
+  HasEighthNote: Boolean;
+  HasQuarterNote: Boolean;
+  HasRest: Boolean;
+  I: Integer;
+  Notes: TMusicNoteStarts;
+begin
+  FileName := TPath.Combine(TDirectory.GetCurrentDirectory,
+    'Tests\Fixtures\sync_test_120bpm_30s.mid');
+  Check(TFile.Exists(FileName), 'generated sync MIDI fixture is missing');
+  Check(LoadMusicNoteStarts(FileName, Notes),
+    'SongReader could not load the generated sync MIDI fixture');
+  Check(Length(Notes) = 50, 'generated sync MIDI note count mismatch');
+  Check(Abs(Notes[0].Seconds - 2.0) < 0.000001,
+    'generated sync MIDI lead-in mismatch');
+
+  HasEighthNote := False;
+  HasQuarterNote := False;
+  HasRest := False;
+  for I := 0 to High(Notes) do
+  begin
+    HasEighthNote := HasEighthNote or
+      (Abs((Notes[I].EndSeconds - Notes[I].Seconds) - 0.25) < 0.000001);
+    HasQuarterNote := HasQuarterNote or
+      (Abs((Notes[I].EndSeconds - Notes[I].Seconds) - 0.5) < 0.000001);
+    if I < High(Notes) then
+      HasRest := HasRest or
+        (Notes[I + 1].Seconds - Notes[I].EndSeconds > 0.24);
+    Check((Notes[I].Key >= 55) and (Notes[I].Key <= 67),
+      'generated sync MIDI pitch escaped the C4 test range');
+  end;
+  Check(HasEighthNote, 'generated sync MIDI has no eighth note');
+  Check(HasQuarterNote, 'generated sync MIDI has no quarter note');
+  Check(HasRest, 'generated sync MIDI has no detectable rest');
+end;
+
 procedure TestSyncSourceKind;
 begin
   Check(IsMusicScoreFileName('song.mid'), 'MIDI was not classified as score');
@@ -1024,12 +1005,12 @@ end;
 
 begin
   TestDisplaySettingsData;
-  TestDisplayPresetData;
   TestCharacterLayoutInteraction;
   TestToolbarButtonState;
   TestTimeRuler;
   TestSyncSourceKind;
   TestSongReaderAndConsumption;
+  TestGeneratedSyncFixture;
   TestExpandedRubyUnitCharacterNotes;
   TestNonSoundingLyricsAreAttached;
   TestDefaultSyncGeneration;

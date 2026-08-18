@@ -25,6 +25,7 @@ type
   private
     FOnLyricsConfirmed: TLyricsConfirmedEvent;
   public
+    procedure ApplyDarkTheme;
     procedure LoadDebugLyrics;
     function LyricsText: string;
     property OnLyricsConfirmed: TLyricsConfirmedEvent
@@ -34,9 +35,19 @@ type
 implementation
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  SYNC_Lyrics_DarkTheme;
 
 {$R *.dfm}
+
+procedure TFrameLyricsInitialInput.ApplyDarkTheme;
+begin
+  ApplySyncLyricsDarkFrame(Self);
+  ApplySyncLyricsDarkMemo(LyricsMemo);
+  ApplySyncLyricsDarkButton(ConfirmButton);
+  HeaderLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  InstructionsLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+end;
 
 procedure TFrameLyricsInitialInput.ConfirmButtonClick(Sender: TObject);
 var

@@ -45,6 +45,8 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure CandidateComboChange(Sender: TObject);
+    procedure DarkComboBoxDrawItem(Control: TWinControl; Index: Integer;
+      Rect: TRect; State: TOwnerDrawState);
     procedure ElementListViewSelectItem(Sender: TObject; Item: TListItem;
       Selected: Boolean);
     procedure ButtonMoveToCenterClick(Sender: TObject);
@@ -162,7 +164,8 @@ uses
   System.Math,
   ColorPickerDialog,
   SYNC_Lyrics_CharacterLayoutDrawing,
-  SYNC_Lyrics_FontSettingsForm;
+  SYNC_Lyrics_FontSettingsForm,
+  SYNC_Lyrics_DarkTheme;
 
 {$R *.dfm}
 
@@ -262,8 +265,23 @@ begin
     tbgDistributeHorizontal, TOOLBAR_DISTRIBUTE_HORIZONTAL);
 end;
 
+procedure TFormLyricsCharacterLayoutSettings.DarkComboBoxDrawItem(
+  Control: TWinControl; Index: Integer; Rect: TRect;
+  State: TOwnerDrawState);
+begin
+  DrawSyncLyricsDarkComboBoxItem(Control as TComboBox, Index, Rect,
+    State, CurrentPPI);
+end;
+
 procedure TFormLyricsCharacterLayoutSettings.FormCreate(Sender: TObject);
 begin
+  ApplySyncLyricsDarkForm(Self);
+  ApplySyncLyricsDarkPanel(ElementPanel);
+  ApplySyncLyricsDarkPanel(ButtonPanel);
+  ApplySyncLyricsDarkListView(ElementListView);
+  ApplySyncLyricsDarkComboBox(CandidateCombo, DarkComboBoxDrawItem);
+  ApplySyncLyricsDarkButton(ButtonOK);
+  ApplySyncLyricsDarkButton(ButtonCancel);
   FBackground := TBitmap.Create;
   FBackground.PixelFormat := pf32bit;
   FSelectedIndex := -1;

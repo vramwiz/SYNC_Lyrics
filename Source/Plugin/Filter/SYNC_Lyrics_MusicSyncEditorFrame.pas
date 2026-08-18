@@ -21,6 +21,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    procedure ApplyDarkTheme;
     // Supplies the current Filter position used as the piano-roll time origin.
     procedure SetAnchor(Frame, Rate, Scale: Integer);
     procedure SetAnchorUnavailable;
@@ -69,6 +70,11 @@ begin
   FEditorForm.Parent := Self;
   FEditorForm.Align := alClient;
   FEditorForm.Show;
+end;
+
+procedure TFrameLyricsMusicSyncEditor.ApplyDarkTheme;
+begin
+  FEditorForm.ApplyDarkTheme;
 end;
 
 procedure TFrameLyricsMusicSyncEditor.EditorSyncChanged(Sender: TObject);

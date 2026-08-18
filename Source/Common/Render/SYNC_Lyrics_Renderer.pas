@@ -1,6 +1,6 @@
 ﻿unit SYNC_Lyrics_Renderer;
 
-// 歌詞文字列をAviUtl2のRGBA画像へ変換する最小描画処理を担当する。
+// 歌詞の本文・ルビをSkiaで測定し、同期色を合成したRGBA画像をAviUtl2へ渡す。
 
 interface
 
@@ -48,7 +48,7 @@ type
 // 描画用の共有資源を初期化する。Filterの初期化時に1回だけ呼び出す。
 procedure InitializeLyricsRenderer;
 
-// 従来の検証済み表示と同じ基本表示設定を返す。
+// 新規歌詞表示に使用する既定の描画設定を返す。
 function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 
 // 入力文字列を中央基準の指定座標へ配置し、表示単位進捗をクリッピング描画してAviUtl2へ渡す。
@@ -69,9 +69,15 @@ implementation
 uses
   System.Math,
   System.SysUtils,
+  System.Types,
+  System.UITypes,
   SYNC_Lyrics_Animation,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_ResolvedDisplayUnits,
+  TextRenderer,
+  TextRendererSkia,
+  TextRendererSkiaRuntime,
+  TextRendererTypes,
   Winapi.Windows;
 
 const
@@ -89,18 +95,8 @@ const
 var
   RendererLock: TRTLCriticalSection;
   RendererInitialized: Boolean;
-
-type
-  TLyricsFontCacheItem = record
-    FontName: string;
-    FontHeight: Integer;
-    Bold: Boolean;
-    Italic: Boolean;
-    Underline: Boolean;
-    StrikeOut: Boolean;
-    Handle: HFONT;
-  end;
-  TLyricsFontCache = TArray<TLyricsFontCacheItem>;
+  RendererSkiaAcquired: Boolean;
+  SkiaRenderer: TSkiaTextRenderer;
 
 function ResolveRenderSize(Video: PFILTER_PROC_VIDEO; out Width, Height: Integer): Boolean;
 begin
@@ -122,33 +118,6 @@ begin
 
   Result := (Width > 0) and (Height > 0) and
     (Width <= MAX_RENDER_DIMENSION) and (Height <= MAX_RENDER_DIMENSION);
-end;
-
-procedure ConvertDibToRgba(ColorBits, MaskBits: Pointer;
-  Buffer: PPIXEL_RGBA; PixelCount: NativeInt; Opacity: Double);
-var
-  Coverage: Byte;
-  CoverageSrc: PByte;
-  Dst: PPIXEL_RGBA;
-  ColorSrc: PByte;
-  I: NativeInt;
-begin
-  Opacity := EnsureRange(Opacity, 0.0, 1.0);
-  ColorSrc := ColorBits;
-  CoverageSrc := MaskBits;
-  Dst := Buffer;
-  for I := 0 to PixelCount - 1 do
-  begin
-    // 色とは別の白文字マスクからカバレッジを取得し、黒や暗色でも透明度を失わないようにする。
-    Coverage := Max(CoverageSrc[0], Max(CoverageSrc[1], CoverageSrc[2]));
-    Dst^.R := ColorSrc[2];
-    Dst^.G := ColorSrc[1];
-    Dst^.B := ColorSrc[0];
-    Dst^.A := Round(Coverage * Opacity);
-    Inc(ColorSrc, 4);
-    Inc(CoverageSrc, 4);
-    Inc(Dst);
-  end;
 end;
 
 function DefaultLyricsRenderSettings: TLyricsRenderSettings;
@@ -178,23 +147,10 @@ begin
   Result.AfterColor.B := 255;
 end;
 
-function LyricsColorToColorRef(const Color: TLyricsRenderColor): COLORREF;
-begin
-  Result := Color.R or (Cardinal(Color.G) shl 8) or
-    (Cardinal(Color.B) shl 16);
-end;
-
 function LyricsColorToCardinal(const Color: TLyricsRenderColor): Cardinal;
 begin
   Result := Color.R or (Cardinal(Color.G) shl 8) or
     (Cardinal(Color.B) shl 16);
-end;
-
-function CardinalToLyricsColor(Color: Cardinal): TLyricsRenderColor;
-begin
-  Result.R := Color and $FF;
-  Result.G := (Color shr 8) and $FF;
-  Result.B := (Color shr 16) and $FF;
 end;
 
 function ResolvedStyleFromSettings(const Settings: TLyricsRenderSettings;
@@ -241,170 +197,6 @@ begin
   end;
 end;
 
-function CreateLyricsFont(const FontName: string; FontHeight: Integer;
-  Bold, Italic, Underline, StrikeOut: Boolean): HFONT;
-var
-  FontWeight: Integer;
-  ResolvedFontName: string;
-begin
-  ResolvedFontName := FontName;
-  if ResolvedFontName = '' then
-    ResolvedFontName := 'Yu Gothic UI';
-  FontHeight := EnsureRange(FontHeight, MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-  FontWeight := FW_NORMAL;
-  if Bold then
-    FontWeight := FW_BOLD;
-  Result := CreateFontW(FontHeight, 0, 0, 0, FontWeight,
-    Ord(Italic), Ord(Underline), Ord(StrikeOut),
-    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-    ANTIALIASED_QUALITY, DEFAULT_PITCH or FF_DONTCARE,
-    PWideChar(ResolvedFontName));
-end;
-
-function MeasureTextWidth(DC: HDC; const Text: string): Integer;
-var
-  CharacterExtra: Integer;
-  TextSize: TSize;
-begin
-  if Text = '' then
-    Exit(0);
-  if not GetTextExtentPoint32W(DC, PWideChar(Text), Length(Text), TextSize) then
-    Exit(0);
-  CharacterExtra := GetTextCharacterExtra(DC);
-  Result := Max(0, TextSize.cx - CharacterExtra);
-end;
-
-procedure IncludeResolvedRect(var Target: TResolvedLyricsRect;
-  var HasTarget: Boolean; const Value: TResolvedLyricsRect);
-begin
-  if not HasTarget then
-  begin
-    Target := Value;
-    HasTarget := True;
-    Exit;
-  end;
-  Target.Left := Min(Target.Left, Value.Left);
-  Target.Top := Min(Target.Top, Value.Top);
-  Target.Right := Max(Target.Right, Value.Right);
-  Target.Bottom := Max(Target.Bottom, Value.Bottom);
-end;
-
-function ResolveLineLyricsGeometry(DC: HDC; Width, Height: Integer;
-  const PlainText: string; BaseFont, RubyFont: HFONT;
-  BaseCharacterSpacing, RubyCharacterSpacing, RubyGap: Integer;
-  PositionX, PositionY: Integer;
-  const Units: TResolvedLyricsDisplayUnits;
-  out Layout: TResolvedLyricsDisplayLayout): Boolean;
-var
-  AnyRuby: Boolean;
-  BaseHeight: Integer;
-  BaseWidth: Integer;
-  BaseX: Integer;
-  BaseY: Integer;
-  GroupHasBounds: Boolean;
-  OldCharacterSpacing: Integer;
-  OldFont: HGDIOBJ;
-  PrefixText: string;
-  PrefixWidth: Integer;
-  RubyHeight: Integer;
-  RubyWidth: Integer;
-  RubyX: Integer;
-  RubyY: Integer;
-  UnitIndex: Integer;
-  UnitText: string;
-  UnitWidth: Integer;
-begin
-  Result := False;
-  Layout := Default(TResolvedLyricsDisplayLayout);
-  Layout.Units := Units;
-  if (BaseFont = 0) or (RubyFont = 0) then
-    Exit;
-
-  AnyRuby := False;
-  for UnitIndex := 0 to High(Layout.Units) do
-    if Layout.Units[UnitIndex].HasRuby then
-    begin
-      AnyRuby := True;
-      Break;
-    end;
-
-  BaseHeight := 0;
-  RubyHeight := 0;
-  if Length(Layout.Units) > 0 then
-  begin
-    BaseHeight := Layout.Units[0].Base.Style.FontHeight;
-    RubyHeight := Layout.Units[0].Ruby.Style.FontHeight;
-  end;
-  OldFont := SelectObject(DC, BaseFont);
-  OldCharacterSpacing := GetTextCharacterExtra(DC);
-  try
-    SetTextCharacterExtra(DC, BaseCharacterSpacing);
-    BaseWidth := MeasureTextWidth(DC, PlainText);
-    BaseX := (Width - BaseWidth) div 2 + PositionX;
-    if not AnyRuby then
-      BaseY := (Height - BaseHeight) div 2 + PositionY
-    else
-      BaseY := (Height - (RubyHeight + RubyGap + BaseHeight)) div 2 +
-        RubyHeight + RubyGap + PositionY;
-    RubyY := BaseY - RubyGap - RubyHeight;
-
-    for UnitIndex := 0 to High(Layout.Units) do
-    begin
-      PrefixText := Copy(PlainText, 1,
-        Layout.Units[UnitIndex].Base.SourceStart - 1);
-      UnitText := Layout.Units[UnitIndex].Base.Text;
-      SelectObject(DC, BaseFont);
-      SetTextCharacterExtra(DC, BaseCharacterSpacing);
-      PrefixWidth := MeasureTextWidth(DC, PrefixText);
-      if (PrefixText <> '') and (UnitText <> '') then
-        Inc(PrefixWidth, BaseCharacterSpacing);
-      UnitWidth := MeasureTextWidth(DC, UnitText);
-
-      Layout.Units[UnitIndex].Base.OriginX := BaseX + PrefixWidth;
-      Layout.Units[UnitIndex].Base.OriginY := BaseY;
-      Layout.Units[UnitIndex].Base.Bounds.Left :=
-        Layout.Units[UnitIndex].Base.OriginX;
-      Layout.Units[UnitIndex].Base.Bounds.Top := BaseY;
-      Layout.Units[UnitIndex].Base.Bounds.Right :=
-        Layout.Units[UnitIndex].Base.OriginX + UnitWidth;
-      Layout.Units[UnitIndex].Base.Bounds.Bottom := BaseY + BaseHeight;
-      Layout.Units[UnitIndex].PivotX :=
-        (Layout.Units[UnitIndex].Base.Bounds.Left +
-        Layout.Units[UnitIndex].Base.Bounds.Right) * 0.5;
-      Layout.Units[UnitIndex].PivotY :=
-        (Layout.Units[UnitIndex].Base.Bounds.Top +
-        Layout.Units[UnitIndex].Base.Bounds.Bottom) * 0.5;
-      Layout.Units[UnitIndex].Bounds :=
-        Layout.Units[UnitIndex].Base.Bounds;
-      GroupHasBounds := True;
-
-      if Layout.Units[UnitIndex].HasRuby then
-      begin
-        SelectObject(DC, RubyFont);
-        SetTextCharacterExtra(DC, RubyCharacterSpacing);
-        RubyWidth := MeasureTextWidth(DC,
-          Layout.Units[UnitIndex].Ruby.Text);
-        RubyX := Round(Layout.Units[UnitIndex].Base.OriginX) +
-          (UnitWidth - RubyWidth) div 2;
-        Layout.Units[UnitIndex].Ruby.OriginX := RubyX;
-        Layout.Units[UnitIndex].Ruby.OriginY := RubyY;
-        Layout.Units[UnitIndex].Ruby.Bounds.Left := RubyX;
-        Layout.Units[UnitIndex].Ruby.Bounds.Top := RubyY;
-        Layout.Units[UnitIndex].Ruby.Bounds.Right := RubyX + RubyWidth;
-        Layout.Units[UnitIndex].Ruby.Bounds.Bottom := RubyY + RubyHeight;
-        IncludeResolvedRect(Layout.Units[UnitIndex].Bounds,
-          GroupHasBounds, Layout.Units[UnitIndex].Ruby.Bounds);
-      end;
-      IncludeResolvedRect(Layout.Bounds, Layout.HasBounds,
-        Layout.Units[UnitIndex].Bounds);
-    end;
-    Result := True;
-  finally
-    SetTextCharacterExtra(DC, OldCharacterSpacing);
-    SelectObject(DC, OldFont);
-  end;
-end;
-
 function GetDisplayUnitProgress(const Units: TResolvedLyricsDisplayUnits;
   UnitIndex: Integer; ProgressUnits: Double): Double;
 begin
@@ -416,479 +208,443 @@ begin
     Units[UnitIndex].SyncUnitIndex, 0.0, 1.0);
 end;
 
-function HasResolvedRuby(const Units: TResolvedLyricsDisplayUnits): Boolean;
+type
+  TPreparedLyricsPart = record
+    AfterImage: TTextRenderImage;
+    BeforeImage: TTextRenderImage;
+    AdvanceLeft: Single;
+    AdvanceRight: Single;
+  end;
+  TPreparedLyricsParts = TArray<TPreparedLyricsPart>;
+
+function RendererModuleDirectory: string;
 var
-  UnitIndex: Integer;
+  Buffer: array[0..32767] of Char;
+  PathLength: DWORD;
 begin
-  for UnitIndex := 0 to High(Units) do
-    if Units[UnitIndex].HasRuby then
-      Exit(True);
-  Result := False;
+  PathLength := GetModuleFileName(HInstance, Buffer, Length(Buffer));
+  if PathLength = 0 then
+    RaiseLastOSError;
+  if PathLength >= DWORD(Length(Buffer)) then
+    raise EPathTooLongException.Create('The renderer module path is too long');
+  SetString(Result, Buffer, PathLength);
+  Result := ExtractFilePath(Result);
 end;
 
-function MeasureBaseProgressWidth(
-  const Units: TResolvedLyricsDisplayUnits; BaseX: Single;
-  ProgressUnits: Double; Effect: TLyricsUnitDisplayEffect): Integer;
-var
-  State: TLyricsUnitEffectState;
-  UnitIndex: Integer;
-  UnitWidth: Single;
+function LyricsColorToAlphaColor(Color: Cardinal): TAlphaColor;
 begin
-  Result := 0;
-  for UnitIndex := 0 to High(Units) do
+  Result := TAlphaColor($FF000000 or
+    ((Color and $000000FF) shl 16) or
+    (Color and $0000FF00) or
+    ((Color and $00FF0000) shr 16));
+end;
+
+function TextRenderFontStyle(Style: Byte): TTextRenderFontStyle;
+begin
+  Result := [];
+  if (Style and 1) <> 0 then
+    Include(Result, TTextRenderFontStyleItem.Bold);
+  if (Style and 2) <> 0 then
+    Include(Result, TTextRenderFontStyleItem.Italic);
+  if (Style and 4) <> 0 then
+    Include(Result, TTextRenderFontStyleItem.Underline);
+  if (Style and 8) <> 0 then
+    Include(Result, TTextRenderFontStyleItem.StrikeOut);
+end;
+
+procedure ResolvePreparedAdvance(var Part: TPreparedLyricsPart);
+var
+  I: Integer;
+  OriginX: Single;
+  SegmentLeft: Single;
+  SegmentRight: Single;
+begin
+  Part.AdvanceLeft := 0;
+  Part.AdvanceRight := 0;
+  if (Part.BeforeImage = nil) or
+    (Length(Part.BeforeImage.TextUnitOrigins) = 0) then
   begin
-    ResolveLyricsUnitEffect(Effect,
-      GetDisplayUnitProgress(Units, UnitIndex, ProgressUnits), State);
-    if State.AfterProgress <= 0 then
-      Break;
-    UnitWidth := Units[UnitIndex].Base.Bounds.Right -
-      Units[UnitIndex].Base.Bounds.Left;
-    Result := Round(Units[UnitIndex].Base.Bounds.Left - BaseX +
-      UnitWidth * State.AfterProgress);
-    if State.AfterProgress < 1 then
-      Break;
+    if Part.BeforeImage <> nil then
+    begin
+      Part.AdvanceLeft := Part.BeforeImage.LayoutBounds.Left;
+      Part.AdvanceRight := Part.BeforeImage.LayoutBounds.Right;
+    end;
+    Exit;
+  end;
+  for I := 0 to High(Part.BeforeImage.TextUnitOrigins) do
+  begin
+    OriginX := Part.BeforeImage.TextUnitOrigins[I].X +
+      Part.BeforeImage.Bounds.Left;
+    SegmentLeft := OriginX;
+    SegmentRight := OriginX + Part.BeforeImage.TextUnitAdvances[I];
+    if SegmentRight < SegmentLeft then
+    begin
+      OriginX := SegmentLeft;
+      SegmentLeft := SegmentRight;
+      SegmentRight := OriginX;
+    end;
+    if I = 0 then
+    begin
+      Part.AdvanceLeft := SegmentLeft;
+      Part.AdvanceRight := SegmentRight;
+    end
+    else
+    begin
+      Part.AdvanceLeft := Min(Part.AdvanceLeft, SegmentLeft);
+      Part.AdvanceRight := Max(Part.AdvanceRight, SegmentRight);
+    end;
   end;
 end;
 
-procedure DrawParsedLyrics(DC: HDC; Width, Height: Integer; const Source: string;
-  ProgressUnits: Double; const Settings: TLyricsRenderSettings;
-  PositionX, PositionY: Integer);
+procedure FreePreparedPart(var Part: TPreparedLyricsPart);
+begin
+  Part.AfterImage.Free;
+  Part.BeforeImage.Free;
+  Part := Default(TPreparedLyricsPart);
+end;
+
+procedure FreePreparedParts(var Parts: TPreparedLyricsParts);
 var
-  BaseFont: HFONT;
-  BaseFontHeight: Integer;
-  BaseCharacterSpacing: Integer;
+  I: Integer;
+begin
+  for I := 0 to High(Parts) do
+    FreePreparedPart(Parts[I]);
+  Parts := nil;
+end;
+
+function PrepareLyricsPart(const Part: TResolvedLyricsPart;
+  out Prepared: TPreparedLyricsPart): Boolean;
+var
+  Metrics: TTextRenderMetrics;
+  Request: TTextRenderRequest;
+begin
+  Prepared := Default(TPreparedLyricsPart);
+  Result := Part.Text <> '';
+  if not Result then
+    Exit;
+  Request := TTextRenderRequest.Default;
+  Request.Text := Part.Text;
+  Request.FontFamilies := [Part.Style.FontName, 'Yu Gothic UI', 'Meiryo UI',
+    'Segoe UI'];
+  Request.FontSize := EnsureRange(Part.Style.FontHeight,
+    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
+  Request.FontStyle := TextRenderFontStyle(Part.Style.FontStyle);
+  Request.LetterSpacing := EnsureRange(Part.Style.CharacterSpacing,
+    MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
+  Request.CaptureTextUnits := True;
+  Request.FillColor := LyricsColorToAlphaColor(Part.Style.BeforeColor);
+  try
+    Prepared.BeforeImage := SkiaRenderer.Render(Request, Metrics);
+    Request.FillColor := LyricsColorToAlphaColor(Part.Style.AfterColor);
+    Prepared.AfterImage := SkiaRenderer.Render(Request, Metrics);
+    ResolvePreparedAdvance(Prepared);
+    Result := True;
+  except
+    FreePreparedPart(Prepared);
+    raise;
+  end;
+end;
+
+procedure BlendStraightTextPixel(const Source: TTextRenderPixel;
+  Opacity: Double; var Destination: TPIXEL_RGBA);
+var
+  AdjustedAlpha: Cardinal;
+  AlphaDenominator: Cardinal;
+  DestinationAlpha: Cardinal;
+begin
+  AdjustedAlpha := Round(Source.A * EnsureRange(Opacity, 0.0, 1.0));
+  if AdjustedAlpha = 0 then
+    Exit;
+  if AdjustedAlpha = 255 then
+  begin
+    Destination.R := Source.R;
+    Destination.G := Source.G;
+    Destination.B := Source.B;
+    Destination.A := 255;
+    Exit;
+  end;
+  DestinationAlpha := Destination.A;
+  AlphaDenominator := AdjustedAlpha * 255 +
+    DestinationAlpha * (255 - AdjustedAlpha);
+  if AlphaDenominator = 0 then
+    Exit;
+  Destination.R := (Cardinal(Source.R) * AdjustedAlpha * 255 +
+    Cardinal(Destination.R) * DestinationAlpha * (255 - AdjustedAlpha) +
+    AlphaDenominator div 2) div AlphaDenominator;
+  Destination.G := (Cardinal(Source.G) * AdjustedAlpha * 255 +
+    Cardinal(Destination.G) * DestinationAlpha * (255 - AdjustedAlpha) +
+    AlphaDenominator div 2) div AlphaDenominator;
+  Destination.B := (Cardinal(Source.B) * AdjustedAlpha * 255 +
+    Cardinal(Destination.B) * DestinationAlpha * (255 - AdjustedAlpha) +
+    AlphaDenominator div 2) div AlphaDenominator;
+  Destination.A := (AlphaDenominator + 127) div 255;
+end;
+
+procedure BlendPreparedImage(Buffer: PPIXEL_RGBA; Width, Height: Integer;
+  const Prepared: TPreparedLyricsPart; Image: TTextRenderImage;
+  PivotX, PivotY, BaselineLocalX, BaselineLocalY, ScaleX, ScaleY,
+  ClipProgress, Opacity: Double);
+var
+  ClipSourceRight: Double;
+  Destination: PPIXEL_RGBA;
+  DestinationBottom: Integer;
+  DestinationLeft: Integer;
+  DestinationRight: Integer;
+  DestinationTop: Integer;
+  DestinationX: Integer;
+  DestinationY: Integer;
+  ImageLeft: Double;
+  ImageTop: Double;
+  Source: PTextRenderPixel;
+  SourceX: Integer;
+  SourceY: Integer;
+begin
+  if (Image = nil) or Image.IsEmpty or (Opacity <= 0) then
+    Exit;
+  ScaleX := EnsureRange(ScaleX, 0.01, 100.0);
+  ScaleY := EnsureRange(ScaleY, 0.01, 100.0);
+  ClipProgress := EnsureRange(ClipProgress, 0.0, 1.0);
+  if ClipProgress <= 0 then
+    Exit;
+  ImageLeft := PivotX + (BaselineLocalX + Image.Bounds.Left) * ScaleX;
+  ImageTop := PivotY + (BaselineLocalY + Image.Bounds.Top) * ScaleY;
+  DestinationLeft := Floor(ImageLeft);
+  DestinationTop := Floor(ImageTop);
+  DestinationRight := Ceil(ImageLeft + Image.Width * ScaleX);
+  DestinationBottom := Ceil(ImageTop + Image.Height * ScaleY);
+  if ClipProgress >= 1 then
+    ClipSourceRight := Image.Width
+  else
+    ClipSourceRight := Prepared.AdvanceLeft - Image.Bounds.Left +
+      (Prepared.AdvanceRight - Prepared.AdvanceLeft) * ClipProgress;
+  for DestinationY := Max(0, DestinationTop) to
+    Min(Height, DestinationBottom) - 1 do
+  begin
+    SourceY := Floor(((DestinationY + 0.5) - ImageTop) / ScaleY);
+    if (SourceY < 0) or (SourceY >= Image.Height) then
+      Continue;
+    for DestinationX := Max(0, DestinationLeft) to
+      Min(Width, DestinationRight) - 1 do
+    begin
+      SourceX := Floor(((DestinationX + 0.5) - ImageLeft) / ScaleX);
+      if (SourceX < 0) or (SourceX >= Image.Width) or
+        (SourceX + 0.5 > ClipSourceRight) then
+        Continue;
+      Source := PTextRenderPixel(PByte(Image.Data) +
+        NativeInt(SourceY) * Image.Stride +
+        NativeInt(SourceX) * SizeOf(TTextRenderPixel));
+      if Source^.A = 0 then
+        Continue;
+      Destination := Buffer;
+      Inc(Destination, NativeInt(DestinationY) * Width + DestinationX);
+      BlendStraightTextPixel(Source^, Opacity, Destination^);
+    end;
+  end;
+end;
+
+procedure DrawPreparedPart(Buffer: PPIXEL_RGBA; Width, Height: Integer;
+  const Prepared: TPreparedLyricsPart; const State: TLyricsUnitEffectState;
+  PivotX, PivotY, BaselineLocalX, BaselineLocalY, ScaleX, ScaleY,
+  Opacity: Double);
+begin
+  Opacity := Opacity * State.Opacity;
+  if State.DrawBefore then
+    BlendPreparedImage(Buffer, Width, Height, Prepared,
+      Prepared.BeforeImage, PivotX, PivotY, BaselineLocalX,
+      BaselineLocalY, ScaleX, ScaleY, 1, Opacity);
+  if State.AfterProgress > 0 then
+    BlendPreparedImage(Buffer, Width, Height, Prepared,
+      Prepared.AfterImage, PivotX, PivotY, BaselineLocalX,
+      BaselineLocalY, ScaleX, ScaleY, State.AfterProgress, Opacity);
+end;
+
+procedure DrawSkiaLineLyrics(Buffer: PPIXEL_RGBA; Width, Height: Integer;
+  const Source: string; ProgressUnits: Double;
+  const Settings: TLyricsRenderSettings; PositionX, PositionY: Integer);
+var
+  AnyRuby: Boolean;
+  BaseBaselineX: Double;
+  BaseBaselineY: Double;
+  BaseLeft: Double;
+  BaseTop: Double;
+  BaseUnitLefts: TArray<Double>;
+  BaseUnitWidths: TArray<Double>;
   DefaultBaseStyle: TResolvedLyricsStyle;
   DefaultRubyStyle: TResolvedLyricsStyle;
-  EmptyPlacements: TDisplayPlacementItems;
   Effect: TLyricsUnitDisplayEffect;
-  EffectState: TLyricsUnitEffectState;
-  BaseProgressWidth: Integer;
-  BaseX: Integer;
-  BaseY: Integer;
-  ClipState: Integer;
-  Layout: TResolvedLyricsDisplayLayout;
-  OldFont: HGDIOBJ;
-  OldCharacterSpacing: Integer;
+  EmptyPlacements: TDisplayPlacementItems;
+  Gap: Double;
+  LogicalUnits: TLyricsDisplayUnits;
   PlainText: string;
-  RubyFont: HFONT;
-  RubyFontHeight: Integer;
-  RubyGap: Integer;
+  PreparedBase: TPreparedLyricsParts;
+  PreparedRuby: TPreparedLyricsParts;
+  ResolvedUnits: TResolvedLyricsDisplayUnits;
+  RubyBaselineX: Double;
+  RubyBaselineY: Double;
   RubySpans: TLyricsRubySpans;
-  RubyWidth: Integer;
-  RubyX: Integer;
-  RubyY: Integer;
+  RubyTop: Double;
+  RubyWidth: Double;
+  State: TLyricsUnitEffectState;
+  TotalBaseWidth: Double;
   UnitIndex: Integer;
   UnitProgress: Double;
-  Units: TLyricsDisplayUnits;
-  ResolvedUnits: TResolvedLyricsDisplayUnits;
 begin
   DefaultBaseStyle := ResolvedStyleFromSettings(Settings, False);
   DefaultRubyStyle := ResolvedStyleFromSettings(Settings, True);
-  Effect := UnitDisplayEffectFromType(Settings.DisplayType);
   if not BuildResolvedLyricsDisplayUnits(Source, DefaultBaseStyle,
     DefaultRubyStyle, EmptyPlacements, False, PlainText, RubySpans,
-    Units, ResolvedUnits) then
+    LogicalUnits, ResolvedUnits) then
     Exit;
-  BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
-    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-  RubyFontHeight := EnsureRange(Settings.RubyFontHeight,
-    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-  RubyGap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
-    MIN_RUBY_GAP, MAX_RUBY_GAP);
-  BaseCharacterSpacing := EnsureRange(Settings.BaseCharacterSpacing,
-    MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
-  BaseFont := CreateLyricsFont(Settings.BaseFontName, BaseFontHeight,
-    Settings.BaseBold, Settings.BaseItalic, Settings.BaseUnderline,
-    Settings.BaseStrikeOut);
-  RubyFont := CreateLyricsFont(Settings.RubyFontName, RubyFontHeight,
-    Settings.RubyBold, Settings.RubyItalic, Settings.RubyUnderline,
-    Settings.RubyStrikeOut);
-  if (BaseFont = 0) or (RubyFont = 0) then
-  begin
-    if BaseFont <> 0 then
-      DeleteObject(BaseFont);
-    if RubyFont <> 0 then
-      DeleteObject(RubyFont);
-    Exit;
-  end;
+  SetLength(PreparedBase, Length(ResolvedUnits));
+  SetLength(PreparedRuby, Length(ResolvedUnits));
+  SetLength(BaseUnitLefts, Length(ResolvedUnits));
+  SetLength(BaseUnitWidths, Length(ResolvedUnits));
   try
-    if not ResolveLineLyricsGeometry(DC, Width, Height, PlainText,
-      BaseFont, RubyFont, BaseCharacterSpacing,
-      EnsureRange(Settings.RubyCharacterSpacing,
-        MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING),
-      RubyGap, PositionX, PositionY, ResolvedUnits, Layout) then
-      Exit;
-    ResolvedUnits := Layout.Units;
-    if Length(ResolvedUnits) = 0 then
-      Exit;
-
-    OldFont := SelectObject(DC, BaseFont);
-    OldCharacterSpacing := GetTextCharacterExtra(DC);
-    SetTextCharacterExtra(DC, BaseCharacterSpacing);
-    BaseX := Round(ResolvedUnits[0].Base.OriginX);
-    BaseY := Round(ResolvedUnits[0].Base.OriginY);
-    ResolveLyricsUnitEffect(Effect, 0, EffectState);
-    if EffectState.DrawBefore then
+    TotalBaseWidth := 0;
+    AnyRuby := False;
+    for UnitIndex := 0 to High(ResolvedUnits) do
     begin
-      SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
-      TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
-    end;
-
-    if HasResolvedRuby(ResolvedUnits) then
-    begin
-      SelectObject(DC, RubyFont);
-      SetTextCharacterExtra(DC, EnsureRange(Settings.RubyCharacterSpacing,
-        MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING));
-      for UnitIndex := 0 to High(ResolvedUnits) do
+      if not PrepareLyricsPart(ResolvedUnits[UnitIndex].Base,
+        PreparedBase[UnitIndex]) then
+        Continue;
+      BaseUnitWidths[UnitIndex] := Max(0,
+        PreparedBase[UnitIndex].AdvanceRight -
+        PreparedBase[UnitIndex].AdvanceLeft);
+      if UnitIndex > 0 then
+        TotalBaseWidth := TotalBaseWidth +
+          ResolvedUnits[UnitIndex].Base.Style.CharacterSpacing;
+      BaseUnitLefts[UnitIndex] := TotalBaseWidth;
+      TotalBaseWidth := TotalBaseWidth + BaseUnitWidths[UnitIndex];
+      if ResolvedUnits[UnitIndex].HasRuby then
       begin
-        if not ResolvedUnits[UnitIndex].HasRuby then
-          Continue;
-        SelectObject(DC, RubyFont);
-        SetTextCharacterExtra(DC, EnsureRange(
-          Settings.RubyCharacterSpacing, MIN_CHARACTER_SPACING,
-          MAX_CHARACTER_SPACING));
-        RubyX := Round(ResolvedUnits[UnitIndex].Ruby.OriginX);
-        RubyY := Round(ResolvedUnits[UnitIndex].Ruby.OriginY);
-        RubyWidth := Round(ResolvedUnits[UnitIndex].Ruby.Bounds.Right -
-          ResolvedUnits[UnitIndex].Ruby.Bounds.Left);
-        UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
-          ProgressUnits);
-        ResolveLyricsUnitEffect(Effect, UnitProgress, EffectState);
-        if EffectState.DrawBefore then
-        begin
-          SetTextColor(DC, LyricsColorToColorRef(Settings.BeforeColor));
-          TextOutW(DC, RubyX, RubyY,
-            PWideChar(ResolvedUnits[UnitIndex].Ruby.Text),
-            Length(ResolvedUnits[UnitIndex].Ruby.Text));
-        end;
-
-        if EffectState.AfterProgress > 0 then
-        begin
-          ClipState := SaveDC(DC);
-          try
-            IntersectClipRect(DC, RubyX, RubyY,
-              RubyX + Round(RubyWidth * EffectState.AfterProgress),
-              RubyY + RubyFontHeight);
-            SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
-            TextOutW(DC, RubyX, RubyY,
-              PWideChar(ResolvedUnits[UnitIndex].Ruby.Text),
-              Length(ResolvedUnits[UnitIndex].Ruby.Text));
-          finally
-            RestoreDC(DC, ClipState);
-          end;
-        end;
+        AnyRuby := True;
+        PrepareLyricsPart(ResolvedUnits[UnitIndex].Ruby,
+          PreparedRuby[UnitIndex]);
       end;
     end;
-
-    SelectObject(DC, BaseFont);
-    SetTextCharacterExtra(DC, BaseCharacterSpacing);
-    BaseProgressWidth := MeasureBaseProgressWidth(ResolvedUnits, BaseX,
-      ProgressUnits, Effect);
-    if BaseProgressWidth > 0 then
+    Gap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
+      MIN_RUBY_GAP, MAX_RUBY_GAP);
+    if AnyRuby then
+      BaseTop := (Height - (Settings.RubyFontHeight + Gap +
+        Settings.BaseFontHeight)) * 0.5 + Settings.RubyFontHeight + Gap +
+        PositionY
+    else
+      BaseTop := (Height - Settings.BaseFontHeight) * 0.5 + PositionY;
+    RubyTop := BaseTop - Gap - Settings.RubyFontHeight;
+    Effect := UnitDisplayEffectFromType(Settings.DisplayType);
+    for UnitIndex := 0 to High(ResolvedUnits) do
     begin
-      ClipState := SaveDC(DC);
-      try
-        IntersectClipRect(DC, BaseX, BaseY, BaseX + BaseProgressWidth,
-          BaseY + BaseFontHeight);
-        SetTextColor(DC, LyricsColorToColorRef(Settings.AfterColor));
-        TextOutW(DC, BaseX, BaseY, PWideChar(PlainText), Length(PlainText));
-      finally
-        RestoreDC(DC, ClipState);
-      end;
+      UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
+        ProgressUnits);
+      ResolveLyricsUnitEffect(Effect, UnitProgress, State);
+      BaseLeft := (Width - TotalBaseWidth) * 0.5 + PositionX +
+        BaseUnitLefts[UnitIndex];
+      BaseBaselineX := BaseLeft - PreparedBase[UnitIndex].AdvanceLeft;
+      BaseBaselineY := BaseTop -
+        PreparedBase[UnitIndex].BeforeImage.LayoutBounds.Top;
+      DrawPreparedPart(Buffer, Width, Height, PreparedBase[UnitIndex], State,
+        0, 0, BaseBaselineX, BaseBaselineY, State.ScaleX, State.ScaleY,
+        Settings.Opacity);
+      if not ResolvedUnits[UnitIndex].HasRuby then
+        Continue;
+      RubyWidth := PreparedRuby[UnitIndex].AdvanceRight -
+        PreparedRuby[UnitIndex].AdvanceLeft;
+      RubyBaselineX := BaseLeft + (BaseUnitWidths[UnitIndex] - RubyWidth) *
+        0.5 - PreparedRuby[UnitIndex].AdvanceLeft;
+      RubyBaselineY := RubyTop -
+        PreparedRuby[UnitIndex].BeforeImage.LayoutBounds.Top;
+      DrawPreparedPart(Buffer, Width, Height, PreparedRuby[UnitIndex], State,
+        0, 0, RubyBaselineX, RubyBaselineY, State.ScaleX, State.ScaleY,
+        Settings.Opacity);
     end;
-    SetTextCharacterExtra(DC, OldCharacterSpacing);
-    SelectObject(DC, OldFont);
   finally
-    DeleteObject(RubyFont);
-    DeleteObject(BaseFont);
+    FreePreparedParts(PreparedRuby);
+    FreePreparedParts(PreparedBase);
   end;
 end;
 
-function ResolveCachedLyricsFont(var Cache: TLyricsFontCache;
-  const FontName: string; FontHeight: Integer;
-  Bold, Italic, Underline, StrikeOut: Boolean): HFONT;
-var
-  I: Integer;
-begin
-  for I := 0 to High(Cache) do
-    if SameText(Cache[I].FontName, FontName) and
-      (Cache[I].FontHeight = FontHeight) and
-      (Cache[I].Bold = Bold) and
-      (Cache[I].Italic = Italic) and
-      (Cache[I].Underline = Underline) and
-      (Cache[I].StrikeOut = StrikeOut) then
-      Exit(Cache[I].Handle);
-  Result := CreateLyricsFont(FontName, FontHeight, Bold, Italic,
-    Underline, StrikeOut);
-  if Result = 0 then
-    Exit;
-  SetLength(Cache, Length(Cache) + 1);
-  Cache[High(Cache)].FontName := FontName;
-  Cache[High(Cache)].FontHeight := FontHeight;
-  Cache[High(Cache)].Bold := Bold;
-  Cache[High(Cache)].Italic := Italic;
-  Cache[High(Cache)].Underline := Underline;
-  Cache[High(Cache)].StrikeOut := StrikeOut;
-  Cache[High(Cache)].Handle := Result;
-end;
-
-procedure FreeLyricsFontCache(var Cache: TLyricsFontCache);
-var
-  I: Integer;
-begin
-  for I := 0 to High(Cache) do
-    if Cache[I].Handle <> 0 then
-      DeleteObject(Cache[I].Handle);
-  Cache := nil;
-end;
-
-procedure DrawFreePlacementLyrics(DC: HDC; Width, Height: Integer;
-  const Source: string; ProgressUnits: Double;
+procedure DrawSkiaFreePlacementLyrics(Buffer: PPIXEL_RGBA;
+  Width, Height: Integer; const Source: string; ProgressUnits: Double;
   const Settings: TLyricsRenderSettings;
   const Placements: TDisplayPlacementItems;
   PositionX, PositionY: Integer);
 var
-  BaseFont: HFONT;
-  BaseFontCache: TLyricsFontCache;
-  BaseBold: Boolean;
-  BaseItalic: Boolean;
-  BaseUnderline: Boolean;
-  BaseStrikeOut: Boolean;
-  BaseCharacterSpacing: Integer;
-  BaseFontHeight: Integer;
-  BaseFontName: string;
-  BaseText: string;
-  BaseWidth: Integer;
-  BaseX: Integer;
-  BaseY: Integer;
-  ClipState: Integer;
+  BaseBaselineX: Double;
+  BaseBaselineY: Double;
+  BaseTop: Double;
   DefaultBaseStyle: TResolvedLyricsStyle;
   DefaultRubyStyle: TResolvedLyricsStyle;
   Effect: TLyricsUnitDisplayEffect;
-  EffectState: TLyricsUnitEffectState;
-  GroupHasBounds: Boolean;
-  Layout: TResolvedLyricsDisplayLayout;
-  BeforeColor: TLyricsRenderColor;
-  AfterColor: TLyricsRenderColor;
-  OldCharacterSpacing: Integer;
-  OldFont: HGDIOBJ;
+  LogicalUnits: TLyricsDisplayUnits;
   PlainText: string;
-  RubyFont: HFONT;
-  RubyFontCache: TLyricsFontCache;
-  RubyBold: Boolean;
-  RubyItalic: Boolean;
-  RubyUnderline: Boolean;
-  RubyStrikeOut: Boolean;
-  RubyFontHeight: Integer;
-  RubyFontName: string;
-  RubyGap: Integer;
-  RubyCharacterSpacing: Integer;
-  RubyOffsetX: Integer;
-  RubyOffsetY: Integer;
+  PreparedBase: TPreparedLyricsPart;
+  PreparedRuby: TPreparedLyricsPart;
+  ResolvedUnits: TResolvedLyricsDisplayUnits;
+  RubyBaselineX: Double;
+  RubyBaselineY: Double;
+  RubyGap: Double;
   RubySpans: TLyricsRubySpans;
-  RubyText: string;
-  RubyWidth: Integer;
-  RubyX: Integer;
-  RubyY: Integer;
+  RubyTop: Double;
+  ScaleX: Double;
+  ScaleY: Double;
+  State: TLyricsUnitEffectState;
   UnitIndex: Integer;
   UnitProgress: Double;
-  UnitState: Integer;
-  Units: TLyricsDisplayUnits;
-  ResolvedUnits: TResolvedLyricsDisplayUnits;
-  WorldTransform: TXForm;
+  PivotX: Double;
+  PivotY: Double;
 begin
   DefaultBaseStyle := ResolvedStyleFromSettings(Settings, False);
   DefaultRubyStyle := ResolvedStyleFromSettings(Settings, True);
-  Effect := UnitDisplayEffectFromType(Settings.DisplayType);
   if not BuildResolvedLyricsDisplayUnits(Source, DefaultBaseStyle,
-    DefaultRubyStyle, Placements, True, PlainText, RubySpans, Units,
-    ResolvedUnits) then
+    DefaultRubyStyle, Placements, True, PlainText, RubySpans,
+    LogicalUnits, ResolvedUnits) then
     Exit;
-  Layout := Default(TResolvedLyricsDisplayLayout);
-  Layout.Units := ResolvedUnits;
-  ResolvedUnits := Layout.Units;
-
-  BaseFontHeight := EnsureRange(Settings.BaseFontHeight,
-    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
-  RubyFontHeight := EnsureRange(Settings.RubyFontHeight,
-    MIN_FONT_HEIGHT, MAX_FONT_HEIGHT);
   RubyGap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
     MIN_RUBY_GAP, MAX_RUBY_GAP);
-  BaseFont := ResolveCachedLyricsFont(BaseFontCache,
-    Settings.BaseFontName, BaseFontHeight,
-    Settings.BaseBold, Settings.BaseItalic, Settings.BaseUnderline,
-    Settings.BaseStrikeOut);
-  RubyFont := ResolveCachedLyricsFont(RubyFontCache,
-    Settings.RubyFontName, RubyFontHeight,
-    Settings.RubyBold, Settings.RubyItalic, Settings.RubyUnderline,
-    Settings.RubyStrikeOut);
-  if (BaseFont = 0) or (RubyFont = 0) then
+  Effect := UnitDisplayEffectFromType(Settings.DisplayType);
+  for UnitIndex := 0 to High(ResolvedUnits) do
   begin
-    FreeLyricsFontCache(BaseFontCache);
-    FreeLyricsFontCache(RubyFontCache);
-    Exit;
-  end;
-  try
-    OldFont := SelectObject(DC, BaseFont);
-    OldCharacterSpacing := GetTextCharacterExtra(DC);
-    SetBkMode(DC, TRANSPARENT);
-    for UnitIndex := 0 to High(Units) do
-    begin
-      BaseFontName := ResolvedUnits[UnitIndex].Base.Style.FontName;
-      RubyFontName := ResolvedUnits[UnitIndex].Ruby.Style.FontName;
-      BeforeColor := CardinalToLyricsColor(
-        ResolvedUnits[UnitIndex].Base.Style.BeforeColor);
-      AfterColor := CardinalToLyricsColor(
-        ResolvedUnits[UnitIndex].Base.Style.AfterColor);
-      BaseFontHeight := ResolvedUnits[UnitIndex].Base.Style.FontHeight;
-      RubyFontHeight := ResolvedUnits[UnitIndex].Ruby.Style.FontHeight;
-      BaseBold := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 1) <> 0;
-      BaseItalic := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 2) <> 0;
-      BaseUnderline := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 4) <> 0;
-      BaseStrikeOut := (ResolvedUnits[UnitIndex].Base.Style.FontStyle and 8) <> 0;
-      RubyBold := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 1) <> 0;
-      RubyItalic := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 2) <> 0;
-      RubyUnderline := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 4) <> 0;
-      RubyStrikeOut := (ResolvedUnits[UnitIndex].Ruby.Style.FontStyle and 8) <> 0;
-      BaseCharacterSpacing :=
-        ResolvedUnits[UnitIndex].Base.Style.CharacterSpacing;
-      RubyCharacterSpacing :=
-        ResolvedUnits[UnitIndex].Ruby.Style.CharacterSpacing;
-      RubyOffsetX := ResolvedUnits[UnitIndex].Ruby.OffsetX;
-      RubyOffsetY := ResolvedUnits[UnitIndex].Ruby.OffsetY;
-      BaseFont := ResolveCachedLyricsFont(BaseFontCache,
-        BaseFontName, BaseFontHeight, BaseBold, BaseItalic,
-        BaseUnderline, BaseStrikeOut);
-      RubyFont := ResolveCachedLyricsFont(RubyFontCache,
-        RubyFontName, RubyFontHeight, RubyBold, RubyItalic,
-        RubyUnderline, RubyStrikeOut);
-      if (BaseFont = 0) or (RubyFont = 0) then
+    PreparedBase := Default(TPreparedLyricsPart);
+    PreparedRuby := Default(TPreparedLyricsPart);
+    try
+      if not PrepareLyricsPart(ResolvedUnits[UnitIndex].Base,
+        PreparedBase) then
         Continue;
-      UnitState := SaveDC(DC);
-      if UnitState = 0 then
-        Continue;
-      SetGraphicsMode(DC, GM_ADVANCED);
-      FillChar(WorldTransform, SizeOf(WorldTransform), 0);
-      ResolvedUnits[UnitIndex].PivotX := Width * 0.5 +
-        ResolvedUnits[UnitIndex].X + PositionX;
-      ResolvedUnits[UnitIndex].PivotY := Height * 0.5 +
-        ResolvedUnits[UnitIndex].Y + PositionY;
-      WorldTransform.eM11 := ResolvedUnits[UnitIndex].ScaleX;
-      WorldTransform.eM22 := ResolvedUnits[UnitIndex].ScaleY;
-      WorldTransform.eDx := ResolvedUnits[UnitIndex].PivotX;
-      WorldTransform.eDy := ResolvedUnits[UnitIndex].PivotY;
-      if not SetWorldTransform(DC, WorldTransform) then
-      begin
-        RestoreDC(DC, UnitState);
-        Continue;
-      end;
-      SelectObject(DC, BaseFont);
-      SetTextCharacterExtra(DC, BaseCharacterSpacing);
-      BaseText := ResolvedUnits[UnitIndex].Base.Text;
-      BaseWidth := MeasureTextWidth(DC, BaseText);
-      BaseX := -BaseWidth div 2;
-      // Placement Y identifies the vertical center of the base text.
-      // Ruby extends upward without moving the base-text bottom edge.
-      BaseY := -BaseFontHeight div 2;
-      ResolvedUnits[UnitIndex].Base.OriginX :=
-        ResolvedUnits[UnitIndex].PivotX +
-        BaseX * ResolvedUnits[UnitIndex].ScaleX;
-      ResolvedUnits[UnitIndex].Base.OriginY :=
-        ResolvedUnits[UnitIndex].PivotY +
-        BaseY * ResolvedUnits[UnitIndex].ScaleY;
-      ResolvedUnits[UnitIndex].Base.Bounds.Left :=
-        ResolvedUnits[UnitIndex].Base.OriginX;
-      ResolvedUnits[UnitIndex].Base.Bounds.Top :=
-        ResolvedUnits[UnitIndex].Base.OriginY;
-      ResolvedUnits[UnitIndex].Base.Bounds.Right :=
-        ResolvedUnits[UnitIndex].PivotX +
-        (BaseX + BaseWidth) * ResolvedUnits[UnitIndex].ScaleX;
-      ResolvedUnits[UnitIndex].Base.Bounds.Bottom :=
-        ResolvedUnits[UnitIndex].PivotY +
-        (BaseY + BaseFontHeight) * ResolvedUnits[UnitIndex].ScaleY;
-      ResolvedUnits[UnitIndex].Bounds :=
-        ResolvedUnits[UnitIndex].Base.Bounds;
-      GroupHasBounds := True;
+      if ResolvedUnits[UnitIndex].HasRuby then
+        PrepareLyricsPart(ResolvedUnits[UnitIndex].Ruby, PreparedRuby);
       UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
         ProgressUnits);
-      ResolveLyricsUnitEffect(Effect, UnitProgress, EffectState);
-      if EffectState.DrawBefore then
-      begin
-        SetTextColor(DC, LyricsColorToColorRef(BeforeColor));
-        TextOutW(DC, BaseX, BaseY, PWideChar(BaseText), Length(BaseText));
-      end;
-
-      if EffectState.AfterProgress > 0 then
-      begin
-        ClipState := SaveDC(DC);
-        try
-          IntersectClipRect(DC, BaseX, BaseY,
-            BaseX + Round(BaseWidth * EffectState.AfterProgress),
-            BaseY + BaseFontHeight);
-          SetTextColor(DC, LyricsColorToColorRef(AfterColor));
-          TextOutW(DC, BaseX, BaseY, PWideChar(BaseText),
-            Length(BaseText));
-        finally
-          RestoreDC(DC, ClipState);
-        end;
-      end;
-
+      ResolveLyricsUnitEffect(Effect, UnitProgress, State);
+      PivotX := Width * 0.5 + ResolvedUnits[UnitIndex].X + PositionX +
+        State.OffsetX;
+      PivotY := Height * 0.5 + ResolvedUnits[UnitIndex].Y + PositionY +
+        State.OffsetY;
+      ScaleX := ResolvedUnits[UnitIndex].ScaleX * State.ScaleX;
+      ScaleY := ResolvedUnits[UnitIndex].ScaleY * State.ScaleY;
+      BaseTop := -PreparedBase.BeforeImage.LayoutBounds.Height * 0.5;
+      BaseBaselineX := -(PreparedBase.AdvanceLeft +
+        PreparedBase.AdvanceRight) * 0.5;
+      BaseBaselineY := BaseTop - PreparedBase.BeforeImage.LayoutBounds.Top;
+      DrawPreparedPart(Buffer, Width, Height, PreparedBase, State,
+        PivotX, PivotY, BaseBaselineX, BaseBaselineY, ScaleX, ScaleY,
+        Settings.Opacity);
       if ResolvedUnits[UnitIndex].HasRuby then
       begin
-        RubyText := ResolvedUnits[UnitIndex].Ruby.Text;
-        SelectObject(DC, RubyFont);
-        SetTextCharacterExtra(DC, RubyCharacterSpacing);
-        RubyWidth := MeasureTextWidth(DC, RubyText);
-        RubyX := -RubyWidth div 2 + RubyOffsetX;
-        RubyY := BaseY - RubyGap - RubyFontHeight + RubyOffsetY;
-        ResolvedUnits[UnitIndex].Ruby.OriginX :=
-          ResolvedUnits[UnitIndex].PivotX +
-          RubyX * ResolvedUnits[UnitIndex].ScaleX;
-        ResolvedUnits[UnitIndex].Ruby.OriginY :=
-          ResolvedUnits[UnitIndex].PivotY +
-          RubyY * ResolvedUnits[UnitIndex].ScaleY;
-        ResolvedUnits[UnitIndex].Ruby.Bounds.Left :=
-          ResolvedUnits[UnitIndex].Ruby.OriginX;
-        ResolvedUnits[UnitIndex].Ruby.Bounds.Top :=
-          ResolvedUnits[UnitIndex].Ruby.OriginY;
-        ResolvedUnits[UnitIndex].Ruby.Bounds.Right :=
-          ResolvedUnits[UnitIndex].PivotX +
-          (RubyX + RubyWidth) * ResolvedUnits[UnitIndex].ScaleX;
-        ResolvedUnits[UnitIndex].Ruby.Bounds.Bottom :=
-          ResolvedUnits[UnitIndex].PivotY +
-          (RubyY + RubyFontHeight) * ResolvedUnits[UnitIndex].ScaleY;
-        IncludeResolvedRect(ResolvedUnits[UnitIndex].Bounds,
-          GroupHasBounds, ResolvedUnits[UnitIndex].Ruby.Bounds);
-        if EffectState.DrawBefore then
-        begin
-          SetTextColor(DC, LyricsColorToColorRef(BeforeColor));
-          TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
-            Length(RubyText));
-        end;
-        if EffectState.AfterProgress > 0 then
-        begin
-          ClipState := SaveDC(DC);
-          try
-            IntersectClipRect(DC, RubyX, RubyY,
-              RubyX + Round(RubyWidth * EffectState.AfterProgress),
-              RubyY + RubyFontHeight);
-            SetTextColor(DC, LyricsColorToColorRef(AfterColor));
-            TextOutW(DC, RubyX, RubyY, PWideChar(RubyText),
-              Length(RubyText));
-          finally
-            RestoreDC(DC, ClipState);
-          end;
-        end;
+        RubyTop := BaseTop - RubyGap +
+          ResolvedUnits[UnitIndex].Ruby.OffsetY;
+        RubyBaselineX := -(PreparedRuby.AdvanceLeft +
+          PreparedRuby.AdvanceRight) * 0.5 +
+          ResolvedUnits[UnitIndex].Ruby.OffsetX;
+        RubyBaselineY := RubyTop -
+          PreparedRuby.BeforeImage.LayoutBounds.Bottom;
+        DrawPreparedPart(Buffer, Width, Height, PreparedRuby, State,
+          PivotX, PivotY, RubyBaselineX, RubyBaselineY, ScaleX, ScaleY,
+          Settings.Opacity);
       end;
-      IncludeResolvedRect(Layout.Bounds, Layout.HasBounds,
-        ResolvedUnits[UnitIndex].Bounds);
-      RestoreDC(DC, UnitState);
+    finally
+      FreePreparedPart(PreparedRuby);
+      FreePreparedPart(PreparedBase);
     end;
-    SetTextCharacterExtra(DC, OldCharacterSpacing);
-    SelectObject(DC, OldFont);
-  finally
-    FreeLyricsFontCache(RubyFontCache);
-    FreeLyricsFontCache(BaseFontCache);
   end;
 end;
 
@@ -897,101 +653,27 @@ function RenderLocked(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits:
   const Placements: TDisplayPlacementItems; FreePlacement: Boolean;
   PositionX, PositionY, Width, Height: Integer): Boolean;
 var
-  Bitmap: HBITMAP;
-  BitmapInfo: TBitmapInfo;
-  Bits: Pointer;
   Buffer: PPIXEL_RGBA;
-  DC: HDC;
-  MaskBitmap: HBITMAP;
-  MaskBits: Pointer;
-  MaskDC: HDC;
-  MaskOldBitmap: HGDIOBJ;
-  MaskSettings: TLyricsRenderSettings;
-  OldBitmap: HGDIOBJ;
   PixelCount: NativeInt;
 begin
-  Result := False;
   PixelCount := NativeInt(Width) * Height;
   GetMem(Buffer, PixelCount * SizeOf(TPIXEL_RGBA));
   try
     FillChar(Buffer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
-
-    // 空文字でも透明画像を確定し、直前フレームの歌詞を残さない。
-    if (Lyrics = nil) or (Lyrics^ = #0) then
-    begin
-      Video^.SetImageData(Buffer, Width, Height);
-      Exit(True);
-    end;
-
-    FillChar(BitmapInfo, SizeOf(BitmapInfo), 0);
-    BitmapInfo.bmiHeader.biSize := SizeOf(TBitmapInfoHeader);
-    BitmapInfo.bmiHeader.biWidth := Width;
-    BitmapInfo.bmiHeader.biHeight := -Height;
-    BitmapInfo.bmiHeader.biPlanes := 1;
-    BitmapInfo.bmiHeader.biBitCount := 32;
-    BitmapInfo.bmiHeader.biCompression := BI_RGB;
-
-    Bits := nil;
-    Bitmap := CreateDIBSection(0, BitmapInfo, DIB_RGB_COLORS, Bits, 0, 0);
-    if (Bitmap = 0) or (Bits = nil) then
-      Exit;
     try
-      FillChar(Bits^, PixelCount * 4, 0);
-      MaskBits := nil;
-      MaskBitmap := CreateDIBSection(0, BitmapInfo, DIB_RGB_COLORS,
-        MaskBits, 0, 0);
-      if (MaskBitmap = 0) or (MaskBits = nil) then
-        Exit;
-      try
-        FillChar(MaskBits^, PixelCount * 4, 0);
-        DC := CreateCompatibleDC(0);
-        MaskDC := CreateCompatibleDC(0);
-        if (DC = 0) or (MaskDC = 0) then
-        begin
-          if DC <> 0 then
-            DeleteDC(DC);
-          if MaskDC <> 0 then
-            DeleteDC(MaskDC);
-          Exit;
-        end;
-        try
-          OldBitmap := SelectObject(DC, Bitmap);
-          MaskOldBitmap := SelectObject(MaskDC, MaskBitmap);
-          SetBkMode(DC, TRANSPARENT);
-          SetBkMode(MaskDC, TRANSPARENT);
-          if FreePlacement then
-            DrawFreePlacementLyrics(DC, Width, Height, string(Lyrics),
-              ProgressUnits, Settings, Placements, PositionX, PositionY)
-          else
-            DrawParsedLyrics(DC, Width, Height, string(Lyrics),
-              ProgressUnits, Settings, PositionX, PositionY);
-          MaskSettings := Settings;
-          MaskSettings.BeforeColor.R := 255;
-          MaskSettings.BeforeColor.G := 255;
-          MaskSettings.BeforeColor.B := 255;
-          MaskSettings.AfterColor := MaskSettings.BeforeColor;
-          if FreePlacement then
-            DrawFreePlacementLyrics(MaskDC, Width, Height, string(Lyrics),
-              ProgressUnits, MaskSettings, Placements, PositionX, PositionY)
-          else
-            DrawParsedLyrics(MaskDC, Width, Height, string(Lyrics),
-              ProgressUnits, MaskSettings, PositionX, PositionY);
-          SelectObject(MaskDC, MaskOldBitmap);
-          SelectObject(DC, OldBitmap);
-        finally
-          DeleteDC(MaskDC);
-          DeleteDC(DC);
-        end;
-
-        ConvertDibToRgba(Bits, MaskBits, Buffer, PixelCount,
-          Settings.Opacity);
-        Video^.SetImageData(Buffer, Width, Height);
-        Result := True;
-      finally
-        DeleteObject(MaskBitmap);
-      end;
-    finally
-      DeleteObject(Bitmap);
+      if (Lyrics <> nil) and (Lyrics^ <> #0) then
+        if FreePlacement then
+          DrawSkiaFreePlacementLyrics(Buffer, Width, Height,
+            string(Lyrics), ProgressUnits, Settings, Placements,
+            PositionX, PositionY)
+        else
+          DrawSkiaLineLyrics(Buffer, Width, Height, string(Lyrics),
+            ProgressUnits, Settings, PositionX, PositionY);
+      // 空文字でも透明画像を確定し、直前フレームの歌詞を残さない。
+      Video^.SetImageData(Buffer, Width, Height);
+      Result := True;
+    except
+      Result := False;
     end;
   finally
     FreeMem(Buffer);
@@ -1043,19 +725,39 @@ begin
 end;
 
 procedure InitializeLyricsRenderer;
+var
+  LibraryFileName: string;
 begin
   if RendererInitialized then
     Exit;
-  InitializeCriticalSection(RendererLock);
-  RendererInitialized := True;
+  LibraryFileName := RendererModuleDirectory + 'sk4d.dll';
+  TTextRendererSkiaRuntime.Acquire(LibraryFileName);
+  RendererSkiaAcquired := True;
+  try
+    SkiaRenderer := TSkiaTextRenderer.Create;
+    InitializeCriticalSection(RendererLock);
+    RendererInitialized := True;
+  except
+    FreeAndNil(SkiaRenderer);
+    TTextRendererSkiaRuntime.Release;
+    RendererSkiaAcquired := False;
+    raise;
+  end;
 end;
 
 procedure FinalizeLyricsRenderer;
 begin
-  if not RendererInitialized then
-    Exit;
-  DeleteCriticalSection(RendererLock);
-  RendererInitialized := False;
+  if RendererInitialized then
+  begin
+    DeleteCriticalSection(RendererLock);
+    RendererInitialized := False;
+  end;
+  FreeAndNil(SkiaRenderer);
+  if RendererSkiaAcquired then
+  begin
+    TTextRendererSkiaRuntime.Release;
+    RendererSkiaAcquired := False;
+  end;
 end;
 
 end.

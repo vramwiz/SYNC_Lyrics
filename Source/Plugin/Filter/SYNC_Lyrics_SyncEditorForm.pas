@@ -74,6 +74,7 @@ type
     procedure LoadSelectedLine;
     procedure LyricsConfirmed(Sender: TObject; const LyricsText: string);
     procedure MusicSyncChanged(Sender: TObject);
+    procedure PersistDefaultMusicSyncData;
     procedure PopulateLineList;
     procedure RecalculateFrameRanges;
     procedure SaveLoadedLine;
@@ -103,7 +104,9 @@ uses
   System.Math,
   System.UITypes,
   Winapi.Windows,
-  Vcl.Dialogs;
+  Vcl.Dialogs,
+  SYNC_Lyrics_DarkTheme,
+  SYNC_Lyrics_SyncFormat;
 
 {$R *.dfm}
 
@@ -244,6 +247,7 @@ begin
   FMusicSyncFrame.OnSyncChanged := MusicSyncChanged;
   FMusicSyncFrame.Parent := PlaceholderPanel;
   FMusicSyncFrame.Align := alClient;
+  FMusicSyncFrame.ApplyDarkTheme;
   FMusicSyncFrame.BringToFront;
   if FAnchorAvailable then
     FMusicSyncFrame.SetAnchor(0, FAnchorRate, FAnchorScale)
@@ -255,7 +259,13 @@ procedure TFormLyricsSyncEditor.FinishButtonClick(Sender: TObject);
 var
   ErrorText: string;
 begin
+  if (FInputFrame <> nil) and FInputFrame.Visible then
+  begin
+    FInputFrame.ConfirmButton.Click;
+    Exit;
+  end;
   SaveLoadedLine;
+  PersistDefaultMusicSyncData;
   if FSongModel.LineCount = 0 then
   begin
     MessageDlg('保存する歌詞行がありません。', mtInformation,
@@ -265,7 +275,7 @@ begin
   if not TryEncodeSongLyrics(FSongModel, FSongDataText,
     ErrorText) then
   begin
-    MessageDlg('曲全体データを文字列へ変換できませんでした。'#13#10 +
+    MessageDlg('歌詞データを文字列へ変換できませんでした。'#13#10 +
       ErrorText, mtError, [mbOK], 0);
     Exit;
   end;
@@ -275,6 +285,23 @@ end;
 
 procedure TFormLyricsSyncEditor.FormCreate(Sender: TObject);
 begin
+  ApplySyncLyricsDarkForm(Self);
+  ApplySyncLyricsDarkPanel(ContentPanel);
+  ApplySyncLyricsDarkPanel(LineListPanel);
+  ApplySyncLyricsDarkPanel(FrameCommandPanel);
+  ApplySyncLyricsDarkPanel(PlaceholderPanel);
+  ApplySyncLyricsDarkPanel(BottomPanel);
+  ApplySyncLyricsDarkListBox(LineListBox);
+  ApplySyncLyricsDarkButton(AddLineButton);
+  ApplySyncLyricsDarkButton(DeleteLineButton);
+  ApplySyncLyricsDarkButton(StartFrameButton);
+  ApplySyncLyricsDarkButton(EndFrameButton);
+  ApplySyncLyricsDarkButton(ConfirmSyncButton);
+  ApplySyncLyricsDarkButton(FinishButton);
+  ApplySyncLyricsDarkButton(CancelButton);
+  LineListHeaderLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  PlaceholderLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  LineHintLabel.Font.Color := TColor($00A8A8A8);
   FConfirmedLyrics := '';
   FCurrentObjectFrame := 0;
   FCurrentObjectFrameAvailable := False;
@@ -288,13 +315,18 @@ begin
   FSongModel := TLyricsSongModel.Create;
   FInputFrame := TFrameLyricsInitialInput.Create(Self);
   FInputFrame.Parent := ContentPanel;
+  FInputFrame.ApplyDarkTheme;
   FInputFrame.Align := alClient;
+  FInputFrame.ConfirmButton.Visible := False;
   FInputFrame.LoadDebugLyrics;
   FInputFrame.OnLyricsConfirmed := LyricsConfirmed;
   ActiveControl := FInputFrame.LyricsMemo;
   LineListPanel.Visible := False;
   PlaceholderPanel.Visible := False;
-  FinishButton.Enabled := False;
+  FinishButton.Caption := UnicodeString(
+    #27468#35422#12434#30906#23450#12375#12390#27425#12408);
+  FinishButton.Tag := 1;
+  FinishButton.Enabled := True;
   ConfirmSyncButton.Visible := False;
   SyncStateLabel.Visible := False;
   AddLineButton.Enabled := False;
@@ -319,6 +351,16 @@ var
   LineData: TLyricsSongLine;
   LineText: string;
 begin
+  if odSelected in State then
+  begin
+    LineListBox.Canvas.Brush.Color := clHighlight;
+    LineListBox.Canvas.Font.Color := clHighlightText;
+  end
+  else
+  begin
+    LineListBox.Canvas.Brush.Color := SYNC_LYRICS_DARK_CONTROL_COLOR;
+    LineListBox.Canvas.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  end;
   LineListBox.Canvas.FillRect(Rect);
   if (Index < 0) or (Index >= FSongModel.LineCount) then
     Exit;
@@ -393,6 +435,9 @@ begin
   SummaryLabel.Visible := False;
   LineListPanel.Visible := True;
   PlaceholderPanel.Visible := True;
+  FinishButton.Caption := UnicodeString(
+    #36969#29992#12375#12390#38281#12376#12427);
+  FinishButton.Tag := 0;
   FinishButton.Enabled := True;
   ConfirmSyncButton.Visible := True;
   SyncStateLabel.Visible := True;
@@ -469,6 +514,33 @@ begin
   UpdateMusicSyncReferences;
   LineListBox.Invalidate;
   UpdateSyncStateControls;
+end;
+
+procedure TFormLyricsSyncEditor.PersistDefaultMusicSyncData;
+var
+  DefaultSyncText: string;
+  I: Integer;
+  LineData: TLyricsSongLine;
+  SyncAdded: Boolean;
+begin
+  DefaultSyncText := SerializeMusicSyncText([]);
+  SyncAdded := False;
+  for I := 0 to FSongModel.LineCount - 1 do
+  begin
+    LineData := FSongModel[I];
+    if LineData.SyncText <> '' then
+      Continue;
+    if FSongModel.TrySetSync(I, LineData.PreDisplaySeconds,
+      DefaultSyncText) then
+      SyncAdded := True;
+  end;
+  if SyncAdded then
+  begin
+    RecalculateFrameRanges;
+    UpdateMusicSyncReferences;
+    LineListBox.Invalidate;
+    UpdateSyncStateControls;
+  end;
 end;
 
 procedure TFormLyricsSyncEditor.PopulateLineList;

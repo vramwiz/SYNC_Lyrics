@@ -71,7 +71,7 @@
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"]]></PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
-        <Debugger_HostApplication>D:\aviutl2_v2.1.0\aviutl2.exe</Debugger_HostApplication>
+        <Debugger_HostApplication>D:\aviutl2_v2.1.3a\aviutl2.exe</Debugger_HostApplication>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <BT_BuildType>Release</BT_BuildType>
@@ -94,9 +94,15 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkiaBootstrap.pas"/>
+        <DCCReference Include="Source\Lib\TextRenderer\TextRendererTypes.pas"/>
+        <DCCReference Include="Source\Lib\TextRenderer\TextRenderer.pas"/>
+        <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas"/>
+        <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkia.pas"/>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SharedMemoryBase.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ToolbarButtons.pas"/>
+        <DCCReference Include="Source\Lib\SYNC_Lyrics_DarkTheme.pas"/>
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerColorMath.pas"/>
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerRGBEditFrame.pas">
             <Form>FrameColorPickerRGBEdit</Form>
@@ -149,7 +155,6 @@
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_ManualSync.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_MusicSync.pas"/>
-        <DCCReference Include="Source\Common\Render\SYNC_Lyrics_DisplayPresetData.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas"/>
@@ -185,6 +190,7 @@
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas">
             <Form>FormLyricsSyncEditor</Form>
         </DCCReference>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_SerifAnimationItems.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
@@ -217,6 +223,10 @@
     <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
     <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
+    <Target Name="CopyLyricsSkiaRuntime" AfterTargets="PostBuildEvent" Condition="'$(Platform)'=='Win64'">
+        <Copy SourceFiles="$(BDS)\bin64\sk4d.dll" DestinationFiles="$(DCC_ExeOutput)\sk4d.dll.new" SkipUnchangedFiles="false"/>
+        <Exec Command="move /Y &quot;$(DCC_ExeOutput)\sk4d.dll.new&quot; &quot;$(DCC_ExeOutput)\sk4d.dll&quot;"/>
+    </Target>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
         <PreBuildEvent>if not exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot; mkdir &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>

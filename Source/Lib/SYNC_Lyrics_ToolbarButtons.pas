@@ -260,6 +260,7 @@ const
 var
   Accent: TColor;
   BackColor: TColor;
+  BackRgb: Cardinal;
   BorderColor: TColor;
   GlyphRect: TRect;
   H: Integer;
@@ -390,7 +391,16 @@ begin
     Exit;
   end;
 
-  if Enabled then
+  BackRgb := ColorToRGB(BackColor);
+  if ((BackRgb and $FF) * 299 + ((BackRgb shr 8) and $FF) * 587 +
+    ((BackRgb shr 16) and $FF) * 114) div 1000 < 128 then
+  begin
+    if Enabled then
+      TextColor := RGB(240, 240, 240)
+    else
+      TextColor := RGB(132, 132, 132);
+  end
+  else if Enabled then
     TextColor := clWindowText
   else
     TextColor := clGrayText;

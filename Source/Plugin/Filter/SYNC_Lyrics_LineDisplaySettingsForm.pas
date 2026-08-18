@@ -45,6 +45,8 @@ type
     procedure BaseFontComboChange(Sender: TObject);
     procedure RubyFontComboChange(Sender: TObject);
     procedure LyricsEditChange(Sender: TObject);
+    procedure DarkComboBoxDrawItem(Control: TWinControl; Index: Integer;
+      Rect: TRect; State: TOwnerDrawState);
     procedure PreviewPaintBoxMouseDown(Sender: TObject;
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PreviewPaintBoxMouseMove(Sender: TObject;
@@ -129,7 +131,8 @@ implementation
 uses
   ColorPickerDialog,
   System.Math,
-  Winapi.Windows;
+  Winapi.Windows,
+  SYNC_Lyrics_DarkTheme;
 
 {$R *.dfm}
 
@@ -323,6 +326,14 @@ begin
     tbgAfterColor, TOOLBAR_AFTER_COLOR);
 end;
 
+procedure TFormLyricsLineDisplaySettings.DarkComboBoxDrawItem(
+  Control: TWinControl; Index: Integer; Rect: TRect;
+  State: TOwnerDrawState);
+begin
+  DrawSyncLyricsDarkComboBoxItem(Control as TComboBox, Index, Rect,
+    State, CurrentPPI);
+end;
+
 procedure TFormLyricsLineDisplaySettings.DrawSelection(Canvas: TCanvas);
 var
   Bounds: TRect;
@@ -402,6 +413,14 @@ end;
 
 procedure TFormLyricsLineDisplaySettings.FormCreate(Sender: TObject);
 begin
+  ApplySyncLyricsDarkForm(Self);
+  ApplySyncLyricsDarkPanel(ButtonPanel);
+  ApplySyncLyricsDarkEdit(LyricsEdit);
+  ApplySyncLyricsDarkComboBox(CandidateCombo, DarkComboBoxDrawItem);
+  ApplySyncLyricsDarkComboBox(BaseFontCombo, DarkComboBoxDrawItem);
+  ApplySyncLyricsDarkComboBox(RubyFontCombo, DarkComboBoxDrawItem);
+  ApplySyncLyricsDarkButton(ButtonOK);
+  ApplySyncLyricsDarkButton(ButtonCancel);
   DescriptionLabel.Caption :=
     UnicodeString(
       '本文内ドラッグ: 移動 / ルビ内: 間隔 / 四隅: サイズ / 左右点: 字間');

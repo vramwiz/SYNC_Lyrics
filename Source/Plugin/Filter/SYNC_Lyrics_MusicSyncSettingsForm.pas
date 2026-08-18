@@ -13,6 +13,7 @@ uses
   Vcl.Forms,
   Vcl.Graphics,
   Vcl.StdCtrls,
+  SYNC_Lyrics_DarkTheme,
   SYNC_Lyrics_MusicSync,
   SYNC_Lyrics_MusicSyncEditModel;
 
@@ -83,6 +84,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    procedure ApplyDarkTheme;
     // Filterが最後に発火した絶対位置を、この編集画面の基準とする。
     procedure SetAnchor(Frame, Rate, Scale: Integer);
     procedure SetAnchorUnavailable;
@@ -138,6 +140,7 @@ type
 constructor TFormLyricsMusicSyncSettings.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  ApplyDarkTheme;
   FDisplaySeconds := MUSIC_SYNC_DISPLAY_SECONDS;
   FLineSyncStartSeconds := 0;
   FLineSyncEndSeconds := 0;
@@ -150,6 +153,16 @@ begin
   FNextLyricsModel := TMusicSyncEditModel.Create;
   FPianoRollBuffer := Vcl.Graphics.TBitmap.Create;
   FPianoRollBuffer.PixelFormat := pf32bit;
+end;
+
+procedure TFormLyricsMusicSyncSettings.ApplyDarkTheme;
+begin
+  ApplySyncLyricsDarkForm(Self);
+  ApplySyncLyricsDarkPanel(BottomPanel);
+  ApplySyncLyricsDarkEdit(LyricsEdit);
+  ApplySyncLyricsDarkButton(ResetSyncButton);
+  ApplySyncLyricsDarkButton(ApplyButton);
+  ApplySyncLyricsDarkButton(CloseButton);
 end;
 
 destructor TFormLyricsMusicSyncSettings.Destroy;
@@ -381,7 +394,7 @@ begin
   FViewDragStartX := X;
   FViewDragStartOffsetSeconds := FViewStartOffsetSeconds;
   TCapturePaintBox(PianoRollPaintBox).MouseCapture := True;
-  PianoRollPaintBox.Cursor := crSizeWE;
+  PianoRollPaintBox.Cursor := crDefault;
 end;
 
 procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxMouseMove(
@@ -429,7 +442,7 @@ begin
       (X - FViewDragStartX) / TimeWidth * FDisplaySeconds,
       0.0, Max(0.0, FLastTrackNoteEndSeconds -
       FAnchorSeconds - FDisplaySeconds));
-    PianoRollPaintBox.Cursor := crSizeWE;
+    PianoRollPaintBox.Cursor := crDefault;
     PianoRollPaintBox.Invalidate;
     Exit;
   end;
@@ -443,7 +456,7 @@ begin
   else if HitTestFilterLyric(X, Y) >= 0 then
     PianoRollPaintBox.Cursor := crSizeWE
   else
-    PianoRollPaintBox.Cursor := crSizeWE;
+    PianoRollPaintBox.Cursor := crDefault;
 end;
 
 procedure TFormLyricsMusicSyncSettings.PianoRollPaintBoxMouseUp(

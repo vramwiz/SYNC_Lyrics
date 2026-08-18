@@ -49,6 +49,11 @@ begin
 
     Check(TryEncodeSongLyrics(Model, EncodedText, ErrorText),
       'Encoding failed: ' + ErrorText);
+    Check(Copy(EncodedText, 1, 5) = 'SLD1|',
+      'The song document header is invalid.');
+    Check(not TryDecodeSongLyrics('SLS1' + Copy(EncodedText, 5,
+      MaxInt), Decoded, ErrorText),
+      'The obsolete whole-song format must be rejected.');
     Check(TryDecodeSongLyrics(EncodedText, Decoded, ErrorText),
       'Decoding failed: ' + ErrorText);
     Check(Decoded.LineCount = 2, 'The decoded line count is invalid.');

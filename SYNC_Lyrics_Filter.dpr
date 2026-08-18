@@ -5,9 +5,15 @@
 {$ALIGN 8}
 
 uses
+  TextRendererSkiaBootstrap in 'Source\Lib\TextRenderer\TextRendererSkiaBootstrap.pas',
+  TextRendererTypes in 'Source\Lib\TextRenderer\TextRendererTypes.pas',
+  TextRenderer in 'Source\Lib\TextRenderer\TextRenderer.pas',
+  TextRendererSkiaRuntime in 'Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
+  TextRendererSkia in 'Source\Lib\TextRenderer\TextRendererSkia.pas',
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SharedMemoryBase in 'Source\Lib\SharedMemoryBase.pas',
   SYNC_Lyrics_ToolbarButtons in 'Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
+  SYNC_Lyrics_DarkTheme in 'Source\Lib\SYNC_Lyrics_DarkTheme.pas',
   ColorPickerColorMath in 'Source\Lib\ColorPicker\ColorPickerColorMath.pas',
   ColorPickerRGBEditFrame in 'Source\Lib\ColorPicker\ColorPickerRGBEditFrame.pas' {FrameColorPickerRGBEdit: TFrame},
   ColorPickerHueBar in 'Source\Lib\ColorPicker\ColorPickerHueBar.pas',
@@ -52,7 +58,6 @@ uses
   SYNC_Lyrics_ManualSync in 'Source\Common\Sync\SYNC_Lyrics_ManualSync.pas',
   SYNC_Lyrics_MusicSyncAnchor in 'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
-  SYNC_Lyrics_DisplayPresetData in 'Source\Common\Render\SYNC_Lyrics_DisplayPresetData.pas',
   SYNC_Lyrics_DisplaySettingsData in 'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_ResolvedDisplayUnits in 'Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas',
   SYNC_Lyrics_LastFrameCapture in 'Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas',
@@ -73,6 +78,7 @@ uses
   SYNC_Lyrics_ManualSyncSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas' {FormLyricsManualSyncSettings},
   SYNC_Lyrics_InitialLyricsFrame in 'Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas' {FrameLyricsInitialInput: TFrame},
   SYNC_Lyrics_SyncEditorForm in 'Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas' {FormLyricsSyncEditor},
+  SYNC_Lyrics_SerifAnimationItems in 'Source\Plugin\Filter\SYNC_Lyrics_SerifAnimationItems.pas',
   SYNC_Lyrics_FilterPlugin in 'Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas';
 
 function InitializePlugin(Version: Cardinal): Byte; cdecl;

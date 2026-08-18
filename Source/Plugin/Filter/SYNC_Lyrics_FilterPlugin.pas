@@ -19,12 +19,10 @@ procedure FinalizeLyricsFilter;
 implementation
 
 uses
-  System.IOUtils,
   System.Math,
   System.SysUtils,
   System.UITypes,
   SYNC_Lyrics_ContextManager,
-  SYNC_Lyrics_DisplayPresetData,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_CharacterLayoutSettingsForm,
   SYNC_Lyrics_FrameShared,
@@ -40,6 +38,7 @@ uses
   SYNC_Lyrics_MusicSyncAnchor,
   SYNC_Lyrics_MusicSyncSettingsForm,
   SYNC_Lyrics_SyncEditorForm,
+  SYNC_Lyrics_SerifAnimationItems,
   SYNC_Lyrics_LineDisplaySettingsForm,
   SYNC_Lyrics_Animation,
   SYNC_Lyrics_Renderer,
@@ -53,8 +52,6 @@ function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 function LyricsProcVideoMulti(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
-procedure PresetSaveButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
-procedure PresetLoadButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure CharacterLayoutSettingsButtonCallback(
   Edit: PEDIT_SECTION); cdecl; forward;
 procedure LineDisplaySettingsButtonCallback(
@@ -66,9 +63,9 @@ var
     Name: '歌詞';
     Value: ''
   );
-  SongLyricsDataItem: TFILTER_ITEM_STRING = (
+  SongDocumentItem: TFILTER_ITEM_STRING = (
     ItemType: 'string';
-    Name: '曲全体データ';
+    Name: '歌詞データ';
     Value: ''
   );
   MusicFileItem: TFILTER_ITEM_FILE = (
@@ -127,35 +124,6 @@ var
     ItemType: 'button';
     Name: '表示設定';
     Callback: DisplaySettingsButtonCallback
-  );
-  PresetList: array[0..10] of TFILTER_ITEM_SELECT_ITEM = (
-    (Name: 'プリセット1'; Value: 0),
-    (Name: 'プリセット2'; Value: 1),
-    (Name: 'プリセット3'; Value: 2),
-    (Name: 'プリセット4'; Value: 3),
-    (Name: 'プリセット5'; Value: 4),
-    (Name: 'プリセット6'; Value: 5),
-    (Name: 'プリセット7'; Value: 6),
-    (Name: 'プリセット8'; Value: 7),
-    (Name: 'プリセット9'; Value: 8),
-    (Name: 'プリセット10'; Value: 9),
-    (Name: nil; Value: 0)
-  );
-  PresetItem: TFILTER_ITEM_SELECT = (
-    ItemType: 'select';
-    Name: 'プリセット';
-    Value: 0;
-    List: @PresetList[0]
-  );
-  PresetSaveButton: TFILTER_ITEM_BUTTON = (
-    ItemType: 'button';
-    Name: '保存';
-    Callback: PresetSaveButtonCallback
-  );
-  PresetLoadButton: TFILTER_ITEM_BUTTON = (
-    ItemType: 'button';
-    Name: '読込';
-    Callback: PresetLoadButtonCallback
   );
   SyncAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: 'なし'; Value: 0),
@@ -224,7 +192,7 @@ var
     Name: '表示設定';
     Value: ''
   );
-  PluginItems: array[0..20] of Pointer;
+  PluginItems: array[0..26] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -254,6 +222,42 @@ type
     CandidateIndexes: TLyricsSongLineIndexes;
     InitialCandidate: Integer;
   end;
+
+procedure ApplyMinimalSerifSyncStyle(var Settings: TLyricsRenderSettings);
+begin
+  if SerifSyncTypeItem.Value = SERIF_SYNC_COLOR then
+  begin
+    Settings.AfterColor.R := SerifSyncColorItem.R;
+    Settings.AfterColor.G := SerifSyncColorItem.G;
+    Settings.AfterColor.B := SerifSyncColorItem.B;
+  end
+  else
+    Settings.AfterColor := Settings.BeforeColor;
+end;
+
+function CurrentSerifSyncAnimation: TLyricsSyncAnimation;
+begin
+  if SerifSyncTypeItem.Value = SERIF_SYNC_JUMP then
+    Result := lsaBounce
+  else
+    Result := lsaNone;
+end;
+
+function CurrentSerifStartAnimation: TLyricsEdgeAnimation;
+begin
+  if SerifBeforeTypeItem.Value = 1 then
+    Result := leaFade
+  else
+    Result := leaNone;
+end;
+
+function CurrentSerifEndAnimation: TLyricsEdgeAnimation;
+begin
+  if SerifAfterTypeItem.Value = 1 then
+    Result := leaFade
+  else
+    Result := leaNone;
+end;
 
 procedure ShowFontSettingsError(const MessageText: string);
 begin
@@ -349,8 +353,9 @@ begin
   Context.Lines := nil;
   Context.CandidateIndexes := nil;
   Context.InitialCandidate := -1;
-  if Assigned(SongLyricsDataItem.Value) then
-    Context.DataText := string(SongLyricsDataItem.Value);
+  if not TryGetObjectItemText(Edit, Obj, '歌詞データ',
+    Context.DataText) then
+    Context.DataText := '';
   Result := (Context.DataText <> '') and
     TryGetSongLyricsLines(Context.DataText, Context.Lines) and
     (Length(Context.Lines) > 0);
@@ -456,9 +461,9 @@ begin
   end;
   Utf8SongText := UTF8String(EncodedSongText);
   Result := Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-    '曲全体データ', PAnsiChar(Utf8SongText));
+    '歌詞データ', PAnsiChar(Utf8SongText));
   if not Result then
-    ErrorText := '曲全体データを歌詞テロップへ反映できませんでした。';
+    ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
 end;
 
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
@@ -467,166 +472,6 @@ begin
     CharacterLayoutSettingsButtonCallback(Edit)
   else
     LineDisplaySettingsButtonCallback(Edit);
-end;
-
-procedure PresetSaveButtonCallback(Edit: PEDIT_SECTION); cdecl;
-var
-  Common: TDisplayCommonSettings;
-  CurrentLyrics: string;
-  CurrentPlacements: TDisplayPlacementItems;
-  CurrentSettingsText: string;
-  DisplayEffect: Integer;
-  EndAnimation: Integer;
-  EndAnimationSeconds: Double;
-  FileName: string;
-  Obj: OBJECT_HANDLE;
-  PlacementsMatchLyrics: Boolean;
-  Preset: TDisplayPreset;
-  PresetIndex: Integer;
-  PresetText: string;
-  StartAnimation: Integer;
-  StartAnimationSeconds: Double;
-  SyncAnimation: Integer;
-begin
-  try
-    if (Edit = nil) or not Assigned(Edit^.GetFocusObject) then
-      Exit;
-    Obj := Edit^.GetFocusObject();
-    if (Obj = nil) or
-      not TryGetObjectItemText(Edit, Obj, '歌詞', CurrentLyrics) or
-      not TryGetObjectItemText(Edit, Obj, '表示設定',
-        CurrentSettingsText) or
-      not TryGetObjectItemInteger(Edit, Obj, 'プリセット',
-        PresetIndex) or
-      not TryGetObjectItemInteger(Edit, Obj, '同期演出',
-        DisplayEffect) or
-      not TryGetObjectItemInteger(Edit, Obj, '同期アニメーション',
-        SyncAnimation) or
-      not TryGetObjectItemInteger(Edit, Obj, '開始演出',
-        StartAnimation) or
-      not TryGetObjectItemFloat(Edit, Obj, '開始演出時間 (秒)',
-        StartAnimationSeconds) or
-      not TryGetObjectItemInteger(Edit, Obj, '終了演出',
-        EndAnimation) or
-      not TryGetObjectItemFloat(Edit, Obj, '終了演出時間 (秒)',
-        EndAnimationSeconds) then
-      Exit;
-    Common := DefaultDisplayCommonSettings;
-    CurrentPlacements := nil;
-    PlacementsMatchLyrics := False;
-    TryDecodeDisplaySettingsText(CurrentSettingsText, CurrentLyrics,
-      Common, CurrentPlacements, PlacementsMatchLyrics);
-    BuildDisplayPreset(Common, DisplayEffect, SyncAnimation, StartAnimation,
-      StartAnimationSeconds, EndAnimation, EndAnimationSeconds, Preset);
-    if not TryEncodeDisplayPreset(Preset, PresetText) then
-      Exit;
-    FileName := TPath.Combine(
-      TPath.Combine(TPath.GetDocumentsPath, 'SYNC_Lyrics'),
-      IntToStr(EnsureRange(PresetIndex, 0, 9)) + '.slpreset');
-    TDirectory.CreateDirectory(TPath.GetDirectoryName(FileName));
-    TFile.WriteAllText(FileName, PresetText, TEncoding.UTF8);
-  except
-    // Preset operations are deliberately silent.
-  end;
-end;
-
-procedure PresetLoadButtonCallback(Edit: PEDIT_SECTION); cdecl;
-var
-  Common: TDisplayCommonSettings;
-  CurrentLyrics: string;
-  CurrentPlacements: TDisplayPlacementItems;
-  CurrentSettingsText: string;
-  DisplayEffect: Integer;
-  EncodedSettingsText: string;
-  EndAnimation: Integer;
-  EndAnimationSeconds: Double;
-  FailedItemName: string;
-  FileName: string;
-  Obj: OBJECT_HANDLE;
-  PlacementsMatchLyrics: Boolean;
-  Preset: TDisplayPreset;
-  PresetIndex: Integer;
-  PresetText: string;
-  StartAnimation: Integer;
-  StartAnimationSeconds: Double;
-  SyncAnimation: Integer;
-  Updates: TFilterItemUpdates;
-begin
-  try
-    if (Edit = nil) or not Assigned(Edit^.GetFocusObject) or
-      not Assigned(Edit^.GetObjectItemValue) or
-      not Assigned(Edit^.SetObjectItemValue) then
-      Exit;
-    Obj := Edit^.GetFocusObject();
-    if (Obj = nil) or
-      not TryGetObjectItemInteger(Edit, Obj, 'プリセット',
-        PresetIndex) then
-      Exit;
-    FileName := TPath.Combine(
-      TPath.Combine(TPath.GetDocumentsPath, 'SYNC_Lyrics'),
-      IntToStr(EnsureRange(PresetIndex, 0, 9)) + '.slpreset');
-    if not TFile.Exists(FileName) then
-      Exit;
-    PresetText := TFile.ReadAllText(FileName, TEncoding.UTF8);
-    if not TryDecodeDisplayPreset(PresetText, Preset) then
-      Exit;
-
-    if not TryGetObjectItemText(Edit, Obj, '歌詞', CurrentLyrics) or
-      not TryGetObjectItemText(Edit, Obj, '表示設定',
-        CurrentSettingsText) then
-      Exit;
-    Common := DefaultDisplayCommonSettings;
-    CurrentPlacements := nil;
-    PlacementsMatchLyrics := False;
-    TryDecodeDisplaySettingsText(CurrentSettingsText, CurrentLyrics,
-      Common, CurrentPlacements, PlacementsMatchLyrics);
-    if not PlacementsMatchLyrics then
-      CurrentPlacements := nil;
-    ApplyDisplayPreset(Preset, Common, DisplayEffect, SyncAnimation,
-      StartAnimation, StartAnimationSeconds, EndAnimation,
-      EndAnimationSeconds);
-    if not TryEncodeDisplaySettingsText(CurrentLyrics, Common,
-      CurrentPlacements, EncodedSettingsText) then
-      Exit;
-
-    AddFilterItemUpdate(Updates, '表示設定', CurrentSettingsText,
-      EncodedSettingsText);
-    if not TryGetObjectItemText(Edit, Obj, '同期演出',
-      PresetText) then
-      Exit;
-    AddFilterItemUpdate(Updates, '同期演出', PresetText,
-      IntToStr(DisplayEffect));
-    if not TryGetObjectItemText(Edit, Obj, '同期アニメーション',
-      PresetText) then
-      Exit;
-    AddFilterItemUpdate(Updates, '同期アニメーション', PresetText,
-      IntToStr(SyncAnimation));
-    if not TryGetObjectItemText(Edit, Obj, '開始演出',
-      PresetText) then
-      Exit;
-    AddFilterItemUpdate(Updates, '開始演出', PresetText,
-      IntToStr(StartAnimation));
-    if not TryGetObjectItemText(Edit, Obj, '開始演出時間 (秒)',
-      PresetText) then
-      Exit;
-    AddFilterItemUpdate(Updates, '開始演出時間 (秒)', PresetText,
-      FormatFloat('0.00', StartAnimationSeconds,
-        TFormatSettings.Invariant));
-    if not TryGetObjectItemText(Edit, Obj, '終了演出',
-      PresetText) then
-      Exit;
-    AddFilterItemUpdate(Updates, '終了演出', PresetText,
-      IntToStr(EndAnimation));
-    if not TryGetObjectItemText(Edit, Obj, '終了演出時間 (秒)',
-      PresetText) then
-      Exit;
-    AddFilterItemUpdate(Updates, '終了演出時間 (秒)', PresetText,
-      FormatFloat('0.00', EndAnimationSeconds,
-        TFormatSettings.Invariant));
-    ApplyFilterItemUpdates(Edit, Obj, Updates, FailedItemName);
-  except
-    // Preset operations are deliberately silent.
-  end;
 end;
 
 procedure LineDisplaySettingsButtonCallback(
@@ -896,6 +741,7 @@ var
   CurrentPreDisplaySeconds: Double;
   CurrentSongDataText: string;
   CurrentSyncText: string;
+  CurrentTrack: Integer;
   LyricsChanged: Boolean;
   ManualSyncForm: TFormLyricsManualSyncSettings;
   Obj: OBJECT_HANDLE;
@@ -908,6 +754,7 @@ var
   SyncChanged: Boolean;
   SyncEditorForm: TFormLyricsSyncEditor;
   SyncForm: TFormLyricsMusicSyncSettings;
+  StoredSongDataText: string;
   Utf8Lyrics: UTF8String;
   Utf8OriginalLyrics: UTF8String;
   Utf8OriginalPreDisplay: UTF8String;
@@ -921,26 +768,31 @@ begin
     Obj := Edit^.GetFocusObject();
 
   CurrentLyrics := '';
-  if Assigned(LyricsItem.Value) then
-    CurrentLyrics := string(LyricsItem.Value);
-  CurrentMusicFileName := '';
-  if Assigned(MusicFileItem.Value) then
-    CurrentMusicFileName := string(MusicFileItem.Value);
+  if not TryGetObjectItemText(Edit, Obj, '音楽ファイル',
+    CurrentMusicFileName) then
+    CurrentMusicFileName := '';
   CurrentSyncText := DEFAULT_MUSIC_SYNC_TEXT;
-  if Assigned(SyncDataItem.Value) then
-    CurrentSyncText := string(SyncDataItem.Value);
-  CurrentSongDataText := '';
-  if Assigned(SongLyricsDataItem.Value) then
-    CurrentSongDataText := string(SongLyricsDataItem.Value);
-  CurrentMusicOffsetSeconds := EnsureRange(
-    MusicOffsetItem.Value, -5.0, 5.0);
-  CurrentPreDisplaySeconds := Max(0.0, PreDisplayTimeItem.Value);
+  if not TryGetObjectItemText(Edit, Obj, '歌詞データ',
+    CurrentSongDataText) then
+    CurrentSongDataText := '';
+  if not TryGetObjectItemInteger(Edit, Obj, 'トラック (-1=全て)',
+    CurrentTrack) then
+    CurrentTrack := -1;
+  if not TryGetObjectItemFloat(Edit, Obj, '音楽オフセット (秒)',
+    CurrentMusicOffsetSeconds) then
+    CurrentMusicOffsetSeconds := 0;
+  CurrentMusicOffsetSeconds := EnsureRange(CurrentMusicOffsetSeconds,
+    -5.0, 5.0);
+  if not TryGetObjectItemFloat(Edit, Obj, '事前表示 (秒)',
+    CurrentPreDisplaySeconds) then
+    CurrentPreDisplaySeconds := 0.5;
+  CurrentPreDisplaySeconds := Max(0.0, CurrentPreDisplaySeconds);
   if Trim(CurrentLyrics) = '' then
   begin
     SyncEditorForm := TFormLyricsSyncEditor.Create(nil);
     try
       SyncEditorForm.ConfigureMusicSource(CurrentMusicFileName,
-        Round(TrackItem.Value), CurrentMusicOffsetSeconds,
+        CurrentTrack, CurrentMusicOffsetSeconds,
         CurrentPreDisplaySeconds);
       if (Obj <> nil) and (Edit <> nil) and
         Assigned(Edit^.GetObjectLayerFrame) then
@@ -961,7 +813,7 @@ begin
       if (CurrentSongDataText <> '') and
         not SyncEditorForm.TryLoadSongData(CurrentSongDataText,
           AudioProbeError) then
-        MessageDlg('曲全体データを解析できませんでした。'#13#10 +
+        MessageDlg('歌詞データを解析できませんでした。'#13#10 +
           AudioProbeError, mtError, [mbOK], 0);
       if SyncEditorForm.ShowModal <> mrOk then
         Exit;
@@ -975,14 +827,17 @@ begin
       (Obj = nil) then
     begin
       ShowFontSettingsError(
-        '曲全体データを反映する対象オブジェクトを取得できませんでした。');
+        '歌詞データを反映する対象オブジェクトを取得できませんでした。');
       Exit;
     end;
     Utf8SongDataText := UTF8String(SelectedSongDataText);
     if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-      '曲全体データ', PAnsiChar(Utf8SongDataText)) then
+      '歌詞データ', PAnsiChar(Utf8SongDataText)) or
+      not TryGetObjectItemText(Edit, Obj, '歌詞データ',
+        StoredSongDataText) or
+      (StoredSongDataText <> SelectedSongDataText) then
       ShowFontSettingsError(
-        '曲全体データを歌詞テロップへ反映できませんでした。');
+        '歌詞データを歌詞テロップへ保存できませんでした。');
     Exit;
   end;
   if not IsMusicScoreFileName(CurrentMusicFileName) then
@@ -1232,6 +1087,7 @@ begin
     (CommonSettings.AfterColor shr 8) and $FF;
   RenderSettings.AfterColor.B :=
     (CommonSettings.AfterColor shr 16) and $FF;
+  ApplyMinimalSerifSyncStyle(RenderSettings);
 
   HasFreePlacement := False;
   if SelectedPlacementMode = PLACEMENT_MODE_FREE then
@@ -1305,22 +1161,11 @@ begin
         RemainingSeconds := Max(0,
           SongLine.DisplayEndFrame - Video^.Object_^.Frame) *
           FrameState.Scale / FrameState.Rate;
-      AnimationSettings.SyncAnimation := TLyricsSyncAnimation(
-        EnsureRange(SyncAnimationItem.Value,
-          Ord(Low(TLyricsSyncAnimation)),
-          Ord(High(TLyricsSyncAnimation))));
-      AnimationSettings.StartAnimation := TLyricsEdgeAnimation(
-        EnsureRange(StartAnimationItem.Value,
-          Ord(Low(TLyricsEdgeAnimation)),
-          Ord(High(TLyricsEdgeAnimation))));
-      AnimationSettings.EndAnimation := TLyricsEdgeAnimation(
-        EnsureRange(EndAnimationItem.Value,
-          Ord(Low(TLyricsEdgeAnimation)),
-          Ord(High(TLyricsEdgeAnimation))));
-      AnimationSettings.StartDurationSeconds :=
-        Max(0.01, StartAnimationTimeItem.Value);
-      AnimationSettings.EndDurationSeconds :=
-        Max(0.01, EndAnimationTimeItem.Value);
+      AnimationSettings.SyncAnimation := CurrentSerifSyncAnimation;
+      AnimationSettings.StartAnimation := CurrentSerifStartAnimation;
+      AnimationSettings.EndAnimation := CurrentSerifEndAnimation;
+      AnimationSettings.StartDurationSeconds := 0.3;
+      AnimationSettings.EndDurationSeconds := 0.3;
       AnimationSettings.BaseFontHeight :=
         RenderSettings.BaseFontHeight;
       ResolveLyricsAnimation(AnimationSettings, LocalSeconds,
@@ -1390,9 +1235,9 @@ begin
     HasSongData := False;
     HasSongLine := False;
     SongLines := nil;
-    if Assigned(SongLyricsDataItem.Value) then
+    if Assigned(SongDocumentItem.Value) then
       HasSongData := TryGetSongLyricsLines(
-        string(SongLyricsDataItem.Value), SongLines);
+        string(SongDocumentItem.Value), SongLines);
     if HasSongData then
     begin
       ActiveSongLineIndex := -1;
@@ -1447,6 +1292,7 @@ begin
       (CommonSettings.AfterColor shr 8) and $FF;
     RenderSettings.AfterColor.B :=
       (CommonSettings.AfterColor shr 16) and $FF;
+    ApplyMinimalSerifSyncStyle(RenderSettings);
     HasFreePlacement := False;
     if SelectedPlacementMode = PLACEMENT_MODE_FREE then
     begin
@@ -1527,22 +1373,11 @@ begin
             ActiveSongLine.DisplayEndFrame -
             Video^.Object_^.Frame) *
             FrameState.Scale / FrameState.Rate;
-        AnimationSettings.SyncAnimation := TLyricsSyncAnimation(
-          EnsureRange(SyncAnimationItem.Value,
-            Ord(Low(TLyricsSyncAnimation)),
-            Ord(High(TLyricsSyncAnimation))));
-        AnimationSettings.StartAnimation := TLyricsEdgeAnimation(
-          EnsureRange(StartAnimationItem.Value,
-            Ord(Low(TLyricsEdgeAnimation)),
-            Ord(High(TLyricsEdgeAnimation))));
-        AnimationSettings.EndAnimation := TLyricsEdgeAnimation(
-          EnsureRange(EndAnimationItem.Value,
-            Ord(Low(TLyricsEdgeAnimation)),
-            Ord(High(TLyricsEdgeAnimation))));
-        AnimationSettings.StartDurationSeconds :=
-          Max(0.01, StartAnimationTimeItem.Value);
-        AnimationSettings.EndDurationSeconds :=
-          Max(0.01, EndAnimationTimeItem.Value);
+        AnimationSettings.SyncAnimation := CurrentSerifSyncAnimation;
+        AnimationSettings.StartAnimation := CurrentSerifStartAnimation;
+        AnimationSettings.EndAnimation := CurrentSerifEndAnimation;
+        AnimationSettings.StartDurationSeconds := 0.3;
+        AnimationSettings.EndDurationSeconds := 0.3;
         AnimationSettings.BaseFontHeight :=
           RenderSettings.BaseFontHeight;
         ResolveLyricsAnimation(AnimationSettings, LocalSeconds,
@@ -1582,8 +1417,8 @@ var
 begin
   try
     SongDataText := '';
-    if Assigned(SongLyricsDataItem.Value) then
-      SongDataText := string(SongLyricsDataItem.Value);
+    if Assigned(SongDocumentItem.Value) then
+      SongDataText := string(SongDocumentItem.Value);
     if (SongDataText = '') or
       not TryGetSongLyricsLines(SongDataText, SongLines) then
       Exit(LyricsProcVideo(Video));
@@ -1639,27 +1474,34 @@ begin
   if Plugin.Items = nil then
   begin
     // AviUtl2はnil終端された項目ポインター配列を参照する。
-    PluginItems[0] := @MusicSyncSettingsButton;
-    PluginItems[1] := @SongLyricsDataItem;
-    PluginItems[2] := @LyricsItem;
-    PluginItems[3] := @MusicFileItem;
-    PluginItems[4] := @TrackItem;
-    PluginItems[5] := @MusicOffsetItem;
-    PluginItems[6] := @PlacementModeItem;
-    PluginItems[7] := @DisplayEffectItem;
-    PluginItems[8] := @DisplaySettingsButton;
-    PluginItems[9] := @PresetItem;
-    PluginItems[10] := @PresetSaveButton;
-    PluginItems[11] := @PresetLoadButton;
-    PluginItems[12] := @SyncAnimationItem;
-    PluginItems[13] := @StartAnimationItem;
-    PluginItems[14] := @StartAnimationTimeItem;
-    PluginItems[15] := @EndAnimationItem;
-    PluginItems[16] := @EndAnimationTimeItem;
-    PluginItems[17] := @PreDisplayTimeItem;
-    PluginItems[18] := @SyncDataItem;
-    PluginItems[19] := @DisplaySettingsTextItem;
-    PluginItems[20] := nil;
+    InitializeSerifAnimationItems;
+    PluginItems[0] := @MusicFileItem;
+    PluginItems[1] := @MusicSyncSettingsButton;
+    PluginItems[2] := @DisplaySettingsButton;
+    PluginItems[3] := @SerifBeforeGroup;
+    PluginItems[4] := @SerifBeforeTypeItem;
+    PluginItems[5] := @SerifBeforeDirectionItem;
+    PluginItems[6] := @SerifBeforeZoomOriginItem;
+    PluginItems[7] := @SerifBeforeValue1Item;
+    PluginItems[8] := @SerifDuringGroup;
+    PluginItems[9] := @SerifDuringEmotionItem;
+    PluginItems[10] := @SerifDuringSpeedItem;
+    PluginItems[11] := @SerifSyncGroup;
+    PluginItems[12] := @SerifSyncTypeItem;
+    PluginItems[13] := @SerifSyncModeItem;
+    PluginItems[14] := @SerifSyncShapeItem;
+    PluginItems[15] := @SerifSyncColorItem;
+    PluginItems[16] := @SerifSyncSizeItem;
+    PluginItems[17] := @SerifSyncOffsetXItem;
+    PluginItems[18] := @SerifSyncOffsetYItem;
+    PluginItems[19] := @SerifAfterGroup;
+    PluginItems[20] := @SerifAfterTypeItem;
+    PluginItems[21] := @SerifAfterDirectionItem;
+    PluginItems[22] := @SerifAfterZoomDestinationItem;
+    PluginItems[23] := @SerifAfterValue1Item;
+    PluginItems[24] := @SongDocumentItem;
+    PluginItems[25] := @DisplaySettingsTextItem;
+    PluginItems[26] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

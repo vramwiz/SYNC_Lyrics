@@ -133,6 +133,14 @@ type
     Value   : Byte;    // 0=False、1=True。
   end;
 
+  // 後続の設定項目を折りたたむグループ見出し。
+  PFILTER_ITEM_GROUP = ^TFILTER_ITEM_GROUP;
+  TFILTER_ITEM_GROUP = record
+    ItemType: LPCWSTR;       // SDK項目種別の固定値 `group`。
+    Name: LPCWSTR;
+    DefaultVisible: Byte;
+  end;
+
   // 列挙値から1つを選ぶ選択項目。ListはName=nilの要素で終端する。
   PFILTER_ITEM_SELECT = ^TFILTER_ITEM_SELECT;
   TFILTER_ITEM_SELECT_ITEM = record

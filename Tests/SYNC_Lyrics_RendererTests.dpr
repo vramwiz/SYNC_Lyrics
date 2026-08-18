@@ -6,6 +6,11 @@
 
 uses
   System.SysUtils,
+  TextRendererSkiaBootstrap in 'Source\Lib\TextRenderer\TextRendererSkiaBootstrap.pas',
+  TextRendererTypes in 'Source\Lib\TextRenderer\TextRendererTypes.pas',
+  TextRenderer in 'Source\Lib\TextRenderer\TextRenderer.pas',
+  TextRendererSkiaRuntime in 'Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
+  TextRendererSkia in 'Source\Lib\TextRenderer\TextRendererSkia.pas',
   AviUtl2FilterTypes in 'Source\Lib\AviUtl2FilterTypes.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in
@@ -798,8 +803,9 @@ begin
   Check(RenderFreePlacementLyrics(@Video, '字', 0, Settings,
     Placements, 0, 0), 'free-placement render failed');
   FindVisibleBounds(Left, Top, Right, Bottom);
-  Check((Left > TEST_WIDTH div 2) and (Top > TEST_HEIGHT div 2),
-    'free-placement coordinates did not move the display unit');
+  Check(((Left + Right) > TEST_WIDTH) and
+    ((Top + Bottom) > TEST_HEIGHT),
+    'free-placement coordinates did not move the display-unit center');
 end;
 
 procedure TestFreePlacementRubyKeepsBaseBottom;

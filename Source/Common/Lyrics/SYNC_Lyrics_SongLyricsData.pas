@@ -22,8 +22,7 @@ uses
   System.SysUtils;
 
 const
-  FILE_HEADER = 'SLS1';
-  LEGACY_LINE_FIELD_COUNT = 14;
+  FILE_HEADER = 'SLD1';
   LINE_FIELD_COUNT = 15;
 
 function DecodeTextField(const Value: string; out Decoded: string): Boolean;
@@ -85,8 +84,7 @@ begin
   for I := 1 to High(Records) do
   begin
     Fields := Records[I].Split([',']);
-    if ((Length(Fields) <> LEGACY_LINE_FIELD_COUNT) and
-      (Length(Fields) <> LINE_FIELD_COUNT)) or (Fields[0] <> 'L') or
+    if (Length(Fields) <> LINE_FIELD_COUNT) or (Fields[0] <> 'L') or
       not TryStrToInt64(Fields[1], Lines[I - 1].LineID) or
       (Lines[I - 1].LineID <= 0) or
       HasDuplicateLineID(Lines, I - 1, Lines[I - 1].LineID) or
@@ -116,13 +114,11 @@ begin
       Exit;
     end;
     Lines[I - 1].SyncState := TLyricsLineSyncState(SyncStateValue);
-    Lines[I - 1].TimingMusicOffsetSeconds := 0;
-    if (Length(Fields) = LINE_FIELD_COUNT) and
-      (not TryStrToFloat(Fields[14],
+    if not TryStrToFloat(Fields[14],
         Lines[I - 1].TimingMusicOffsetSeconds,
         TFormatSettings.Invariant) or
        (Lines[I - 1].TimingMusicOffsetSeconds < -5.0) or
-       (Lines[I - 1].TimingMusicOffsetSeconds > 5.0)) then
+       (Lines[I - 1].TimingMusicOffsetSeconds > 5.0) then
     begin
       ErrorText := 'A whole-song music offset field is invalid.';
       Exit;
