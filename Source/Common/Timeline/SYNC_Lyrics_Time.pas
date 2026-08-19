@@ -1,29 +1,39 @@
 ﻿unit SYNC_Lyrics_Time;
 
-// Inputの絶対フレームとFilterの相対フレームから歌詞同期位置を取得する。
+// 単体Filterのオブジェクト内フレームから歌詞同期位置を取得する。
 
 interface
 
 uses
-  AviUtl2FilterTypes,
-  SYNC_Lyrics_FrameShared;
+  AviUtl2FilterTypes;
+
+type
+  TSyncLyricsFrameState = record
+    Frame: Integer;
+    Rate: Integer;
+    Scale: Integer;
+    TimeSeconds: Double;
+  end;
 
 function TryGetLyricsFrameState(Video: PFILTER_PROC_VIDEO;
   out EffectiveState: TSyncLyricsFrameState): Boolean;
 
 implementation
 
-uses
-  SYNC_Lyrics_ContextManager;
-
 function TryGetLyricsFrameState(Video: PFILTER_PROC_VIDEO;
   out EffectiveState: TSyncLyricsFrameState): Boolean;
-var
-  SharedState: TSyncLyricsFrameState;
 begin
   FillChar(EffectiveState, SizeOf(EffectiveState), 0);
-  Result := TryReadLyricsFrame(SharedState) and
-    ResolveLyricsFrameState(Video, SharedState, EffectiveState);
+  Result := (Video <> nil) and (Video^.Object_ <> nil) and
+    (Video^.Scene <> nil) and (Video^.Scene^.Rate > 0) and
+    (Video^.Scene^.Scale > 0);
+  if not Result then
+    Exit;
+  EffectiveState.Frame := Video^.Object_^.Frame;
+  EffectiveState.Rate := Video^.Scene^.Rate;
+  EffectiveState.Scale := Video^.Scene^.Scale;
+  EffectiveState.TimeSeconds := EffectiveState.Frame *
+    EffectiveState.Scale / EffectiveState.Rate;
 end;
 
 end.

@@ -39,6 +39,7 @@ type
     // Replaces the editor contents with one song-line record.
     procedure LoadLine(const MusicFileName: string; Track: Integer;
       PreDisplaySeconds: Double; const LyricsText, SyncText: string);
+    procedure ResetSync;
     procedure AcceptChanges;
     // Exposes the current row values without applying them to the Filter.
     function LyricsText: string;
@@ -66,10 +67,16 @@ begin
   FEditorForm.BorderStyle := bsNone;
   FEditorForm.ApplyButton.Visible := False;
   FEditorForm.CloseButton.Visible := False;
+  FEditorForm.BottomPanel.Visible := False;
   FEditorForm.LyricsEdit.ReadOnly := True;
   FEditorForm.Parent := Self;
   FEditorForm.Align := alClient;
   FEditorForm.Show;
+end;
+
+procedure TFrameLyricsMusicSyncEditor.ResetSync;
+begin
+  FEditorForm.ResetSyncButton.Click;
 end;
 
 procedure TFrameLyricsMusicSyncEditor.ApplyDarkTheme;

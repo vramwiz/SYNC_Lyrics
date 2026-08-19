@@ -14,49 +14,58 @@ uses
   Vcl.Graphics,
   Vcl.StdCtrls,
   SYNC_Lyrics_InitialLyricsFrame,
+  SYNC_Lyrics_ListBoxEdit,
   SYNC_Lyrics_MusicSyncEditorFrame,
   SYNC_Lyrics_SongLyricsData,
-  SYNC_Lyrics_SongLyricsModel;
+  SYNC_Lyrics_SongLyricsModel,
+  SYNC_Lyrics_ToolbarButtons;
 
 type
   TFormLyricsSyncEditor = class(TForm)
-    AddLineButton: TButton;
     BottomPanel: TPanel;
-    CancelButton: TButton;
-    ConfirmSyncButton: TButton;
     ContentPanel: TPanel;
     CurrentFrameLabel: TLabel;
-    DeleteLineButton: TButton;
-    EndFrameButton: TButton;
-    FinishButton: TButton;
     FrameCommandPanel: TPanel;
-    LineHintLabel: TLabel;
-    LineListBox: TListBox;
-    LineListHeaderLabel: TLabel;
+    LineListBox: TSyncLyricsListBoxEdit;
     LineListPanel: TPanel;
+    LineToolbarPanel: TPanel;
     PlaceholderLabel: TLabel;
     PlaceholderPanel: TPanel;
-    SummaryLabel: TLabel;
-    StartFrameButton: TButton;
     SyncStateLabel: TLabel;
     procedure AddLineButtonClick(Sender: TObject);
     procedure ConfirmSyncButtonClick(Sender: TObject);
     procedure DeleteLineButtonClick(Sender: TObject);
-    procedure EndFrameButtonClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormDestroy(Sender: TObject);
     procedure FinishButtonClick(Sender: TObject);
     procedure LineListBoxClick(Sender: TObject);
+    procedure LineListBoxDblClick(Sender: TObject);
     procedure LineListBoxDrawItem(Control: TWinControl; Index: Integer;
       Rect: TRect; State: TOwnerDrawState);
     procedure LineListBoxKeyDown(Sender: TObject; var Key: Word;
       Shift: TShiftState);
-    procedure StartFrameButtonClick(Sender: TObject);
+    procedure NextButtonClick(Sender: TObject);
+    procedure RestoreButtonClick(Sender: TObject);
+    procedure ResetLineSyncButtonClick(Sender: TObject);
   private
     FConfirmedLyrics: string;
+    FCommitComplete: Boolean;
     FCurrentObjectFrame: Integer;
     FCurrentObjectFrameAvailable: Boolean;
     FInputFrame: TFrameLyricsInitialInput;
+    FInitialInputLyrics: string;
+    FInitialSongDataText: string;
+    FLyricsToolbar: TSyncLyricsToolbarButtons;
+    FLyricsToolbarAdd: TSyncLyricsToolbarButton;
+    FLyricsToolbarDelete: TSyncLyricsToolbarButton;
+    FLyricsToolbarEdit: TSyncLyricsToolbarButton;
+    FTopCloseButton: TSyncLyricsToolbarButton;
+    FTopConfirmButton: TSyncLyricsToolbarButton;
+    FTopNextButton: TSyncLyricsToolbarButton;
+    FTopResetButton: TSyncLyricsToolbarButton;
+    FTopRestoreButton: TSyncLyricsToolbarButton;
+    FTopToolbar: TSyncLyricsToolbarButtons;
     FMusicFileName: string;
     FMusicSyncFrame: TFrameLyricsMusicSyncEditor;
     FMusicTrack: Integer;
@@ -68,19 +77,33 @@ type
     FDefaultHoldSeconds: Double;
     FDefaultPreDisplaySeconds: Double;
     FLoadedLineIndex: Integer;
+    FNewLineEditIndex: Integer;
     FSongDataText: string;
     FSongModel: TLyricsSongModel;
+    procedure CreateLyricsToolbar;
+    procedure CreateTopToolbar;
     procedure EnsureMusicSyncFrame;
     procedure EditSelectedLine;
+    procedure LineListBoxApplyEdit(Sender: TObject; Index: Integer;
+      const NewText: string; var Accept: Boolean);
+    procedure LineListBoxCancelEdit(Sender: TObject; Index: Integer);
+    procedure LineListBoxGetEditText(Sender: TObject; Index: Integer;
+      var Text: string);
     procedure LoadSelectedLine;
     procedure LyricsConfirmed(Sender: TObject; const LyricsText: string);
+    procedure LyricsToolbarButtonExecute(Sender: TObject;
+      Button: TSyncLyricsToolbarButton);
     procedure MusicSyncChanged(Sender: TObject);
+    procedure TopToolbarButtonExecute(Sender: TObject;
+      Button: TSyncLyricsToolbarButton);
     procedure PersistDefaultMusicSyncData;
     procedure PopulateLineList;
     procedure RecalculateFrameRanges;
+    function SaveForClose: Boolean;
     procedure SaveLoadedLine;
     procedure SelectLine(Index: Integer);
     procedure ShowSongEditor;
+    procedure ShowInitialInput;
     procedure UpdateFrameControls;
     procedure UpdateMusicSyncReferences;
     procedure UpdateSyncStateControls;
@@ -111,6 +134,17 @@ uses
 
 {$R *.dfm}
 
+const
+  LYRICS_TOOLBAR_ADD = 1;
+  LYRICS_TOOLBAR_DELETE = 2;
+  LYRICS_TOOLBAR_EDIT = 3;
+  TOP_TOOLBAR_CLOSE = 101;
+  TOP_TOOLBAR_RESTORE = 102;
+  TOP_TOOLBAR_NEXT = 103;
+  TOP_TOOLBAR_CONFIRM = 104;
+  TOP_TOOLBAR_RESET = 105;
+  NEW_LINE_PLACEHOLDER = '新しい歌詞';
+
 function TFormLyricsSyncEditor.ConfirmedLyrics: string;
 begin
   Result := FConfirmedLyrics;
@@ -119,28 +153,28 @@ end;
 procedure TFormLyricsSyncEditor.AddLineButtonClick(Sender: TObject);
 var
   InsertIndex: Integer;
-  LineText: string;
 begin
   SaveLoadedLine;
   InsertIndex := LineListBox.ItemIndex + 1;
   if InsertIndex <= 0 then
     InsertIndex := FSongModel.LineCount;
-  LineText := '';
-  if not InputQuery('歌詞行を追加', '歌詞構文:', LineText) then
-    Exit;
-  if not FSongModel.TryInsertLine(InsertIndex, LineText) then
+  if not FSongModel.TryInsertLine(InsertIndex, NEW_LINE_PLACEHOLDER) then
     Exit;
   RecalculateFrameRanges;
   FConfirmedLyrics := FSongModel.LyricsText;
   FLoadedLineIndex := -1;
   PopulateLineList;
+  FNewLineEditIndex := InsertIndex;
   SelectLine(InsertIndex);
+  LineListBox.BeginEdit(InsertIndex);
 end;
 
 procedure TFormLyricsSyncEditor.ConfirmSyncButtonClick(Sender: TObject);
 var
   LineData: TLyricsSongLine;
 begin
+  if LineListBox.IsEditing then
+    Exit;
   if (FMusicSyncFrame = nil) or (FLoadedLineIndex < 0) or
     (FLoadedLineIndex >= FSongModel.LineCount) then
     Exit;
@@ -169,6 +203,45 @@ begin
     MusicOffsetSeconds, -5.0, 5.0);
   FDefaultPreDisplaySeconds := Max(0.0, PreDisplaySeconds);
   FDefaultHoldSeconds := Max(0.0, HoldSeconds);
+end;
+
+procedure TFormLyricsSyncEditor.CreateLyricsToolbar;
+begin
+  FLyricsToolbar := TSyncLyricsToolbarButtons.Create(Self);
+  FLyricsToolbar.Parent := LineToolbarPanel;
+  FLyricsToolbar.Align := alLeft;
+  FLyricsToolbar.Width := 84;
+  FLyricsToolbar.ButtonExtent := 28;
+  FLyricsToolbar.Color := SYNC_LYRICS_DARK_PANEL_COLOR;
+  FLyricsToolbar.ParentBackground := False;
+  FLyricsToolbar.OnButtonExecute := LyricsToolbarButtonExecute;
+  FLyricsToolbarAdd := FLyricsToolbar.AddCommandButton(
+    '歌詞行を追加', tbgAdd, LYRICS_TOOLBAR_ADD);
+  FLyricsToolbarDelete := FLyricsToolbar.AddCommandButton(
+    '選択した歌詞行を削除', tbgDelete, LYRICS_TOOLBAR_DELETE);
+  FLyricsToolbarEdit := FLyricsToolbar.AddCommandButton(
+    '選択した歌詞行を修正', tbgEdit, LYRICS_TOOLBAR_EDIT);
+end;
+
+procedure TFormLyricsSyncEditor.CreateTopToolbar;
+begin
+  FTopToolbar := TSyncLyricsToolbarButtons.Create(Self);
+  FTopToolbar.Parent := BottomPanel;
+  FTopToolbar.SetBounds(12, 12, 140, 28);
+  FTopToolbar.ButtonExtent := 28;
+  FTopToolbar.Color := SYNC_LYRICS_DARK_PANEL_COLOR;
+  FTopToolbar.ParentBackground := False;
+  FTopToolbar.OnButtonExecute := TopToolbarButtonExecute;
+  FTopCloseButton := FTopToolbar.AddCommandButton(
+    '閉じる', tbgClose, TOP_TOOLBAR_CLOSE);
+  FTopRestoreButton := FTopToolbar.AddCommandButton(
+    '編集開始前に戻す', tbgRestore, TOP_TOOLBAR_RESTORE);
+  FTopNextButton := FTopToolbar.AddCommandButton(
+    '歌詞を確定して次へ', tbgNext, TOP_TOOLBAR_NEXT);
+  FTopConfirmButton := FTopToolbar.AddCommandButton(
+    '同期を確定', tbgConfirm, TOP_TOOLBAR_CONFIRM);
+  FTopResetButton := FTopToolbar.AddCommandButton(
+    '同期を初期化', tbgResetAll, TOP_TOOLBAR_RESET);
 end;
 
 procedure TFormLyricsSyncEditor.DeleteLineButtonClick(Sender: TObject);
@@ -202,43 +275,69 @@ begin
   end;
 end;
 
-procedure TFormLyricsSyncEditor.EndFrameButtonClick(Sender: TObject);
+procedure TFormLyricsSyncEditor.EditSelectedLine;
 begin
-  if not FCurrentObjectFrameAvailable or (FLoadedLineIndex < 0) then
+  if (LineListBox.ItemIndex < 0) or
+    (LineListBox.ItemIndex >= FSongModel.LineCount) then
     Exit;
   SaveLoadedLine;
-  if not FSongModel.TrySetEndFrames(FLoadedLineIndex,
-    FCurrentObjectFrame, FCurrentObjectFrame) then
-  begin
-    MessageDlg('終了位置は開始位置以降にしてください。',
-      mtInformation, [mbOK], 0);
-    Exit;
-  end;
-  LineListBox.Invalidate;
-  UpdateFrameControls;
+  LineListBox.BeginEdit(LineListBox.ItemIndex);
 end;
 
-procedure TFormLyricsSyncEditor.EditSelectedLine;
-var
-  LineData: TLyricsSongLine;
-  LineText: string;
-  SelectedIndex: Integer;
+procedure TFormLyricsSyncEditor.LineListBoxApplyEdit(Sender: TObject;
+  Index: Integer; const NewText: string; var Accept: Boolean);
 begin
-  SelectedIndex := LineListBox.ItemIndex;
-  if (SelectedIndex < 0) or (SelectedIndex >= FSongModel.LineCount) then
+  Accept := (Index >= 0) and (Index < FSongModel.LineCount) and
+    (Trim(NewText) <> '');
+  if not Accept then
     Exit;
-  SaveLoadedLine;
-  LineData := FSongModel[SelectedIndex];
-  LineText := LineData.SourceText;
-  if not InputQuery('歌詞行を編集', '歌詞構文:', LineText) then
+  Accept := FSongModel.TrySetLineText(Index, NewText);
+  if not Accept then
     Exit;
-  if not FSongModel.TrySetLineText(SelectedIndex, LineText) then
-    Exit;
+  FNewLineEditIndex := -1;
   RecalculateFrameRanges;
   FConfirmedLyrics := FSongModel.LyricsText;
   FLoadedLineIndex := -1;
   LineListBox.Invalidate;
-  SelectLine(SelectedIndex);
+  SelectLine(Index);
+end;
+
+procedure TFormLyricsSyncEditor.LineListBoxCancelEdit(Sender: TObject;
+  Index: Integer);
+var
+  NextIndex: Integer;
+begin
+  if Index <> FNewLineEditIndex then
+    Exit;
+  FNewLineEditIndex := -1;
+  if not FSongModel.TryDeleteLine(Index) then
+    Exit;
+  RecalculateFrameRanges;
+  FConfirmedLyrics := FSongModel.LyricsText;
+  FLoadedLineIndex := -1;
+  PopulateLineList;
+  if FSongModel.LineCount > 0 then
+  begin
+    NextIndex := Min(Index, FSongModel.LineCount - 1);
+    SelectLine(NextIndex);
+  end
+  else
+  begin
+    FMusicSyncFrame.LoadLine(FMusicFileName, FMusicTrack,
+      FDefaultPreDisplaySeconds, '', '');
+    UpdateSelectedLineSummary;
+  end;
+end;
+
+procedure TFormLyricsSyncEditor.LineListBoxGetEditText(Sender: TObject;
+  Index: Integer; var Text: string);
+begin
+  if (Index < 0) or (Index >= FSongModel.LineCount) then
+    Exit;
+  if Index = FNewLineEditIndex then
+    Text := ''
+  else
+    Text := FSongModel[Index].SourceText;
 end;
 
 procedure TFormLyricsSyncEditor.EnsureMusicSyncFrame;
@@ -258,13 +357,45 @@ begin
 end;
 
 procedure TFormLyricsSyncEditor.FinishButtonClick(Sender: TObject);
+begin
+  if SaveForClose then
+    ModalResult := mrOk;
+end;
+
+procedure TFormLyricsSyncEditor.FormCloseQuery(Sender: TObject;
+  var CanClose: Boolean);
+begin
+  if FCommitComplete then
+  begin
+    CanClose := True;
+    Exit;
+  end;
+  CanClose := SaveForClose;
+  if CanClose then
+    ModalResult := mrOk;
+end;
+
+function TFormLyricsSyncEditor.SaveForClose: Boolean;
 var
   ErrorText: string;
 begin
+  Result := False;
+  if LineListBox.IsEditing then
+  begin
+    LineListBox.EndEdit(True);
+    if LineListBox.IsEditing then
+      Exit;
+  end;
   if (FInputFrame <> nil) and FInputFrame.Visible then
   begin
-    FInputFrame.ConfirmButton.Click;
-    Exit;
+    FSongModel.SetLyricsText(FInputFrame.LyricsMemo.Text);
+    if FSongModel.LineCount = 0 then
+    begin
+      MessageDlg('保存する歌詞行がありません。', mtInformation,
+        [mbOK], 0);
+      Exit;
+    end;
+    RecalculateFrameRanges;
   end;
   SaveLoadedLine;
   PersistDefaultMusicSyncData;
@@ -282,7 +413,8 @@ begin
     Exit;
   end;
   FConfirmedLyrics := FSongModel.LyricsText;
-  ModalResult := mrOk;
+  FCommitComplete := True;
+  Result := True;
 end;
 
 procedure TFormLyricsSyncEditor.FormCreate(Sender: TObject);
@@ -290,21 +422,17 @@ begin
   ApplySyncLyricsDarkForm(Self);
   ApplySyncLyricsDarkPanel(ContentPanel);
   ApplySyncLyricsDarkPanel(LineListPanel);
+  ApplySyncLyricsDarkPanel(LineToolbarPanel);
   ApplySyncLyricsDarkPanel(FrameCommandPanel);
   ApplySyncLyricsDarkPanel(PlaceholderPanel);
   ApplySyncLyricsDarkPanel(BottomPanel);
   ApplySyncLyricsDarkListBox(LineListBox);
-  ApplySyncLyricsDarkButton(AddLineButton);
-  ApplySyncLyricsDarkButton(DeleteLineButton);
-  ApplySyncLyricsDarkButton(StartFrameButton);
-  ApplySyncLyricsDarkButton(EndFrameButton);
-  ApplySyncLyricsDarkButton(ConfirmSyncButton);
-  ApplySyncLyricsDarkButton(FinishButton);
-  ApplySyncLyricsDarkButton(CancelButton);
-  LineListHeaderLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  ApplySyncLyricsDarkEdit(LineListBox.EditControl);
   PlaceholderLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
-  LineHintLabel.Font.Color := TColor($00A8A8A8);
+  CreateLyricsToolbar;
+  CreateTopToolbar;
   FConfirmedLyrics := '';
+  FCommitComplete := False;
   FCurrentObjectFrame := 0;
   FCurrentObjectFrameAvailable := False;
   FMusicFileName := '';
@@ -313,29 +441,78 @@ begin
   FDefaultHoldSeconds := 0.5;
   FDefaultPreDisplaySeconds := 0;
   FLoadedLineIndex := -1;
+  FNewLineEditIndex := -1;
+  FInitialSongDataText := '';
   FSongDataText := '';
   FAnchorAvailable := False;
   FSongModel := TLyricsSongModel.Create;
+  LineListBox.OnApplyEdit := LineListBoxApplyEdit;
+  LineListBox.OnCancelEdit := LineListBoxCancelEdit;
+  LineListBox.OnGetEditText := LineListBoxGetEditText;
   FInputFrame := TFrameLyricsInitialInput.Create(Self);
   FInputFrame.Parent := ContentPanel;
   FInputFrame.ApplyDarkTheme;
   FInputFrame.Align := alClient;
   FInputFrame.ConfirmButton.Visible := False;
   FInputFrame.LoadDebugLyrics;
+  FInitialInputLyrics := FInputFrame.LyricsMemo.Text;
   FInputFrame.OnLyricsConfirmed := LyricsConfirmed;
   ActiveControl := FInputFrame.LyricsMemo;
   LineListPanel.Visible := False;
   PlaceholderPanel.Visible := False;
-  FinishButton.Caption := UnicodeString(
-    #27468#35422#12434#30906#23450#12375#12390#27425#12408);
-  FinishButton.Tag := 1;
-  FinishButton.Enabled := True;
-  ConfirmSyncButton.Visible := False;
+  FTopCloseButton.Enabled := True;
+  FTopRestoreButton.Enabled := True;
+  FTopNextButton.Visible := True;
+  FTopConfirmButton.Visible := False;
+  FTopResetButton.Visible := False;
+  FTopToolbar.Relayout;
   SyncStateLabel.Visible := False;
-  AddLineButton.Enabled := False;
-  DeleteLineButton.Enabled := False;
-  StartFrameButton.Enabled := False;
-  EndFrameButton.Enabled := False;
+  FLyricsToolbarAdd.Enabled := False;
+  FLyricsToolbarDelete.Enabled := False;
+  FLyricsToolbarEdit.Enabled := False;
+end;
+
+procedure TFormLyricsSyncEditor.NextButtonClick(Sender: TObject);
+begin
+  if (FInputFrame <> nil) and FInputFrame.Visible then
+    FInputFrame.ConfirmButton.Click;
+end;
+
+procedure TFormLyricsSyncEditor.RestoreButtonClick(Sender: TObject);
+var
+  ErrorText: string;
+begin
+  if LineListBox.IsEditing then
+    Exit;
+  FLoadedLineIndex := -1;
+  if FInitialSongDataText = '' then
+  begin
+    FSongModel.Clear;
+    FSongDataText := '';
+    FConfirmedLyrics := '';
+    FInputFrame.LyricsMemo.Text := FInitialInputLyrics;
+    ShowInitialInput;
+    Exit;
+  end;
+  if not TryDecodeSongLyrics(FInitialSongDataText, FSongModel,
+    ErrorText) then
+  begin
+    MessageDlg('編集開始前の歌詞データへ戻せませんでした。'#13#10 +
+      ErrorText, mtError, [mbOK], 0);
+    Exit;
+  end;
+  FSongDataText := FInitialSongDataText;
+  ShowSongEditor;
+end;
+
+procedure TFormLyricsSyncEditor.ResetLineSyncButtonClick(Sender: TObject);
+begin
+  if LineListBox.IsEditing then
+    Exit;
+  if (FMusicSyncFrame = nil) or (FLoadedLineIndex < 0) or
+    (FLoadedLineIndex >= FSongModel.LineCount) then
+    Exit;
+  FMusicSyncFrame.ResetSync;
 end;
 
 procedure TFormLyricsSyncEditor.FormDestroy(Sender: TObject);
@@ -345,7 +522,20 @@ end;
 
 procedure TFormLyricsSyncEditor.LineListBoxClick(Sender: TObject);
 begin
+  if LineListBox.IsEditing then
+    Exit;
   LoadSelectedLine;
+end;
+
+procedure TFormLyricsSyncEditor.LineListBoxDblClick(Sender: TObject);
+begin
+  if LineListBox.IsEditing then
+    Exit;
+  SaveLoadedLine;
+  if not FSongModel.TrySetStartLine(LineListBox.ItemIndex) then
+    Exit;
+  LineListBox.Invalidate;
+  UpdateSelectedLineSummary;
 end;
 
 procedure TFormLyricsSyncEditor.LineListBoxDrawItem(Control: TWinControl;
@@ -369,21 +559,25 @@ begin
     Exit;
 
   LineData := FSongModel[Index];
+  if LineData.LineID = FSongModel.StartLineID then
+    LineText := '[先頭] '
+  else
+    LineText := '       ';
   case LineData.SyncState of
     lssUnset:
-      LineText := Format('%.2d   L%d N%d   [ ]   %s',
+      LineText := LineText + Format('%.2d   L%d N%d   [ ]   %s',
         [Index + 1, LineData.DisplayLane, LineData.StartNoteIndex + 1,
         LineData.PlainText]);
     lssProvisional:
-      LineText := Format('%.2d   L%d N%d   [~]   %s',
+      LineText := LineText + Format('%.2d   L%d N%d   [~]   %s',
         [Index + 1, LineData.DisplayLane, LineData.StartNoteIndex + 1,
         LineData.PlainText]);
     lssConfirmed:
-      LineText := Format('%.2d   L%d N%d   [C]   %s',
+      LineText := LineText + Format('%.2d   L%d N%d   [C]   %s',
         [Index + 1, LineData.DisplayLane, LineData.StartNoteIndex + 1,
         LineData.PlainText]);
   else
-    LineText := Format('%.2d   L%d N%d   [!]   %s',
+    LineText := LineText + Format('%.2d   L%d N%d   [!]   %s',
       [Index + 1, LineData.DisplayLane, LineData.StartNoteIndex + 1,
       LineData.PlainText]);
   end;
@@ -396,6 +590,8 @@ var
   DisplayLane: Integer;
   SelectedIndex: Integer;
 begin
+  if LineListBox.IsEditing then
+    Exit;
   if Key = VK_F2 then
   begin
     EditSelectedLine;
@@ -427,6 +623,38 @@ begin
   ShowSongEditor;
 end;
 
+procedure TFormLyricsSyncEditor.LyricsToolbarButtonExecute(Sender: TObject;
+  Button: TSyncLyricsToolbarButton);
+begin
+  if LineListBox.IsEditing then
+    Exit;
+  case Button.Tag of
+    LYRICS_TOOLBAR_ADD:
+      AddLineButtonClick(Button);
+    LYRICS_TOOLBAR_DELETE:
+      DeleteLineButtonClick(Button);
+    LYRICS_TOOLBAR_EDIT:
+      EditSelectedLine;
+  end;
+end;
+
+procedure TFormLyricsSyncEditor.TopToolbarButtonExecute(Sender: TObject;
+  Button: TSyncLyricsToolbarButton);
+begin
+  case Button.Tag of
+    TOP_TOOLBAR_CLOSE:
+      FinishButtonClick(Button);
+    TOP_TOOLBAR_RESTORE:
+      RestoreButtonClick(Button);
+    TOP_TOOLBAR_NEXT:
+      NextButtonClick(Button);
+    TOP_TOOLBAR_CONFIRM:
+      ConfirmSyncButtonClick(Button);
+    TOP_TOOLBAR_RESET:
+      ResetLineSyncButtonClick(Button);
+  end;
+end;
+
 procedure TFormLyricsSyncEditor.ShowSongEditor;
 begin
   FConfirmedLyrics := FSongModel.LyricsText;
@@ -435,21 +663,40 @@ begin
   PopulateLineList;
   EnsureMusicSyncFrame;
   PlaceholderLabel.Visible := False;
-  SummaryLabel.Visible := False;
   LineListPanel.Visible := True;
   PlaceholderPanel.Visible := True;
-  FinishButton.Caption := UnicodeString(
-    #36969#29992#12375#12390#38281#12376#12427);
-  FinishButton.Tag := 0;
-  FinishButton.Enabled := True;
-  ConfirmSyncButton.Visible := True;
+  FTopCloseButton.Enabled := True;
+  FTopRestoreButton.Enabled := True;
+  FTopNextButton.Visible := False;
+  FTopConfirmButton.Visible := True;
+  FTopResetButton.Visible := True;
+  FTopToolbar.Relayout;
   SyncStateLabel.Visible := True;
-  AddLineButton.Enabled := True;
-  DeleteLineButton.Enabled := FSongModel.LineCount > 0;
+  FLyricsToolbarAdd.Enabled := True;
+  FLyricsToolbarDelete.Enabled := FSongModel.LineCount > 0;
+  FLyricsToolbarEdit.Enabled := FSongModel.LineCount > 0;
   if FSongModel.LineCount > 0 then
     SelectLine(0)
   else
-    FinishButton.SetFocus;
+    FTopCloseButton.SetFocus;
+end;
+
+procedure TFormLyricsSyncEditor.ShowInitialInput;
+begin
+  FInputFrame.Visible := True;
+  FInputFrame.BringToFront;
+  LineListPanel.Visible := False;
+  PlaceholderPanel.Visible := False;
+  FTopNextButton.Visible := True;
+  FTopConfirmButton.Visible := False;
+  FTopResetButton.Visible := False;
+  FTopToolbar.Relayout;
+  SyncStateLabel.Visible := False;
+  FLyricsToolbarAdd.Enabled := False;
+  FLyricsToolbarDelete.Enabled := False;
+  FLyricsToolbarEdit.Enabled := False;
+  if FInputFrame.LyricsMemo.CanFocus then
+    FInputFrame.LyricsMemo.SetFocus;
 end;
 
 function TFormLyricsSyncEditor.SongDataText: string;
@@ -463,6 +710,7 @@ begin
   Result := TryDecodeSongLyrics(DataText, FSongModel, ErrorText);
   if not Result then
     Exit;
+  FInitialSongDataText := DataText;
   FSongDataText := DataText;
   ShowSongEditor;
 end;
@@ -636,50 +884,21 @@ begin
     NextLineData.StartNoteIndex);
 end;
 
-procedure TFormLyricsSyncEditor.StartFrameButtonClick(Sender: TObject);
-var
-  PreDisplaySeconds: Double;
-  SyncStartFrame: Int64;
-begin
-  if not FCurrentObjectFrameAvailable or (FLoadedLineIndex < 0) or
-    (FAnchorRate <= 0) or (FAnchorScale <= 0) then
-    Exit;
-  SaveLoadedLine;
-  PreDisplaySeconds := FDefaultPreDisplaySeconds;
-  if FMusicSyncFrame <> nil then
-    PreDisplaySeconds := FMusicSyncFrame.PreDisplaySeconds;
-  SyncStartFrame := FCurrentObjectFrame +
-    Round(Max(0, PreDisplaySeconds) * FAnchorRate / FAnchorScale);
-  if not FSongModel.TrySetStartFrames(FLoadedLineIndex,
-    FCurrentObjectFrame, SyncStartFrame) then
-    Exit;
-  FLoadedLineIndex := -1;
-  SelectLine(LineListBox.ItemIndex);
-  LineListBox.Invalidate;
-  UpdateSyncStateControls;
-  UpdateFrameControls;
-end;
-
 procedure TFormLyricsSyncEditor.UpdateSelectedLineSummary;
 var
-  LineData: TLyricsSongLine;
   SelectedIndex: Integer;
 begin
   SelectedIndex := LineListBox.ItemIndex;
   if (SelectedIndex < 0) or (SelectedIndex >= FSongModel.LineCount) then
   begin
-    SummaryLabel.Caption := '-';
-    DeleteLineButton.Enabled := False;
+    FLyricsToolbarDelete.Enabled := False;
+    FLyricsToolbarEdit.Enabled := False;
     UpdateSyncStateControls;
     UpdateFrameControls;
     Exit;
   end;
-  DeleteLineButton.Enabled := True;
-  LineData := FSongModel[SelectedIndex];
-  SummaryLabel.Caption := Format(
-    'Line %d / Lane %d / ID %d'#13#10'%s',
-    [SelectedIndex + 1, LineData.DisplayLane, LineData.LineID,
-     LineData.SourceText]);
+  FLyricsToolbarDelete.Enabled := True;
+  FLyricsToolbarEdit.Enabled := True;
   UpdateSyncStateControls;
   UpdateFrameControls;
 end;
@@ -690,10 +909,6 @@ var
   LineData: TLyricsSongLine;
   StartText: string;
 begin
-  StartFrameButton.Enabled := FCurrentObjectFrameAvailable and
-    (FLoadedLineIndex >= 0) and
-    (FLoadedLineIndex < FSongModel.LineCount);
-  EndFrameButton.Enabled := StartFrameButton.Enabled;
   if not FCurrentObjectFrameAvailable then
   begin
     CurrentFrameLabel.Caption := '現在位置: 取得不可';
@@ -723,38 +938,39 @@ procedure TFormLyricsSyncEditor.UpdateSyncStateControls;
 var
   LineData: TLyricsSongLine;
 begin
-  ConfirmSyncButton.Enabled := (FLoadedLineIndex >= 0) and
+  FTopConfirmButton.Enabled := (FLoadedLineIndex >= 0) and
     (FLoadedLineIndex < FSongModel.LineCount);
-  if not ConfirmSyncButton.Enabled then
+  FTopResetButton.Enabled := FTopConfirmButton.Enabled;
+  FTopConfirmButton.CheckState := tbcsUnchecked;
+  if not FTopConfirmButton.Enabled then
   begin
     SyncStateLabel.Caption := '同期: -';
-    ConfirmSyncButton.Caption := '同期を確定';
-    ConfirmSyncButton.Tag := -1;
+    FTopConfirmButton.Hint := '同期を確定';
     Exit;
   end;
 
   LineData := FSongModel[FLoadedLineIndex];
-  ConfirmSyncButton.Tag := Ord(LineData.SyncState);
   case LineData.SyncState of
     lssUnset:
       begin
         SyncStateLabel.Caption := '同期: 未設定';
-        ConfirmSyncButton.Caption := '同期を確定';
+        FTopConfirmButton.Hint := '同期を確定';
       end;
     lssProvisional:
       begin
         SyncStateLabel.Caption := '同期: 仮設定';
-        ConfirmSyncButton.Caption := '同期を確定';
+        FTopConfirmButton.Hint := '同期を確定';
       end;
     lssConfirmed:
       begin
         SyncStateLabel.Caption := '同期: 確定';
-        ConfirmSyncButton.Caption := '確定を解除';
+        FTopConfirmButton.Hint := '確定を解除';
+        FTopConfirmButton.CheckState := tbcsChecked;
       end;
     lssInconsistent:
       begin
         SyncStateLabel.Caption := '同期: 不整合';
-        ConfirmSyncButton.Caption := '同期を再確定';
+        FTopConfirmButton.Hint := '同期を再確定';
       end;
   end;
 end;

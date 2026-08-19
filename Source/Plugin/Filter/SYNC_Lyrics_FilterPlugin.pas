@@ -22,10 +22,8 @@ uses
   System.Math,
   System.SysUtils,
   System.UITypes,
-  SYNC_Lyrics_ContextManager,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_CharacterLayoutSettingsForm,
-  SYNC_Lyrics_FrameShared,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_SongLyricsData,
   SYNC_Lyrics_SongLyricsModel,
@@ -202,7 +200,7 @@ var
   );
   PluginItems: array[0..29] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
-    Flag: FILTER_FLAG_VIDEO;
+    Flag: FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER;
     Name: 'SYNC_歌詞テロップ_Filter';
     Label_: 'SYNC';
     Information: '音楽データに同期する歌詞テロップフィルター';
@@ -372,6 +370,8 @@ var
   Anchor: TMusicSyncAnchor;
   CurrentFrame: Int64;
   ObjectLayerFrame: TOBJECT_LAYER_FRAME;
+  SongStartFrame: Int64;
+  StartLineID: Int64;
 begin
   Context.DataText := '';
   Context.Lines := nil;
@@ -381,7 +381,8 @@ begin
     Context.DataText) then
     Context.DataText := '';
   Result := (Context.DataText <> '') and
-    TryGetSongLyricsLines(Context.DataText, Context.Lines) and
+    TryGetSongLyricsDocument(Context.DataText, Context.Lines,
+      StartLineID) and
     (Length(Context.Lines) > 0);
   if not Result then
     Exit;
@@ -404,6 +405,8 @@ begin
         Max(0.0, HoldTimeItem.Value), Anchor.Rate, Anchor.Scale);
     end;
   end;
+  AdjustedLines := AlignSongLyricsLinesToStartLine(AdjustedLines,
+    StartLineID, SongStartFrame);
   Context.CandidateIndexes :=
     ResolveSongLyricsPlacementCandidateIndexes(AdjustedLines, CurrentFrame);
   Context.InitialCandidate := ResolveSongLyricsPlacementInitialCandidate(
@@ -1029,7 +1032,8 @@ end;
 
 procedure RenderLyricsLine(Video: PFILTER_PROC_VIDEO;
   const FrameState: TSyncLyricsFrameState; HasFrameState: Boolean;
-  ObjectStartSeconds: Double; const MusicFileName: string; Track,
+  ObjectStartSeconds, SongStartSeconds: Double;
+  const MusicFileName: string; Track,
   SelectedPlacementMode: Integer; const LyricsText: string;
   HasSongLine: Boolean; const SongLine: TLyricsSongLine;
   Buffer: PPIXEL_RGBA; RenderWidth, RenderHeight: Integer);
@@ -1162,10 +1166,11 @@ begin
       (Video^.Object_ <> nil) and (FrameState.Rate > 0) then
     begin
       CurrentSyncSeconds := ObjectSecondsToMusicSeconds(
-        Video^.Object_^.Frame * FrameState.Scale / FrameState.Rate,
+        SongStartSeconds + Video^.Object_^.Frame *
+        FrameState.Scale / FrameState.Rate,
         MusicOffsetSeconds);
       SyncStartSeconds := ObjectSecondsToMusicSeconds(
-        EffectivePreDisplaySeconds, MusicOffsetSeconds);
+        0, MusicOffsetSeconds);
     end;
     HasSyncData := TryParseSyncText(EffectiveSyncText, SyncData);
     if not HasBoundaryProgress and HasSyncData then
@@ -1491,6 +1496,9 @@ var
   SelectedPlacementMode: Integer;
   SongDataText: string;
   SongLines: TLyricsSongLines;
+  SongStartFrame: Int64;
+  SongStartSeconds: Double;
+  StartLineID: Int64;
   PixelCount: NativeInt;
   Track: Integer;
   Width: Integer;
@@ -1502,7 +1510,8 @@ begin
       if Assigned(SongDocumentItem.Value) then
         SongDataText := string(SongDocumentItem.Value);
       if (SongDataText = '') or
-        not TryGetSongLyricsLines(SongDataText, SongLines) then
+        not TryGetSongLyricsDocument(SongDataText, SongLines,
+          StartLineID) then
         Exit(LyricsProcVideo(Video));
 
       CaptureLastFrame(Video);
@@ -1522,6 +1531,12 @@ begin
           Max(0.0, HoldTimeItem.Value),
           FrameState.Rate, FrameState.Scale);
       end;
+      SongLines := AlignSongLyricsLinesToStartLine(SongLines,
+        StartLineID, SongStartFrame);
+      SongStartSeconds := 0;
+      if HasFrameState then
+        SongStartSeconds := SongStartFrame *
+          FrameState.Scale / FrameState.Rate;
       ObjectStartSeconds := 0;
       if HasFrameState then
         ObjectStartSeconds := FrameState.TimeSeconds;
@@ -1552,7 +1567,7 @@ begin
         if (ActiveIndexes[I] >= 0) and
           (ActiveIndexes[I] < Length(SongLines)) then
           RenderLyricsLine(Video, FrameState, HasFrameState,
-            ObjectStartSeconds, MusicFileName, Track,
+            ObjectStartSeconds, SongStartSeconds, MusicFileName, Track,
             SelectedPlacementMode,
             SongLines[ActiveIndexes[I]].SourceText, True,
             SongLines[ActiveIndexes[I]], Buffer, Width, Height);
@@ -1611,8 +1626,6 @@ end;
 procedure InitializeLyricsFilter;
 begin
   InitializeLastFrameCapture;
-  InitializeLyricsFrameShared;
-  InitializeLyricsContexts;
   InitializeSongLyricsRuntime;
   InitializeMusicSyncAnchor;
   InitializeMusicSync;
@@ -1625,8 +1638,6 @@ begin
   FinalizeMusicSync;
   FinalizeMusicSyncAnchor;
   FinalizeSongLyricsRuntime;
-  FinalizeLyricsContexts;
-  FinalizeLyricsFrameShared;
   FinalizeLastFrameCapture;
 end;
 

@@ -50,7 +50,6 @@ type
     FDisplaySeconds: Double;
     FEditModel: TMusicSyncEditModel;
     FFilterLyricHitRects: TArray<TRect>;
-    FFixedLyricHitRects: TArray<TRect>;
     FHasTrackNotes: Boolean;
     FHoldSeconds: Double;
     FLastTrackNoteEndSeconds: Double;
@@ -259,8 +258,6 @@ function TFormLyricsMusicSyncSettings.HitTestFilterLyric(
   X, Y: Integer): Integer;
 begin
   Result := HitTestNoteFollowingLyrics(FFilterLyricHitRects, X, Y);
-  if Result < 0 then
-    Result := HitTestFixedLyrics(FFixedLyricHitRects, X, Y);
 end;
 
 procedure TFormLyricsMusicSyncSettings.LoadPianoRoll(
@@ -519,8 +516,6 @@ begin
       FNextStartNoteIndex, Layout, PianoWidth);
     DrawNoteFollowingLyrics(Canvas, FEditModel, Layout, PianoWidth,
       FFilterLyricHitRects);
-    DrawFixedLyrics(Canvas, PianoWidth, PianoHeight, FEditModel, Layout,
-      FFixedLyricHitRects);
     DrawUnassignedLyrics(Canvas, PianoWidth, FEditModel, Layout,
       FAvailableNoteCount);
     DrawMusicSyncMarkers(Canvas, PianoHeight, PianoWidth,
@@ -551,7 +546,6 @@ procedure TFormLyricsMusicSyncSettings.RebuildFilterLyricUnits;
 begin
   FEditModel.SetLyrics(LyricsEdit.Text);
   SetLength(FFilterLyricHitRects, Length(FEditModel.Units));
-  SetLength(FFixedLyricHitRects, Length(FEditModel.Units));
 end;
 
 procedure TFormLyricsMusicSyncSettings.ResetSyncButtonClick(

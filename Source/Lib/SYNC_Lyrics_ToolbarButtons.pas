@@ -43,7 +43,14 @@ type
     tbgResetSelected,
     tbgResetAll,
     tbgAlignHorizontal,
-    tbgDistributeHorizontal
+    tbgDistributeHorizontal,
+    tbgAdd,
+    tbgDelete,
+    tbgEdit,
+    tbgClose,
+    tbgRestore,
+    tbgNext,
+    tbgConfirm
   );
 
   TSyncLyricsToolbarButton = class;
@@ -462,6 +469,78 @@ begin
         Canvas.Rectangle(MidX - 1, MidY - 4, MidX + 2, MidY + 5);
         Canvas.Rectangle(MidX + 4, MidY - 4, MidX + 8, MidY + 5);
       end;
+    tbgAdd:
+      DrawTextGlyph('+', [], 70);
+    tbgDelete:
+      begin
+        Canvas.Brush.Style := bsClear;
+        Canvas.Pen.Width := 1;
+        Canvas.MoveTo(MidX - 8, MidY - 6);
+        Canvas.LineTo(MidX + 9, MidY - 6);
+        Canvas.MoveTo(MidX - 3, MidY - 9);
+        Canvas.LineTo(MidX + 4, MidY - 9);
+        Canvas.MoveTo(MidX - 2, MidY - 9);
+        Canvas.LineTo(MidX - 2, MidY - 6);
+        Canvas.MoveTo(MidX + 3, MidY - 9);
+        Canvas.LineTo(MidX + 3, MidY - 6);
+        Canvas.Rectangle(MidX - 6, MidY - 4, MidX + 7, MidY + 9);
+        Canvas.MoveTo(MidX - 2, MidY - 1);
+        Canvas.LineTo(MidX - 2, MidY + 6);
+        Canvas.MoveTo(MidX + 2, MidY - 1);
+        Canvas.LineTo(MidX + 2, MidY + 6);
+      end;
+    tbgEdit:
+      begin
+        Canvas.Brush.Style := bsClear;
+        Canvas.Pen.Width := 2;
+        Canvas.MoveTo(MidX - 7, MidY + 7);
+        Canvas.LineTo(MidX - 5, MidY + 1);
+        Canvas.LineTo(MidX + 5, MidY - 9);
+        Canvas.LineTo(MidX + 9, MidY - 5);
+        Canvas.LineTo(MidX - 1, MidY + 5);
+        Canvas.LineTo(MidX - 7, MidY + 7);
+        Canvas.MoveTo(MidX - 5, MidY + 1);
+        Canvas.LineTo(MidX - 1, MidY + 5);
+        Canvas.Pen.Width := 1;
+      end;
+    tbgClose:
+      begin
+        Canvas.Pen.Width := 2;
+        Canvas.MoveTo(MidX - 7, MidY - 7);
+        Canvas.LineTo(MidX + 7, MidY + 7);
+        Canvas.MoveTo(MidX + 7, MidY - 7);
+        Canvas.LineTo(MidX - 7, MidY + 7);
+        Canvas.Pen.Width := 1;
+      end;
+    tbgRestore:
+      begin
+        Canvas.Brush.Style := bsClear;
+        Canvas.Pen.Width := 2;
+        Canvas.Arc(MidX - 8, MidY - 8, MidX + 9, MidY + 9,
+          MidX + 7, MidY - 5, MidX - 7, MidY - 5);
+        Canvas.Pen.Width := 1;
+        Canvas.Brush.Color := TextColor;
+        Canvas.Polygon([Point(MidX - 9, MidY - 6),
+          Point(MidX - 2, MidY - 8), Point(MidX - 6, MidY)]);
+      end;
+    tbgNext:
+      begin
+        Canvas.Pen.Width := 2;
+        Canvas.MoveTo(MidX - 8, MidY);
+        Canvas.LineTo(MidX + 7, MidY);
+        Canvas.MoveTo(MidX + 1, MidY - 6);
+        Canvas.LineTo(MidX + 7, MidY);
+        Canvas.LineTo(MidX + 1, MidY + 6);
+        Canvas.Pen.Width := 1;
+      end;
+    tbgConfirm:
+      begin
+        Canvas.Pen.Width := 2;
+        Canvas.MoveTo(MidX - 8, MidY);
+        Canvas.LineTo(MidX - 2, MidY + 6);
+        Canvas.LineTo(MidX + 9, MidY - 7);
+        Canvas.Pen.Width := 1;
+      end;
   end;
   if FCheckState = tbcsMixed then
   begin
@@ -672,6 +751,8 @@ begin
   X := 0;
   for Item in FItems do
   begin
+    if not Item.Visible then
+      Continue;
     if Item.Kind = tbkSeparator then
       ItemWidth := FSeparatorExtent
     else

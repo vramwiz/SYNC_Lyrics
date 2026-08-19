@@ -35,8 +35,10 @@ type
   private
     FLines: TLyricsSongLines;
     FNextLineID: Int64;
+    FStartLineID: Int64;
     function GetLine(Index: Integer): TLyricsSongLine;
     function GetLineCount: Integer;
+    function GetStartLineIndex: Integer;
     procedure InitializeLine(var LineData: TLyricsSongLine;
       const SourceText: string);
     procedure RecalculateNoteOffsets;
@@ -68,12 +70,16 @@ type
       const SyncText: string): Boolean;
     function TrySetSyncState(Index: Integer;
       SyncState: TLyricsLineSyncState): Boolean;
+    function TrySetStartLine(Index: Integer): Boolean;
+    function TrySetStartLineID(LineID: Int64): Boolean;
     // Rebuilds object-local display ranges from the shared music-note sequence.
     procedure RecalculateMusicFrameRanges(const MusicFileName: string;
       Track: Integer; SequenceStartSeconds, MusicOffsetSeconds,
       DefaultPreDisplaySeconds, DefaultHoldSeconds: Double;
       Rate, Scale: Integer);
     property LineCount: Integer read GetLineCount;
+    property StartLineID: Int64 read FStartLineID;
+    property StartLineIndex: Integer read GetStartLineIndex;
     property Lines[Index: Integer]: TLyricsSongLine read GetLine; default;
   end;
 
@@ -93,12 +99,14 @@ constructor TLyricsSongModel.Create;
 begin
   inherited Create;
   FNextLineID := 1;
+  FStartLineID := 0;
 end;
 
 procedure TLyricsSongModel.Clear;
 begin
   SetLength(FLines, 0);
   FNextLineID := 1;
+  FStartLineID := 0;
 end;
 
 function TLyricsSongModel.GetLine(Index: Integer): TLyricsSongLine;
@@ -111,6 +119,16 @@ end;
 function TLyricsSongModel.GetLineCount: Integer;
 begin
   Result := Length(FLines);
+end;
+
+function TLyricsSongModel.GetStartLineIndex: Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  for I := 0 to High(FLines) do
+    if FLines[I].LineID = FStartLineID then
+      Exit(I);
 end;
 
 function TLyricsSongModel.CopyLines: TLyricsSongLines;
@@ -237,6 +255,11 @@ begin
     if FLines[I].LineID >= FNextLineID then
       FNextLineID := FLines[I].LineID + 1;
   end;
+  if GetStartLineIndex < 0 then
+    if Length(FLines) > 0 then
+      FStartLineID := FLines[0].LineID
+    else
+      FStartLineID := 0;
   RecalculateNoteOffsets;
 end;
 
@@ -261,19 +284,28 @@ begin
   finally
     SourceLines.Free;
   end;
+  if Length(FLines) > 0 then
+    FStartLineID := FLines[0].LineID;
   RecalculateNoteOffsets;
 end;
 
 function TLyricsSongModel.TryDeleteLine(Index: Integer): Boolean;
 var
+  DeletedStartLine: Boolean;
   I: Integer;
 begin
   Result := (Index >= 0) and (Index < Length(FLines));
   if not Result then
     Exit;
+  DeletedStartLine := FLines[Index].LineID = FStartLineID;
   for I := Index to High(FLines) - 1 do
     FLines[I] := FLines[I + 1];
   SetLength(FLines, Length(FLines) - 1);
+  if DeletedStartLine then
+    if Length(FLines) > 0 then
+      FStartLineID := FLines[Min(Index, High(FLines))].LineID
+    else
+      FStartLineID := 0;
   RecalculateNoteOffsets;
 end;
 
@@ -290,6 +322,8 @@ begin
   for I := High(FLines) downto Index + 1 do
     FLines[I] := FLines[I - 1];
   InitializeLine(FLines[Index], SourceText);
+  if FStartLineID = 0 then
+    FStartLineID := FLines[Index].LineID;
   RecalculateNoteOffsets;
 end;
 
@@ -400,6 +434,26 @@ begin
     FLines[Index].SyncState := SyncState;
     RecalculateNoteOffsets;
   end;
+end;
+
+function TLyricsSongModel.TrySetStartLine(Index: Integer): Boolean;
+begin
+  Result := (Index >= 0) and (Index < Length(FLines));
+  if Result then
+    FStartLineID := FLines[Index].LineID;
+end;
+
+function TLyricsSongModel.TrySetStartLineID(LineID: Int64): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 0 to High(FLines) do
+    if FLines[I].LineID = LineID then
+    begin
+      FStartLineID := LineID;
+      Exit(True);
+    end;
 end;
 
 end.

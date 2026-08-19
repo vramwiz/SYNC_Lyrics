@@ -60,6 +60,9 @@ var
   IntegerValue: Integer;
   Lines: TLyricsSongLines;
   Records: TArray<string>;
+  StartLineID: Int64;
+  HeaderFields: TArray<string>;
+  StartLineFound: Boolean;
   SyncStateValue: Integer;
 begin
   Result := False;
@@ -75,7 +78,18 @@ begin
     Exit;
   end;
   Records := Text.Split(['|']);
-  if (Length(Records) < 1) or (Records[0] <> FILE_HEADER) then
+  if Length(Records) < 1 then
+  begin
+    ErrorText := 'The whole-song text header is invalid.';
+    Exit;
+  end;
+  HeaderFields := Records[0].Split([',']);
+  StartLineID := 0;
+  if (Length(HeaderFields) < 1) or (HeaderFields[0] <> FILE_HEADER) or
+    (Length(HeaderFields) > 2) or
+    ((Length(HeaderFields) = 2) and
+     (not TryStrToInt64(HeaderFields[1], StartLineID) or
+      (StartLineID <= 0))) then
   begin
     ErrorText := 'The whole-song text header is invalid.';
     Exit;
@@ -132,7 +146,21 @@ begin
       Exit;
     end;
   end;
+  StartLineFound := StartLineID = 0;
+  for I := 0 to High(Lines) do
+    if Lines[I].LineID = StartLineID then
+    begin
+      StartLineFound := True;
+      Break;
+    end;
+  if not StartLineFound then
+  begin
+    ErrorText := 'The whole-song start line is invalid.';
+    Exit;
+  end;
   Model.ReplaceLines(Lines);
+  if StartLineID > 0 then
+    Model.TrySetStartLineID(StartLineID);
   Result := True;
 end;
 
@@ -151,6 +179,8 @@ begin
     Exit;
   end;
   Text := FILE_HEADER;
+  if Model.StartLineID > 0 then
+    Text := Text + ',' + IntToStr(Model.StartLineID);
   for I := 0 to Model.LineCount - 1 do
   begin
     LineData := Model[I];

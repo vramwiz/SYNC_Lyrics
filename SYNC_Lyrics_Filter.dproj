@@ -101,7 +101,7 @@
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkia.pas"/>
         <DCCReference Include="Source\Lib\SerifSyncAnimation\PluginFilterSerifDrawSyncHighlight.pas"/>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
-        <DCCReference Include="Source\Lib\SharedMemoryBase.pas"/>
+        <DCCReference Include="Source\Lib\SYNC_Lyrics_ListBoxEdit.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ToolbarButtons.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_DarkTheme.pas"/>
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerColorMath.pas"/>
@@ -119,8 +119,6 @@
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerDialog.pas">
             <Form>FormColorPickerDialog</Form>
         </DCCReference>
-        <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_FrameShared.pas"/>
-        <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_ContextManager.pas"/>
         <DCCReference Include="Source\Common\Timeline\SYNC_Lyrics_Time.pas"/>
         <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas"/>
         <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas"/>

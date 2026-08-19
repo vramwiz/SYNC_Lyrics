@@ -1,0 +1,99 @@
+[project]
+version=2010301
+file=D:\DelphiProg\test\SYNC_Lyrics\Sample\Sample2.aup2
+display.scene=0
+preview.scene=0
+[scene.0]
+scene=0
+name=Root
+video.width=1920
+video.height=1080
+video.rate=30
+video.scale=1
+audio.rate=44100
+cursor.frame=299
+cursor.layer=1
+preview.frame=0
+display.frame=0
+display.layer=0
+display.zoom=10000
+display.order=0
+display.camera=
+display.grid.x=16,-16
+display.grid.y=16,-16
+display.grid.width=200
+display.grid.height=200
+display.grid.step=200.000000
+display.grid.range=10000.000000
+display.tempo.bpm=120.000000
+display.tempo.beat=4
+display.tempo.start=0.000000
+display.tempo.offset=0.000000
+[0]
+layer=0
+frame=0,119
+[0.0]
+effect.name=フィルタオブジェクト
+[0.1]
+effect.name=SYNC_歌詞テロップ_Filter
+音楽ファイル=D:\DelphiProg\test\SYNC_Lyrics\Sample\sync_test_120bpm_30s.mid
+曲同期設定=
+同期前表示 (秒)=0.50
+同期後維持 (秒)=0.50
+表示設定=
+前 種類=なし
+前 方向=標準
+前 奥行き=奥から
+前 値1=0.00
+常時 感情表現=0
+常時 速さ=1.00
+同期 種類=色変え
+色塗り=なめらか
+通過後=維持
+同期 形=自動
+同期 色=ffff00
+同期 サイズ=100.00
+同期 オフセットX=0
+同期 オフセットY=0
+後 種類=なし
+後 方向=標準
+後 奥行き=奥へ
+後 値1=0.00
+歌詞データ=SLD1,1|L,1,1,1,0.5,0.5,45,164,60,149,0,W+aYn+epul0o44G744GX44Ge44KJKeOCkuimi+S4iuOBkuOBpg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,2,2,1,0.5,0.5,165,314,180,299,6,W+WQm10o44GN44G/KeOBruWjsOOCkuaOouOBl+OBpuOCiw==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,3,1,1,0.5,0.5,285,427,300,412,14,W+acquadpV0o44G/44KJ44GEKeOBuOe2muOBj+OBk+OBrumBk+OCkg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,4,2,1,0.5,0.5,427,607,442,592,22,W+WFiV0o44Gy44GL44KKKeOBruS4reOBp+atjOOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,5,1,1,0.5,0.5,577,734,592,719,29,44G+44GfW+aYjuaXpV0o44GC44GX44GfKeOBk+OBk+OBp+S8muOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0
+表示設定=
+[1]
+layer=0
+focus=1
+frame=175,414
+[1.0]
+effect.name=フィルタオブジェクト
+[1.1]
+effect.name=SYNC_歌詞テロップ_Filter
+音楽ファイル=D:\DelphiProg\test\SYNC_Lyrics\Sample\sync_test_120bpm_30s.mid
+曲同期設定=
+同期前表示 (秒)=0.50
+同期後維持 (秒)=0.50
+表示設定=
+前 種類=なし
+前 方向=標準
+前 奥行き=奥から
+前 値1=0.00
+常時 感情表現=0
+常時 速さ=1.00
+同期 種類=色変え
+色塗り=なめらか
+通過後=維持
+同期 形=自動
+同期 色=ffff00
+同期 サイズ=100.00
+同期 オフセットX=0
+同期 オフセットY=0
+後 種類=なし
+後 方向=標準
+後 奥行き=奥へ
+後 値1=0.00
+歌詞データ=SLD1,2|L,1,1,1,0.5,0.5,45,164,60,149,0,W+aYn+epul0o44G744GX44Ge44KJKeOCkuimi+S4iuOBkuOBpg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,2,1,1,0.5,0.5,165,314,180,299,6,W+WQm10o44GN44G/KeOBruWjsOOCkuaOouOBl+OBpuOCiw==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,3,1,1,0.5,0.5,285,427,300,412,14,W+acquadpV0o44G/44KJ44GEKeOBuOe2muOBj+OBk+OBrumBk+OCkg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,4,1,1,0.5,0.5,427,607,442,592,22,W+WFiV0o44Gy44GL44KKKeOBruS4reOBp+atjOOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,5,1,1,0.5,0.5,577,734,592,719,29,44G+44GfW+aYjuaXpV0o44GC44GX44GfKeOBk+OBk+OBp+S8muOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0
+表示設定=
+[plugin.0]
+plugin.name=Syncroh2_Extension2
+SpeechSynthesisProjectID={38F4EDDD-721C-48E2-98A0-83D08829684D}

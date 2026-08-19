@@ -10,6 +10,8 @@ uses
   Vcl.Forms,
   Vcl.StdCtrls,
   SYNC_Lyrics_DarkTheme in '..\Source\Lib\SYNC_Lyrics_DarkTheme.pas',
+  SYNC_Lyrics_ListBoxEdit in '..\Source\Lib\SYNC_Lyrics_ListBoxEdit.pas',
+  SYNC_Lyrics_ToolbarButtons in '..\Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
   SYNC_Lyrics_LyricParser in '..\Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in '..\Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_SyncFormat in '..\Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
@@ -32,11 +34,14 @@ var
   LineDisplayForm: TFormLyricsLineDisplaySettings;
   MusicSyncFrame: TFrameLyricsMusicSyncEditor;
   MusicSyncForm: TFormLyricsMusicSyncSettings;
+  LyricsToolbar: TSyncLyricsToolbarButtons;
+  TopToolbar: TSyncLyricsToolbarButtons;
   Key: Word;
   ErrorText: string;
   SongDataText: string;
   ReloadedModel: TLyricsSongModel;
   StoredModel: TLyricsSongModel;
+  CanClose: Boolean;
 
 function FindOwnedComponentByClass(Owner: TComponent;
   ComponentClass: TComponentClass): TComponent;
@@ -148,18 +153,88 @@ begin
         (InputFrame.LyricsMemo.Color <>
           SYNC_LYRICS_DARK_CONTROL_COLOR) then
         raise Exception.Create('The initial lyrics input was not dark.');
-      if not EditorForm.FinishButton.Enabled or
-        (EditorForm.FinishButton.Tag <> 1) then
+      TopToolbar := FindChildControlByClass(EditorForm.BottomPanel,
+        TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
+      if (TopToolbar = nil) or (TopToolbar.ItemCount <> 5) or
+        (TopToolbar.Items[0].Glyph <> tbgClose) or
+        (TopToolbar.Items[1].Glyph <> tbgRestore) or
+        (TopToolbar.Items[2].Glyph <> tbgNext) or
+        (TopToolbar.Items[3].Glyph <> tbgConfirm) or
+        (TopToolbar.Items[4].Glyph <> tbgResetAll) then
         raise Exception.Create(
-          'The initial lyrics page did not provide a next action.');
-      EditorForm.FinishButton.Click;
+          'The top actions did not use the common icon toolbar.');
+      if (EditorForm.SyncStateLabel.Top <> TopToolbar.Top) or
+        (EditorForm.SyncStateLabel.Height <> TopToolbar.Height) then
+        raise Exception.Create(
+          'The synchronization state was not vertically aligned with the icons.');
+      if not TopToolbar.Items[0].Enabled then
+        raise Exception.Create(
+          'The initial lyrics page did not provide the common close action.');
+      if not TopToolbar.Items[2].Visible then
+        raise Exception.Create(
+          'The initial lyrics page did not provide the next action.');
+      TopToolbar.Items[2].Execute;
       if EditorForm.LineListBox.Items.Count <> 5 then
         raise Exception.Create('The confirmed lyrics did not create five lines.');
+      if (EditorForm.FindComponent('LineListHeaderLabel') <> nil) or
+        (EditorForm.FindComponent('LineHintLabel') <> nil) or
+        (EditorForm.FindComponent('SummaryLabel') <> nil) or
+        (EditorForm.LineListBox.Height <= 418) then
+        raise Exception.Create(
+          'Removing the lyric labels did not expand the line list vertically.');
       if EditorForm.LineListBox.ItemIndex <> 0 then
         raise Exception.Create('The first lyric line was not selected.');
-      if EditorForm.FinishButton.Tag <> 0 then
+      if not TopToolbar.Items[1].Enabled then
+        raise Exception.Create('The restore action was not available.');
+      if TopToolbar.Items[2].Visible then
         raise Exception.Create(
-          'The final apply action was not restored after advancing.');
+          'The next action remained visible in the synchronization editor.');
+      LyricsToolbar := FindChildControlByClass(EditorForm.LineListPanel,
+        TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
+      if (LyricsToolbar = nil) or (LyricsToolbar.ItemCount <> 3) then
+        raise Exception.Create(
+          'The lyric-line toolbar was not created above the line list.');
+      if (LyricsToolbar.Items[0].Glyph <> tbgAdd) or
+        (LyricsToolbar.Items[1].Glyph <> tbgDelete) or
+        (LyricsToolbar.Items[2].Glyph <> tbgEdit) then
+        raise Exception.Create(
+          'The lyric-line toolbar did not use add, delete, and edit glyphs.');
+      if LyricsToolbar.Top >= EditorForm.LineListBox.Top then
+        raise Exception.Create(
+          'The lyric-line toolbar was not placed above the line list.');
+      if not LyricsToolbar.Items[0].Enabled or
+        not LyricsToolbar.Items[1].Enabled or
+        not LyricsToolbar.Items[2].Enabled then
+        raise Exception.Create(
+          'The lyric-line toolbar actions were not enabled.');
+      LyricsToolbar.Items[0].Execute;
+      if (EditorForm.LineListBox.Items.Count <> 6) or
+        not EditorForm.LineListBox.IsEditing or
+        (EditorForm.LineListBox.EditControl.Text <> '') then
+        raise Exception.Create(
+          'Adding a lyric line did not begin an empty inline edit.');
+      if EditorForm.LineListBox.EditControl.Height <>
+        EditorForm.LineListBox.ItemHeight then
+        raise Exception.Create(
+          'The inline lyric editor height did not match its list row.');
+      EditorForm.LineListBox.EndEdit(True);
+      if not EditorForm.LineListBox.IsEditing then
+        raise Exception.Create(
+          'An empty new lyric line was accepted unexpectedly.');
+      EditorForm.LineListBox.EndEdit(False);
+      if (EditorForm.LineListBox.Items.Count <> 5) or
+        EditorForm.LineListBox.IsEditing then
+        raise Exception.Create(
+          'Canceling a new inline lyric did not remove the pending line.');
+      EditorForm.LineListBox.ItemIndex := 0;
+      EditorForm.LineListBoxClick(EditorForm.LineListBox);
+      LyricsToolbar.Items[2].Execute;
+      if not EditorForm.LineListBox.IsEditing or
+        (EditorForm.LineListBox.EditControl.Text <>
+          '['#26143#31354']('#12411#12375#12382#12425')'#12434#35211#19978#12370#12390) then
+        raise Exception.Create(
+          'The edit glyph did not begin editing the selected lyric syntax.');
+      EditorForm.LineListBox.EndEdit(False);
       MusicSyncFrame := EditorForm.FindComponent(
         'FrameLyricsMusicSyncEditor') as TFrameLyricsMusicSyncEditor;
       if MusicSyncFrame = nil then
@@ -180,6 +255,14 @@ begin
       if MusicSyncForm.ResetSyncButton.ClassType <> TButton then
         raise Exception.Create(
           'The reset synchronization button did not use the standard UI.');
+      if MusicSyncForm.BottomPanel.Visible or
+        not TopToolbar.Items[4].Visible then
+        raise Exception.Create(
+          'The embedded synchronization controls were not moved to the top bar.');
+      if MusicSyncForm.PianoRollPaintBox.Height <>
+        MusicSyncForm.ClientHeight then
+        raise Exception.Create(
+          'Removing the embedded lyrics row did not expand the editor.');
       MusicSyncForm.PianoRollPaintBoxMouseMove(
         MusicSyncForm.PianoRollPaintBox, [], 4, 4);
       if MusicSyncForm.PianoRollPaintBox.Cursor <> crDefault then
@@ -198,11 +281,8 @@ begin
       if MusicSyncFrame.LyricsText <>
         '['#26143#31354']('#12411#12375#12382#12425')'#12434#35211#19978#12370#12390 then
         raise Exception.Create('The first lyric line was not loaded into the editor.');
-      EditorForm.StartFrameButton.Click;
-      if Pos('45-', EditorForm.CurrentFrameLabel.Caption) = 0 then
-        raise Exception.Create('The current frame was not assigned as the start.');
-      EditorForm.ConfirmSyncButton.Click;
-      if EditorForm.ConfirmSyncButton.Tag <> Ord(lssConfirmed) then
+      TopToolbar.Items[3].Execute;
+      if TopToolbar.Items[3].CheckState <> tbcsChecked then
         raise Exception.Create('The selected lyric line was not confirmed.');
       Key := Ord('2');
       EditorForm.LineListBoxKeyDown(EditorForm.LineListBox, Key, []);
@@ -213,10 +293,10 @@ begin
         raise Exception.Create('Advancing did not load the next lyric line.');
       EditorForm.LineListBox.ItemIndex := 0;
       EditorForm.LineListBoxClick(EditorForm.LineListBox);
-      if EditorForm.ConfirmSyncButton.Tag <> Ord(lssConfirmed) then
+      if TopToolbar.Items[3].CheckState <> tbcsChecked then
         raise Exception.Create('The confirmed state was not retained after switching.');
-      EditorForm.ConfirmSyncButton.Click;
-      if EditorForm.ConfirmSyncButton.Tag <> Ord(lssProvisional) then
+      TopToolbar.Items[3].Execute;
+      if TopToolbar.Items[3].CheckState <> tbcsUnchecked then
         raise Exception.Create('The confirmed state was not released.');
       EditorForm.Hide;
     finally
@@ -237,11 +317,13 @@ begin
           raise Exception.Create('The loaded song did not create two rows.');
         Key := Ord('3');
         EditorForm.LineListBoxKeyDown(EditorForm.LineListBox, Key, []);
-        EditorForm.FinishButton.Click;
-        if EditorForm.ModalResult <> mrOk then
-          raise Exception.Create('Saving did not complete the editor.');
+        CanClose := True;
+        EditorForm.FormCloseQuery(EditorForm, CanClose);
+        if not CanClose or (EditorForm.ModalResult <> mrOk) then
+          raise Exception.Create(
+            'Closing the window did not save and complete the editor.');
         SongDataText := EditorForm.SongDataText;
-        if Copy(SongDataText, 1, 5) <> 'SLD1|' then
+        if not SongDataText.StartsWith('SLD1,') then
           raise Exception.Create('The editor did not save an SLD1 document.');
       finally
         EditorForm.Free;
@@ -255,6 +337,30 @@ begin
         (ReloadedModel[1].SyncText <> DEFAULT_MUSIC_SYNC_TEXT) then
         raise Exception.Create(
           'Saving did not persist default synchronization for every lyric line.');
+      EditorForm := TFormLyricsSyncEditor.Create(nil);
+      try
+        if not EditorForm.TryLoadSongData(SongDataText, ErrorText) then
+          raise Exception.Create(
+            'The restore test could not load Filter text: ' + ErrorText);
+        TopToolbar := FindChildControlByClass(EditorForm.BottomPanel,
+          TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
+        if TopToolbar = nil then
+          raise Exception.Create('The restore test could not find the top toolbar.');
+        Key := Ord('1');
+        EditorForm.LineListBoxKeyDown(EditorForm.LineListBox, Key, []);
+        TopToolbar.Items[1].Execute;
+        CanClose := True;
+        EditorForm.FormCloseQuery(EditorForm, CanClose);
+        if not CanClose then
+          raise Exception.Create('The restored editor could not close.');
+        SongDataText := EditorForm.SongDataText;
+      finally
+        EditorForm.Free;
+      end;
+      if not TryDecodeSongLyrics(SongDataText, ReloadedModel,
+        ErrorText) or (ReloadedModel[0].DisplayLane <> 3) then
+        raise Exception.Create(
+          'Restoring did not recover the state from before editing.');
     finally
       ReloadedModel.Free;
       StoredModel.Free;

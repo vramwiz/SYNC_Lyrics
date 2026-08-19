@@ -26,6 +26,8 @@ var
   ActiveIndexes: TLyricsSongLineIndexes;
   ProgressUnits: Double;
   RuntimeLines: TLyricsSongLines;
+  SongStartFrame: Int64;
+  StartLineID: Int64;
   ThreeLaneLines: TLyricsSongLines;
   Model: TLyricsSongModel;
 begin
@@ -47,10 +49,12 @@ begin
     Lines[0].TimingMusicOffsetSeconds := 0.5;
     Lines[0].PlacementText := 'PL1';
     Model.ReplaceLines(Lines);
+    Check(Model.TrySetStartLine(1), 'The start line setup failed.');
 
     Check(TryEncodeSongLyrics(Model, EncodedText, ErrorText),
       'Encoding failed: ' + ErrorText);
-    Check(Copy(EncodedText, 1, 5) = 'SLD1|',
+    Check(EncodedText.StartsWith('SLD1,' +
+      IntToStr(Model.StartLineID) + '|'),
       'The song document header is invalid.');
     Check(not TryDecodeSongLyrics('SLS1' + Copy(EncodedText, 5,
       MaxInt), Decoded, ErrorText),
@@ -78,6 +82,8 @@ begin
       'The continuous music note offset was not preserved.');
     Check(Decoded[0].PlacementText = 'PL1',
       'The placement text was not preserved.');
+    Check(Decoded.StartLineID = Model[1].LineID,
+      'The object start line was not preserved.');
 
     Check(not TryDecodeSongLyrics('invalid', Decoded, ErrorText),
       'Malformed Filter text must be rejected.');
@@ -85,6 +91,9 @@ begin
       'A failed decode must not mutate the current model.');
     Check(TryGetSongLyricsLines(EncodedText, RuntimeLines),
       'The runtime cache did not decode valid Filter text.');
+    Check(TryGetSongLyricsDocument(EncodedText, RuntimeLines,
+      StartLineID) and (StartLineID = Model[1].LineID),
+      'The runtime cache did not preserve the object start line.');
     Check(ResolveSongLyricsLineIndex(RuntimeLines, 150) = 0,
       'The persisted timed line was not resolved.');
     RuntimeLines := ApplyMusicOffsetToSongLyricsLines(
@@ -99,6 +108,16 @@ begin
     Check((RuntimeLines[0].DisplayStartFrame = 120) and
       (RuntimeLines[0].DisplayEndFrame = 295),
       'Global pre-display and hold times did not rebuild display ranges.');
+    RuntimeLines[1].DisplayStartFrame := 300;
+    RuntimeLines[1].DisplayEndFrame := 360;
+    RuntimeLines[1].SyncStartFrame := 330;
+    RuntimeLines[1].SyncEndFrame := 350;
+    RuntimeLines := AlignSongLyricsLinesToStartLine(RuntimeLines,
+      StartLineID, SongStartFrame);
+    Check((SongStartFrame = 300) and
+      (RuntimeLines[1].DisplayStartFrame = 0) and
+      (RuntimeLines[1].SyncStartFrame = 30),
+      'The selected start line was not aligned to object frame zero.');
     RuntimeLines[0].DisplayStartFrame := -1;
     RuntimeLines[0].DisplayEndFrame := -1;
     RuntimeLines[1].DisplayStartFrame := -1;

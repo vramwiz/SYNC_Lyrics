@@ -842,7 +842,7 @@ begin
       Notes, 0, 0, 0, 0, MUSIC_SYNC_DISPLAY_SECONDS, 192, Layout);
     Check((Layout.Dpi = 192) and
       (Layout.KeyboardWidth = 152) and
-      (Layout.RollHeight = 1124) and
+      (Layout.RollHeight = 1240) and
       (Layout.TimeWidth = 1648) and
       (Abs(Layout.ViewStartSeconds) < 0.000001) and
       (Abs(Layout.DisplaySeconds -

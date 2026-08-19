@@ -14,6 +14,8 @@ procedure InitializeSongLyricsRuntime;
 procedure FinalizeSongLyricsRuntime;
 function TryGetSongLyricsLines(const DataText: string;
   out Lines: TLyricsSongLines): Boolean;
+function TryGetSongLyricsDocument(const DataText: string;
+  out Lines: TLyricsSongLines; out StartLineID: Int64): Boolean;
 function ResolveSongLyricsLineIndex(const Lines: TLyricsSongLines;
   LocalFrame: Int64): Integer;
 function ResolveSongLyricsLineIndexes(const Lines: TLyricsSongLines;
@@ -25,6 +27,9 @@ function ApplyMusicOffsetToSongLyricsLines(const Lines: TLyricsSongLines;
 function ApplyDisplayDurationsToSongLyricsLines(const Lines: TLyricsSongLines;
   PreDisplaySeconds, HoldSeconds: Double;
   Rate, Scale: Integer): TLyricsSongLines;
+// Moves the selected line's current display start to object-local frame zero.
+function AlignSongLyricsLinesToStartLine(const Lines: TLyricsSongLines;
+  StartLineID: Int64; out SongStartFrame: Int64): TLyricsSongLines;
 // Returns every line whose raw display range contains the frame. If none
 // contains it, the single line nearest to its synchronization range is used.
 function ResolveSongLyricsPlacementCandidateIndexes(
@@ -111,6 +116,41 @@ begin
       Result[I].SyncStartFrame - PreDisplayFrames);
     Result[I].DisplayEndFrame := Max(Result[I].DisplayStartFrame,
       Result[I].SyncEndFrame + HoldFrames);
+  end;
+end;
+
+function AlignSongLyricsLinesToStartLine(const Lines: TLyricsSongLines;
+  StartLineID: Int64; out SongStartFrame: Int64): TLyricsSongLines;
+var
+  I: Integer;
+  StartLineIndex: Integer;
+begin
+  Result := Copy(Lines);
+  SongStartFrame := 0;
+  StartLineIndex := -1;
+  for I := 0 to High(Result) do
+    if Result[I].LineID = StartLineID then
+    begin
+      StartLineIndex := I;
+      Break;
+    end;
+  if (StartLineIndex < 0) and (Length(Result) > 0) then
+    StartLineIndex := 0;
+  if (StartLineIndex < 0) or
+    (Result[StartLineIndex].DisplayStartFrame < 0) then
+    Exit;
+
+  SongStartFrame := Result[StartLineIndex].DisplayStartFrame;
+  for I := 0 to High(Result) do
+  begin
+    if Result[I].DisplayStartFrame >= 0 then
+      Dec(Result[I].DisplayStartFrame, SongStartFrame);
+    if Result[I].DisplayEndFrame >= 0 then
+      Dec(Result[I].DisplayEndFrame, SongStartFrame);
+    if Result[I].SyncStartFrame >= 0 then
+      Dec(Result[I].SyncStartFrame, SongStartFrame);
+    if Result[I].SyncEndFrame >= 0 then
+      Dec(Result[I].SyncEndFrame, SongStartFrame);
   end;
 end;
 
@@ -216,6 +256,7 @@ type
   public
     DataText: string;
     Lines: TLyricsSongLines;
+    StartLineID: Int64;
     LastUse: UInt64;
   end;
 
@@ -362,8 +403,8 @@ begin
   end;
 end;
 
-function TryGetSongLyricsLines(const DataText: string;
-  out Lines: TLyricsSongLines): Boolean;
+function TryGetSongLyricsDocument(const DataText: string;
+  out Lines: TLyricsSongLines; out StartLineID: Int64): Boolean;
 var
   CacheItem: TSongLyricsCacheItem;
   ErrorText: string;
@@ -372,6 +413,7 @@ var
   Model: TLyricsSongModel;
 begin
   Lines := nil;
+  StartLineID := 0;
   Result := False;
   if DataText = '' then
     Exit;
@@ -384,6 +426,7 @@ begin
         Inc(CacheUseCounter);
         CacheItem.LastUse := CacheUseCounter;
         Lines := Copy(CacheItem.Lines);
+        StartLineID := CacheItem.StartLineID;
         Exit(True);
       end;
   finally
@@ -395,6 +438,7 @@ begin
     if not TryDecodeSongLyrics(DataText, Model, ErrorText) then
       Exit;
     Lines := Model.CopyLines;
+    StartLineID := Model.StartLineID;
   finally
     Model.Free;
   end;
@@ -405,6 +449,7 @@ begin
     CacheItem := TSongLyricsCacheItem.Create;
     CacheItem.DataText := DataText;
     CacheItem.Lines := Copy(Lines);
+    CacheItem.StartLineID := StartLineID;
     CacheItem.LastUse := CacheUseCounter;
     CacheItems.Add(CacheItem);
     if CacheItems.Count > MAX_CACHE_ITEMS then
@@ -419,6 +464,14 @@ begin
     CacheLock.Release;
   end;
   Result := True;
+end;
+
+function TryGetSongLyricsLines(const DataText: string;
+  out Lines: TLyricsSongLines): Boolean;
+var
+  StartLineID: Int64;
+begin
+  Result := TryGetSongLyricsDocument(DataText, Lines, StartLineID);
 end;
 
 initialization

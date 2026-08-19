@@ -1,7 +1,7 @@
 ﻿unit SYNC_Lyrics_MusicSyncPianoRoll;
 
 // 曲同期GUIの鍵盤、音程レーン、時間線、音楽ノートを描画する。
-// 歌詞描画層へ、同期開始後の各ノート矩形と固定レーン境界を提供する。
+// 歌詞描画層へ、同期開始後の各ノート矩形と時間軸レイアウトを提供する。
 
 interface
 
@@ -56,7 +56,6 @@ const
   BLACK_KEY_HEIGHT_RATIO = 0.93;
   MIN_VISIBLE_KEYS = 24;
   MUSIC_SYNC_KEYBOARD_WIDTH_96 = 76;
-  MUSIC_SYNC_FIXED_LYRIC_HEIGHT_96 = 58;
 
 function ScaleMusicSyncMetric(Value, Dpi: Integer): Integer;
 begin
@@ -252,8 +251,7 @@ begin
   Layout.DisplaySeconds := DisplaySeconds;
   Layout.Dpi := Max(1, Dpi);
   Layout.KeyboardWidth := MusicSyncKeyboardWidth(Layout.Dpi);
-  Layout.RollHeight := Max(1, PianoHeight -
-    ScaleMusicSyncMetric(MUSIC_SYNC_FIXED_LYRIC_HEIGHT_96, Layout.Dpi));
+  Layout.RollHeight := Max(1, PianoHeight);
   Layout.TimeWidth := Max(0, PianoWidth - Layout.KeyboardWidth);
   Layout.ViewStartSeconds := ViewStartSeconds;
   SetLength(Layout.SyncNoteRects, Length(Notes));

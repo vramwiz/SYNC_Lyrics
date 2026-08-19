@@ -15,7 +15,8 @@
 ## 共通ビルドルール
 
 - Delphi 37.0を使用し、対象プラットフォームはWin64だけとする。
-- `_Input` と `_Filter` の両プロジェクトについて、DebugとReleaseのビルド設定を保つ。
+- 完成品は`_Filter`単体とし、DebugとReleaseの両構成を検証する。`_Input`は旧方式の比較用として
+  残す間だけ、変更した場合に限ってビルドする。
 - コンパイル警告とエラーを確認し、原則として警告0、エラー0で完了とする。
 - Debugは生成した `.dll` と `.rsm` を調査用に残し、プラグイン拡張子のファイルも作る。
 - Releaseは `.aui2` または `.auf2` を作った後、同じ出力先の `.dll` と `.rsm` を削除する。
@@ -26,7 +27,7 @@
 
 作業フォルダーを使うビルドコマンドは次のとおり。
 
-Input Debug Win64:
+旧Input Debug Win64（Input側を変更した場合だけ）:
 
 ```powershell
 cmd /c "call ""C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat"" && msbuild ""D:\DelphiProg\test\SYNC_Lyrics\SYNC_Lyrics_Input.dproj"" /t:Build /p:Config=Debug /p:Platform=Win64"
@@ -38,7 +39,7 @@ Filter Debug Win64:
 cmd /c "call ""C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat"" && msbuild ""D:\DelphiProg\test\SYNC_Lyrics\SYNC_Lyrics_Filter.dproj"" /t:Build /p:Config=Debug /p:Platform=Win64"
 ```
 
-Input Release Win64:
+旧Input Release Win64（Input側を変更した場合だけ）:
 
 ```powershell
 cmd /c "call ""C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat"" && msbuild ""D:\DelphiProg\test\SYNC_Lyrics\SYNC_Lyrics_Input.dproj"" /t:Build /p:Config=Release /p:Platform=Win64"
@@ -53,7 +54,6 @@ cmd /c "call ""C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat"" &
 配備先:
 
 ```text
-C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\SYNC_Lyrics_Input.aui2
 C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\SYNC_Lyrics_Filter.auf2
 ```
 
@@ -92,7 +92,7 @@ EXEの実行パスと引数、コピー元とコピー先の指定には上記�
 アンインストール時に削除するかは別途決め、インストール物と利用者生成データを同じ削除対象へまとめない。
 
 バージョン管理にはハッシュ値を使用する。ハッシュ対象は主要ファイルに絞り、少なくとも
-`SYNC_Lyrics_Input.aui2` と `SYNC_Lyrics_Filter.auf2` を候補とする。
+`SYNC_Lyrics_Filter.auf2`を対象とする。
 
 ## コメントルール
 
