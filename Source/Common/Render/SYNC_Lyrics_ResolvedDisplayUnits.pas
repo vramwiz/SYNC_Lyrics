@@ -23,6 +23,28 @@ type
     CharacterSpacing: Integer;
     BeforeColor: Cardinal;
     AfterColor: Cardinal;
+    BeforeOpacity: Byte;
+    AfterOpacity: Byte;
+    BeforeOutlineColor: Cardinal;
+    AfterOutlineColor: Cardinal;
+    BeforeOutlineOpacity: Byte;
+    AfterOutlineOpacity: Byte;
+    BeforeShadowColor: Cardinal;
+    AfterShadowColor: Cardinal;
+    BeforeShadowOpacity: Byte;
+    AfterShadowOpacity: Byte;
+    BeforeBlurColor: Cardinal;
+    AfterBlurColor: Cardinal;
+    BeforeBlurOpacity: Byte;
+    AfterBlurOpacity: Byte;
+    OutlineEnabled: Boolean;
+    OutlineWidth: Single;
+    OutlineBlur: Single;
+    ShadowEnabled: Boolean;
+    ShadowOffsetX: Single;
+    ShadowOffsetY: Single;
+    ShadowBlur: Single;
+    ShadowSpread: Single;
   end;
 
   TResolvedLyricsPart = record

@@ -204,6 +204,17 @@ begin
       Lines[1], 18, 4, ProgressUnits) and
       (Abs(ProgressUnits - 4) < 0.000001),
       'The synchronization end frame did not complete the line.');
+    Lines := Model.CopyLines;
+    Lines[0].PlacementText := 'SL2|' + StringOfChar('X', 2048);
+    Model.ReplaceLines(Lines);
+    Check(TryEncodeSongLyrics(Model, EncodedText, ErrorText),
+      'Long placement encoding failed: ' + ErrorText);
+    Check((Pos(#13, EncodedText) = 0) and (Pos(#10, EncodedText) = 0),
+      'The whole-song Filter text contained a wrapped Base64 line.');
+    Check(TryDecodeSongLyrics(EncodedText, Decoded, ErrorText),
+      'Long placement decoding failed: ' + ErrorText);
+    Check(Decoded[0].PlacementText = Lines[0].PlacementText,
+      'The long placement text was not preserved.');
     HugeModel.SetLyricsText(StringOfChar('x', 25000));
     Check(not TryEncodeSongLyrics(HugeModel, EncodedText, ErrorText),
       'Text exceeding the Filter string limit must be rejected.');

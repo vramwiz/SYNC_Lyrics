@@ -19,8 +19,9 @@ type
   TLyricsSyncKind = (lskNone, lskColor, lskFront, lskBacking, lskUnderline,
     lskZoom, lskGlow, lskJump);
 
-  // AviUtl2の色項目から独立して描画処理へ渡す不透明RGB色。
+  // AviUtl2の色項目から独立して描画処理へ渡すARGB色。
   TLyricsRenderColor = record
+    A: Byte;
     R: Byte;
     G: Byte;
     B: Byte;
@@ -55,6 +56,20 @@ type
     RubyCharacterSpacing: Integer;
     BeforeColor: TLyricsRenderColor;
     AfterColor: TLyricsRenderColor;
+    BeforeOutlineColor: TLyricsRenderColor;
+    AfterOutlineColor: TLyricsRenderColor;
+    BeforeShadowColor: TLyricsRenderColor;
+    AfterShadowColor: TLyricsRenderColor;
+    BeforeBlurColor: TLyricsRenderColor;
+    AfterBlurColor: TLyricsRenderColor;
+    OutlineEnabled: Boolean;
+    OutlineWidth: Single;
+    OutlineBlur: Single;
+    ShadowEnabled: Boolean;
+    ShadowOffsetX: Single;
+    ShadowOffsetY: Single;
+    ShadowBlur: Single;
+    ShadowSpread: Single;
     SyncColor: TLyricsRenderColor;
   end;
 
@@ -67,6 +82,11 @@ function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 // AviUtl2へ渡す歌詞画像の寸法を取得する。
 function TryGetLyricsRenderSize(Video: PFILTER_PROC_VIDEO;
   out Width, Height: Integer): Boolean;
+
+// Copies the image received from the preceding timeline stage into Buffer.
+// A transparent buffer is used only when no input-image callback is available.
+procedure InitializeLyricsRenderBuffer(Video: PFILTER_PROC_VIDEO;
+  Buffer: PPIXEL_RGBA; PixelCount: NativeInt);
 
 // 既存RGBAバッファを消去せず、1行配置の歌詞を重ねて描画する。
 function DrawLyricsLayer(Buffer: PPIXEL_RGBA; Width, Height: Integer;
@@ -181,9 +201,35 @@ begin
   Result.BeforeColor.R := 255;
   Result.BeforeColor.G := 255;
   Result.BeforeColor.B := 255;
+  Result.BeforeColor.A := 255;
   Result.AfterColor.R := 0;
   Result.AfterColor.G := 255;
   Result.AfterColor.B := 255;
+  Result.AfterColor.A := 255;
+  Result.BeforeOutlineColor.A := 255;
+  Result.BeforeOutlineColor.R := 0;
+  Result.BeforeOutlineColor.G := 0;
+  Result.BeforeOutlineColor.B := 0;
+  Result.AfterOutlineColor := Result.BeforeOutlineColor;
+  Result.BeforeShadowColor.A := 160;
+  Result.BeforeShadowColor.R := 0;
+  Result.BeforeShadowColor.G := 0;
+  Result.BeforeShadowColor.B := 0;
+  Result.AfterShadowColor := Result.BeforeShadowColor;
+  Result.BeforeBlurColor.A := 255;
+  Result.BeforeBlurColor.R := 0;
+  Result.BeforeBlurColor.G := 0;
+  Result.BeforeBlurColor.B := 0;
+  Result.AfterBlurColor := Result.BeforeBlurColor;
+  Result.OutlineEnabled := False;
+  Result.OutlineWidth := 8;
+  Result.OutlineBlur := 0;
+  Result.ShadowEnabled := False;
+  Result.ShadowOffsetX := 10;
+  Result.ShadowOffsetY := 10;
+  Result.ShadowBlur := 4;
+  Result.ShadowSpread := 0;
+  Result.SyncColor.A := 255;
   Result.SyncColor := Result.AfterColor;
 end;
 
@@ -191,6 +237,17 @@ function LyricsColorToCardinal(const Color: TLyricsRenderColor): Cardinal;
 begin
   Result := Color.R or (Cardinal(Color.G) shl 8) or
     (Cardinal(Color.B) shl 16);
+end;
+
+procedure InitializeLyricsRenderBuffer(Video: PFILTER_PROC_VIDEO;
+  Buffer: PPIXEL_RGBA; PixelCount: NativeInt);
+begin
+  if (Buffer = nil) or (PixelCount <= 0) then
+    Exit;
+  if (Video <> nil) and Assigned(Video^.GetImageData) then
+    Video^.GetImageData(Buffer)
+  else
+    FillChar(Buffer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
 end;
 
 function ResolvedStyleFromSettings(const Settings: TLyricsRenderSettings;
@@ -222,6 +279,31 @@ begin
   end;
   Result.BeforeColor := LyricsColorToCardinal(Settings.BeforeColor);
   Result.AfterColor := LyricsColorToCardinal(Settings.AfterColor);
+  Result.BeforeOpacity := Settings.BeforeColor.A;
+  Result.AfterOpacity := Settings.AfterColor.A;
+  Result.BeforeOutlineColor := LyricsColorToCardinal(
+    Settings.BeforeOutlineColor);
+  Result.AfterOutlineColor := LyricsColorToCardinal(
+    Settings.AfterOutlineColor);
+  Result.BeforeOutlineOpacity := Settings.BeforeOutlineColor.A;
+  Result.AfterOutlineOpacity := Settings.AfterOutlineColor.A;
+  Result.BeforeShadowColor := LyricsColorToCardinal(
+    Settings.BeforeShadowColor);
+  Result.AfterShadowColor := LyricsColorToCardinal(Settings.AfterShadowColor);
+  Result.BeforeShadowOpacity := Settings.BeforeShadowColor.A;
+  Result.AfterShadowOpacity := Settings.AfterShadowColor.A;
+  Result.BeforeBlurColor := LyricsColorToCardinal(Settings.BeforeBlurColor);
+  Result.AfterBlurColor := LyricsColorToCardinal(Settings.AfterBlurColor);
+  Result.BeforeBlurOpacity := Settings.BeforeBlurColor.A;
+  Result.AfterBlurOpacity := Settings.AfterBlurColor.A;
+  Result.OutlineEnabled := Settings.OutlineEnabled;
+  Result.OutlineWidth := Settings.OutlineWidth;
+  Result.OutlineBlur := Settings.OutlineBlur;
+  Result.ShadowEnabled := Settings.ShadowEnabled;
+  Result.ShadowOffsetX := Settings.ShadowOffsetX;
+  Result.ShadowOffsetY := Settings.ShadowOffsetY;
+  Result.ShadowBlur := Settings.ShadowBlur;
+  Result.ShadowSpread := Settings.ShadowSpread;
 end;
 
 function UnitDisplayEffectFromType(
@@ -386,9 +468,9 @@ begin
   Result := ExtractFilePath(Result);
 end;
 
-function LyricsColorToAlphaColor(Color: Cardinal): TAlphaColor;
+function LyricsColorToAlphaColor(Color: Cardinal; Opacity: Byte): TAlphaColor;
 begin
-  Result := TAlphaColor($FF000000 or
+  Result := TAlphaColor((Cardinal(Opacity) shl 24) or
     ((Color and $000000FF) shl 16) or
     (Color and $0000FF00) or
     ((Color and $00FF0000) shr 16));
@@ -477,6 +559,73 @@ function PrepareLyricsPart(const Part: TResolvedLyricsPart;
 var
   Metrics: TTextRenderMetrics;
   Request: TTextRenderRequest;
+  Shadow: TTextRenderShadow;
+
+  procedure ApplyPalette(const BeforePhase: Boolean);
+  var
+    BlurColor: Cardinal;
+    BlurOpacity: Byte;
+    FillColor: Cardinal;
+    FillOpacity: Byte;
+    OutlineColor: Cardinal;
+    OutlineOpacity: Byte;
+    ShadowColor: Cardinal;
+    ShadowOpacity: Byte;
+  begin
+    if BeforePhase then
+    begin
+      FillColor := Part.Style.BeforeColor;
+      FillOpacity := Part.Style.BeforeOpacity;
+      OutlineColor := Part.Style.BeforeOutlineColor;
+      OutlineOpacity := Part.Style.BeforeOutlineOpacity;
+      ShadowColor := Part.Style.BeforeShadowColor;
+      ShadowOpacity := Part.Style.BeforeShadowOpacity;
+      BlurColor := Part.Style.BeforeBlurColor;
+      BlurOpacity := Part.Style.BeforeBlurOpacity;
+    end
+    else
+    begin
+      FillColor := Part.Style.AfterColor;
+      FillOpacity := Part.Style.AfterOpacity;
+      OutlineColor := Part.Style.AfterOutlineColor;
+      OutlineOpacity := Part.Style.AfterOutlineOpacity;
+      ShadowColor := Part.Style.AfterShadowColor;
+      ShadowOpacity := Part.Style.AfterShadowOpacity;
+      BlurColor := Part.Style.AfterBlurColor;
+      BlurOpacity := Part.Style.AfterBlurOpacity;
+    end;
+    Request.FillColor := LyricsColorToAlphaColor(FillColor, FillOpacity);
+    Request.Outlines := [];
+    if Part.Style.OutlineEnabled and (Part.Style.OutlineWidth > 0) then
+    begin
+      if Part.Style.OutlineBlur <= 0 then
+        Request.Outlines := [TTextRenderOutline.Create(
+          Part.Style.OutlineWidth,
+          LyricsColorToAlphaColor(OutlineColor, OutlineOpacity))]
+      else if (BlurColor = OutlineColor) and (BlurOpacity = OutlineOpacity) then
+        Request.Outlines := [TTextRenderOutline.Create(
+          Part.Style.OutlineWidth, Part.Style.OutlineBlur,
+          LyricsColorToAlphaColor(OutlineColor, OutlineOpacity))]
+      else
+        Request.Outlines := [
+          TTextRenderOutline.Create(Part.Style.OutlineWidth,
+            Part.Style.OutlineBlur,
+            LyricsColorToAlphaColor(BlurColor, BlurOpacity)),
+          TTextRenderOutline.Create(Part.Style.OutlineWidth,
+            LyricsColorToAlphaColor(OutlineColor, OutlineOpacity))];
+    end;
+    Request.Shadows := [];
+    if Part.Style.ShadowEnabled then
+    begin
+      Shadow := System.Default(TTextRenderShadow);
+      Shadow.Offset := PointF(Part.Style.ShadowOffsetX,
+        Part.Style.ShadowOffsetY);
+      Shadow.BlurRadius := Part.Style.ShadowBlur;
+      Shadow.SpreadRadius := Part.Style.ShadowSpread;
+      Shadow.Color := LyricsColorToAlphaColor(ShadowColor, ShadowOpacity);
+      Request.Shadows := [Shadow];
+    end;
+  end;
 begin
   Prepared := Default(TPreparedLyricsPart);
   Result := Part.Text <> '';
@@ -492,14 +641,15 @@ begin
   Request.LetterSpacing := EnsureRange(Part.Style.CharacterSpacing,
     MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
   Request.CaptureTextUnits := True;
-  Request.FillColor := LyricsColorToAlphaColor(Part.Style.BeforeColor);
+  ApplyPalette(True);
   try
     Prepared.BeforeImage := SkiaRenderer.Render(Request, Metrics);
-    Request.FillColor := LyricsColorToAlphaColor(Part.Style.AfterColor);
+    ApplyPalette(False);
     Prepared.AfterImage := SkiaRenderer.Render(Request, Metrics);
     if Settings.SyncKind = lskGlow then
     begin
       Request.FillColor := TAlphaColorRec.Null;
+      Request.Shadows := [];
       Request.Outlines := [TTextRenderOutline.Create(
         Max(1.0, Part.Style.FontHeight * 0.03),
         Max(1.0, Part.Style.FontHeight * 0.075),
@@ -1206,7 +1356,7 @@ begin
   PixelCount := NativeInt(Width) * Height;
   GetMem(Buffer, PixelCount * SizeOf(TPIXEL_RGBA));
   try
-    FillChar(Buffer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
+    InitializeLyricsRenderBuffer(Video, Buffer, PixelCount);
     try
       if (Lyrics <> nil) and (Lyrics^ <> #0) then
         if FreePlacement then
@@ -1216,7 +1366,7 @@ begin
         else
           DrawSkiaLineLyrics(Buffer, Width, Height, string(Lyrics),
             ProgressUnits, Settings, PositionX, PositionY);
-      // 空文字でも透明画像を確定し、直前フレームの歌詞を残さない。
+      // 空文字でも入力画像を確定し、直前フレームの歌詞を残さない。
       Video^.SetImageData(Buffer, Width, Height);
       Result := True;
     except

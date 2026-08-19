@@ -9,6 +9,7 @@ uses
   Vcl.Controls,
   Vcl.Forms,
   Vcl.StdCtrls,
+  TextRendererSkiaRuntime in '..\Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
   SYNC_Lyrics_DarkTheme in '..\Source\Lib\SYNC_Lyrics_DarkTheme.pas',
   SYNC_Lyrics_ListBoxEdit in '..\Source\Lib\SYNC_Lyrics_ListBoxEdit.pas',
   SYNC_Lyrics_ToolbarButtons in '..\Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
@@ -29,12 +30,15 @@ var
   CandidateCommon: TArray<TDisplayCommonSettings>;
   CandidateLyrics: TArray<string>;
   CharacterLayoutForm: TFormLyricsCharacterLayoutSettings;
+  CharacterLayoutToolbar: TSyncLyricsToolbarButtons;
   EditorForm: TFormLyricsSyncEditor;
   InputFrame: TFrameLyricsInitialInput;
   LineDisplayForm: TFormLyricsLineDisplaySettings;
   MusicSyncFrame: TFrameLyricsMusicSyncEditor;
   MusicSyncForm: TFormLyricsMusicSyncSettings;
+  PreviewPixels: TBytes;
   LyricsToolbar: TSyncLyricsToolbarButtons;
+  LineDisplayToolbar: TSyncLyricsToolbarButtons;
   TopToolbar: TSyncLyricsToolbarButtons;
   Key: Word;
   ErrorText: string;
@@ -78,6 +82,8 @@ end;
 begin
   try
     Application.Initialize;
+    TTextRendererSkiaRuntime.Acquire(
+      ExtractFilePath(ParamStr(0)) + 'sk4d.dll');
     LineDisplayForm := TFormLyricsLineDisplaySettings.Create(nil);
     try
       if LineDisplayForm.Color <> SYNC_LYRICS_DARK_BACKGROUND_COLOR then
@@ -85,28 +91,53 @@ begin
       if (LineDisplayForm.CandidateCombo.Style <> csOwnerDrawFixed) or
         not Assigned(LineDisplayForm.CandidateCombo.OnDrawItem) then
         raise Exception.Create('The placement combo box was not owner-drawn.');
-      if LineDisplayForm.LyricsEdit.Color <>
-        SYNC_LYRICS_DARK_CONTROL_COLOR then
-        raise Exception.Create('The placement edit did not use the dark control color.');
-      if (LineDisplayForm.DescriptionLabel.Caption = '') or
-        (Ord(LineDisplayForm.DescriptionLabel.Caption[1]) <> $672C) then
+      if (LineDisplayForm.FindComponent('DescriptionLabel') <> nil) or
+        (LineDisplayForm.FindComponent('LyricsEdit') <> nil) or
+        (LineDisplayForm.FindComponent('SelectionLabel') <> nil) then
         raise Exception.Create(
-          'The line display instructions were not compiled as Unicode.');
+          'The removed line-display header rows were still present.');
       CandidateCaptions := ['1: first', '2: second'];
       CandidateLyrics := ['first', 'second'];
       SetLength(CandidateCommon, 2);
       CandidateCommon[0] := DefaultDisplayCommonSettings;
       CandidateCommon[1] := DefaultDisplayCommonSettings;
+      CandidateCommon[1].OutlineEnabled := True;
+      CandidateCommon[1].OutlineWidth := 9.5;
+      CandidateCommon[1].ShadowEnabled := True;
+      CandidateCommon[1].ShadowOffsetX := 14;
+      CandidateCommon[1].BeforeOutlineColor := $00010203;
+      CandidateCommon[1].AfterShadowOpacity := 123;
       LineDisplayForm.ConfigureCandidates(CandidateCaptions,
         CandidateLyrics, CandidateCommon, 1);
       if not LineDisplayForm.CandidateCombo.Visible or
         (LineDisplayForm.SelectedCandidateIndex <> 1) or
-        (LineDisplayForm.LyricsEdit.Text <> 'second') then
+        (LineDisplayForm.EnteredLyrics <> 'second') then
         raise Exception.Create(
           'The initial placement candidate was not loaded.');
-      if not LineDisplayForm.LyricsEdit.ReadOnly then
+      CandidateCommon[0] := LineDisplayForm.SelectedCommonSettings;
+      if not CandidateCommon[0].OutlineEnabled or
+        (Abs(CandidateCommon[0].OutlineWidth - 9.5) > 0.001) or
+        not CandidateCommon[0].ShadowEnabled or
+        (Abs(CandidateCommon[0].ShadowOffsetX - 14) > 0.001) or
+        (CandidateCommon[0].BeforeOutlineColor <> $00010203) or
+        (CandidateCommon[0].AfterShadowOpacity <> 123) then
         raise Exception.Create(
-          'The placement candidate lyric remained editable.');
+          'The line decoration settings did not survive the form round-trip.');
+      if (LineDisplayForm.ClientHeight <> 548) or
+        (LineDisplayForm.PreviewPaintBox.Top >= 205) or
+        (LineDisplayForm.PreviewPaintBox.Height < 400) then
+        raise Exception.Create(
+          'The compact form height or placement canvas size was incorrect.');
+      LineDisplayToolbar := FindOwnedComponentByClass(LineDisplayForm,
+        TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
+      if (LineDisplayToolbar = nil) or
+        (LineDisplayForm.BaseFontCombo.Width > 160) or
+        (LineDisplayForm.RubyFontCombo.Width > 160) or
+        (LineDisplayToolbar.Left <= LineDisplayForm.RubyFontCombo.Left +
+          LineDisplayForm.RubyFontCombo.Width) or
+        (LineDisplayToolbar.Top >= LineDisplayForm.PreviewPaintBox.Top) then
+        raise Exception.Create(
+          'The font selectors and formatting icons did not share one row.');
     finally
       LineDisplayForm.Free;
     end;
@@ -128,6 +159,21 @@ begin
         SYNC_LYRICS_DARK_PANEL_COLOR then
         raise Exception.Create(
           'The character placement button panel was not dark.');
+      CharacterLayoutToolbar := FindOwnedComponentByClass(
+        CharacterLayoutForm,
+        TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
+      if (CharacterLayoutToolbar = nil) or
+        (CharacterLayoutToolbar.FindByTag(0) = nil) or
+        (CharacterLayoutToolbar.FindByTag(0).Glyph <> tbgOutline) then
+        raise Exception.Create(
+          'The character placement editor did not expose common settings.');
+      SetLength(PreviewPixels, 64 * 36 * 4);
+      CharacterLayoutForm.SetBackgroundRgba(PreviewPixels, 64, 36);
+      CharacterLayoutForm.Configure('[test](ruby)',
+        DefaultDisplayCommonSettings, '');
+      CharacterLayoutForm.HandleNeeded;
+      CharacterLayoutForm.BackgroundPaintBoxPaint(
+        CharacterLayoutForm.BackgroundPaintBox);
     finally
       CharacterLayoutForm.Free;
     end;

@@ -8,6 +8,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.Types,
+  System.UITypes,
   Winapi.Windows,
   Vcl.Graphics,
   Vcl.Controls,
@@ -18,7 +19,9 @@ uses
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_CharacterLayoutInteraction,
-  SYNC_Lyrics_ToolbarButtons;
+  SYNC_Lyrics_ToolbarButtons,
+  TextRendererSkia,
+  TextRendererTypes;
 
 type
   TFormLyricsCharacterLayoutSettings = class(TForm)
@@ -59,6 +62,9 @@ type
     procedure ButtonAfterColorClick(Sender: TObject);
   private
     FBackground: TBitmap;
+    FBackgroundPixels: TBytes;
+    FBackgroundPixelWidth: Integer;
+    FBackgroundPixelHeight: Integer;
     FBaseFontHeight: Integer;
     FBaseFontName: string;
     FBaseFontStyle: Byte;
@@ -74,6 +80,7 @@ type
     FLyrics: string;
     FPlainText: string;
     FPlacements: TDisplayPlacementItems;
+    FPreviewRenderer: TSkiaTextRenderer;
     FRubyGap: Integer;
     FRubyFontHeight: Integer;
     FRubyFontName: string;
@@ -106,6 +113,7 @@ type
     function BackgroundScale: Double;
     procedure BuildInitialPlacements;
     procedure BuildDefaultPlacements(out Placements: TDisplayPlacementItems);
+    procedure EditCommonSettings;
     procedure CreateFormattingToolbar;
     procedure ClearSelection;
     function DisplayUnitBaseText(Index: Integer): string;
@@ -132,6 +140,12 @@ type
     function HitTestModeHandle(X, Y: Integer): TCharacterLayoutDragMode;
     function HitTestResizeHandle(X, Y: Integer): TCharacterLayoutDragMode;
     procedure PaintDisplayUnit(Index: Integer);
+    function RenderDisplayUnitTextImage(Index: Integer;
+      const Text: string; Ruby, AfterPhase: Boolean): TTextRenderImage;
+    function CreatePreviewBitmap(Image: TTextRenderImage): TBitmap;
+    procedure DrawDisplayUnitTextImage(Index: Integer;
+      Image: TTextRenderImage; LayoutLeft, LayoutTop: Single;
+      TransitionX: Integer; AfterPhase: Boolean);
     procedure PopulateElementList;
     procedure ResizeSelectedElement(X, Y: Integer);
     procedure ResizeSelection(X, Y: Integer);
@@ -164,12 +178,15 @@ uses
   System.Math,
   ColorPickerDialog,
   SYNC_Lyrics_CharacterLayoutDrawing,
+  SYNC_Lyrics_LineDisplaySettingsForm,
   SYNC_Lyrics_FontSettingsForm,
-  SYNC_Lyrics_DarkTheme;
+  SYNC_Lyrics_DarkTheme,
+  TextRendererSkiaRuntime;
 
 {$R *.dfm}
 
 const
+  TOOLBAR_COMMON_SETTINGS = 0;
   TOOLBAR_FONT = 1;
   TOOLBAR_BOLD = 2;
   TOOLBAR_ITALIC = 3;
@@ -237,6 +254,9 @@ begin
   FToolbar.ParentBackground := False;
   FToolbar.OnButtonExecute := ToolbarButtonExecute;
 
+  FToolbar.AddDialogButton('行共通設定', tbgOutline,
+    TOOLBAR_COMMON_SETTINGS);
+  FToolbar.AddSeparator;
   FToolbar.AddDialogButton('フォント設定', tbgFont, TOOLBAR_FONT);
   FToolbar.AddSeparator;
   FToolbarBold := FToolbar.AddToggleButton('太字', tbgBold,
@@ -284,6 +304,9 @@ begin
   ApplySyncLyricsDarkButton(ButtonCancel);
   FBackground := TBitmap.Create;
   FBackground.PixelFormat := pf32bit;
+  FPreviewRenderer := nil;
+  if TTextRendererSkiaRuntime.IsAcquired then
+    FPreviewRenderer := TSkiaTextRenderer.Create;
   FSelectedIndex := -1;
   FSelectionMode := clsmTransform;
   FDragMode := cldmNone;
@@ -297,6 +320,7 @@ end;
 
 procedure TFormLyricsCharacterLayoutSettings.FormDestroy(Sender: TObject);
 begin
+  FPreviewRenderer.Free;
   FBackground.Free;
 end;
 
@@ -455,6 +479,8 @@ procedure TFormLyricsCharacterLayoutSettings.ToolbarButtonExecute(
 
 begin
   case Button.Tag of
+    TOOLBAR_COMMON_SETTINGS:
+      EditCommonSettings;
     TOOLBAR_FONT:
       ButtonFontClick(Button);
     TOOLBAR_BOLD:
@@ -480,6 +506,39 @@ begin
     TOOLBAR_DISTRIBUTE_HORIZONTAL:
       ButtonDistributeHorizontalClick(Button);
   end;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.EditCommonSettings;
+var
+  CommonForm: TFormLyricsLineDisplaySettings;
+begin
+  CommonForm := TFormLyricsLineDisplaySettings.Create(Self);
+  try
+    CommonForm.Caption := '行共通設定';
+    if (Length(FBackgroundPixels) > 0) and
+      (FBackgroundPixelWidth > 0) and
+      (FBackgroundPixelHeight > 0) then
+      CommonForm.SetBackgroundRgba(FBackgroundPixels,
+        FBackgroundPixelWidth, FBackgroundPixelHeight);
+    CommonForm.Configure(FLyrics, FCommonSettings);
+    if CommonForm.ShowModal <> mrOk then
+      Exit;
+    FCommonSettings := CommonForm.SelectedCommonSettings;
+    FBaseFontName := FCommonSettings.BaseFontName;
+    FRubyFontName := FCommonSettings.RubyFontName;
+    FBaseFontHeight := Max(1, FCommonSettings.BaseFontHeight);
+    FRubyFontHeight := Max(1, FCommonSettings.RubyFontHeight);
+    FBaseFontStyle := FCommonSettings.BaseFontStyle and $0F;
+    FRubyFontStyle := FCommonSettings.RubyFontStyle and $0F;
+    FBeforeColor := TColor(FCommonSettings.BeforeColor);
+    FAfterColor := TColor(FCommonSettings.AfterColor);
+    FRubyGap := EnsureRange(4 + FCommonSettings.RubyGapAdjustment,
+      -1024, 1024);
+  finally
+    CommonForm.Free;
+  end;
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.PopulateElementList;
@@ -814,15 +873,236 @@ begin
     Natural.Bottom * FPlacements[Index].ScaleY;
 end;
 
+function TFormLyricsCharacterLayoutSettings.RenderDisplayUnitTextImage(
+  Index: Integer; const Text: string; Ruby, AfterPhase: Boolean):
+  TTextRenderImage;
+var
+  BlurColor: Cardinal;
+  BlurOpacity: Byte;
+  FillColor: TColor;
+  FillOpacity: Byte;
+  Metrics: TTextRenderMetrics;
+  OutlineColor: Cardinal;
+  OutlineOpacity: Byte;
+  Request: TTextRenderRequest;
+  Shadow: TTextRenderShadow;
+  ShadowColor: Cardinal;
+  ShadowOpacity: Byte;
+
+  function AlphaColor(Color: Cardinal; Opacity: Byte): TAlphaColor;
+  var
+    Resolved: TColor;
+  begin
+    Resolved := ColorToRGB(TColor(Color));
+    Result := TAlphaColor((Cardinal(Opacity) shl 24) or
+      (Cardinal(GetRValue(Resolved)) shl 16) or
+      (Cardinal(GetGValue(Resolved)) shl 8) or
+      Cardinal(GetBValue(Resolved)));
+  end;
+
+begin
+  Result := nil;
+  if (FPreviewRenderer = nil) or (Text = '') then
+    Exit;
+  Request := TTextRenderRequest.Default;
+  Request.Text := Text;
+  if Ruby then
+  begin
+    Request.FontFamilies := [DisplayUnitRubyFontName(Index),
+      'Yu Gothic UI', 'Meiryo UI', 'Segoe UI'];
+    Request.FontSize := Max(1, DisplayUnitRubyFontHeight(Index));
+    Request.FontStyle := [];
+    if (DisplayUnitRubyFontStyle(Index) and 1) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.Bold);
+    if (DisplayUnitRubyFontStyle(Index) and 2) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.Italic);
+    if (DisplayUnitRubyFontStyle(Index) and 4) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.Underline);
+    if (DisplayUnitRubyFontStyle(Index) and 8) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.StrikeOut);
+    Request.LetterSpacing := DisplayUnitRubyCharacterSpacing(Index);
+  end
+  else
+  begin
+    Request.FontFamilies := [DisplayUnitBaseFontName(Index),
+      'Yu Gothic UI', 'Meiryo UI', 'Segoe UI'];
+    Request.FontSize := Max(1, DisplayUnitBaseFontHeight(Index));
+    Request.FontStyle := [];
+    if (DisplayUnitBaseFontStyle(Index) and 1) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.Bold);
+    if (DisplayUnitBaseFontStyle(Index) and 2) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.Italic);
+    if (DisplayUnitBaseFontStyle(Index) and 4) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.Underline);
+    if (DisplayUnitBaseFontStyle(Index) and 8) <> 0 then
+      Include(Request.FontStyle, TTextRenderFontStyleItem.StrikeOut);
+    Request.LetterSpacing := DisplayUnitBaseCharacterSpacing(Index);
+  end;
+  if AfterPhase then
+  begin
+    FillColor := DisplayUnitAfterColor(Index);
+    FillOpacity := FCommonSettings.AfterOpacity;
+    OutlineColor := FCommonSettings.AfterOutlineColor;
+    OutlineOpacity := FCommonSettings.AfterOutlineOpacity;
+    ShadowColor := FCommonSettings.AfterShadowColor;
+    ShadowOpacity := FCommonSettings.AfterShadowOpacity;
+    BlurColor := FCommonSettings.AfterBlurColor;
+    BlurOpacity := FCommonSettings.AfterBlurOpacity;
+  end
+  else
+  begin
+    FillColor := DisplayUnitBeforeColor(Index);
+    FillOpacity := FCommonSettings.BeforeOpacity;
+    OutlineColor := FCommonSettings.BeforeOutlineColor;
+    OutlineOpacity := FCommonSettings.BeforeOutlineOpacity;
+    ShadowColor := FCommonSettings.BeforeShadowColor;
+    ShadowOpacity := FCommonSettings.BeforeShadowOpacity;
+    BlurColor := FCommonSettings.BeforeBlurColor;
+    BlurOpacity := FCommonSettings.BeforeBlurOpacity;
+  end;
+  Request.FillColor := AlphaColor(Cardinal(ColorToRGB(FillColor)),
+    FillOpacity);
+  Request.Outlines := [];
+  if FCommonSettings.OutlineEnabled and
+    (FCommonSettings.OutlineWidth > 0) then
+  begin
+    if FCommonSettings.OutlineBlur <= 0 then
+      Request.Outlines := [TTextRenderOutline.Create(
+        FCommonSettings.OutlineWidth,
+        AlphaColor(OutlineColor, OutlineOpacity))]
+    else if (BlurColor = OutlineColor) and
+      (BlurOpacity = OutlineOpacity) then
+      Request.Outlines := [TTextRenderOutline.Create(
+        FCommonSettings.OutlineWidth, FCommonSettings.OutlineBlur,
+        AlphaColor(OutlineColor, OutlineOpacity))]
+    else
+      Request.Outlines := [
+        TTextRenderOutline.Create(FCommonSettings.OutlineWidth,
+          FCommonSettings.OutlineBlur,
+          AlphaColor(BlurColor, BlurOpacity)),
+        TTextRenderOutline.Create(FCommonSettings.OutlineWidth,
+          AlphaColor(OutlineColor, OutlineOpacity))];
+  end;
+  Request.Shadows := [];
+  if FCommonSettings.ShadowEnabled then
+  begin
+    Shadow := System.Default(TTextRenderShadow);
+    Shadow.Offset := PointF(FCommonSettings.ShadowOffsetX,
+      FCommonSettings.ShadowOffsetY);
+    Shadow.BlurRadius := FCommonSettings.ShadowBlur;
+    Shadow.SpreadRadius := FCommonSettings.ShadowSpread;
+    Shadow.Color := AlphaColor(ShadowColor, ShadowOpacity);
+    Request.Shadows := [Shadow];
+  end;
+  Result := FPreviewRenderer.Render(Request, Metrics);
+end;
+
+function TFormLyricsCharacterLayoutSettings.CreatePreviewBitmap(
+  Image: TTextRenderImage): TBitmap;
+var
+  Destination: PByte;
+  Source: PTextRenderPixel;
+  X: Integer;
+  Y: Integer;
+begin
+  Result := nil;
+  if (Image = nil) or Image.IsEmpty then
+    Exit;
+  Result := TBitmap.Create;
+  try
+    Result.PixelFormat := pf32bit;
+    Result.SetSize(Image.Width, Image.Height);
+    for Y := 0 to Image.Height - 1 do
+    begin
+      Source := PTextRenderPixel(PByte(Image.Data) +
+        NativeInt(Y) * Image.Stride);
+      Destination := Result.ScanLine[Y];
+      for X := 0 to Image.Width - 1 do
+      begin
+        Destination[0] := (Cardinal(Source^.B) * Source^.A + 127) div 255;
+        Destination[1] := (Cardinal(Source^.G) * Source^.A + 127) div 255;
+        Destination[2] := (Cardinal(Source^.R) * Source^.A + 127) div 255;
+        Destination[3] := Source^.A;
+        Inc(Destination, 4);
+        Inc(Source);
+      end;
+    end;
+    Result.AlphaFormat := afPremultiplied;
+  except
+    FreeAndNil(Result);
+    raise;
+  end;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.DrawDisplayUnitTextImage(
+  Index: Integer; Image: TTextRenderImage; LayoutLeft, LayoutTop: Single;
+  TransitionX: Integer; AfterPhase: Boolean);
+var
+  Bitmap: TBitmap;
+  Blend: BLENDFUNCTION;
+  Center: TPoint;
+  DrawHeight: Integer;
+  DrawLeft: Integer;
+  DrawTop: Integer;
+  DrawWidth: Integer;
+  SavedDC: Integer;
+  ScaleX: Double;
+  ScaleY: Double;
+begin
+  Bitmap := CreatePreviewBitmap(Image);
+  if Bitmap = nil then
+    Exit;
+  try
+    Center := ScenePointToScreen(FPlacements[Index].X,
+      FPlacements[Index].Y);
+    ScaleX := BackgroundScale * FPlacements[Index].ScaleX;
+    ScaleY := BackgroundScale * FPlacements[Index].ScaleY;
+    DrawLeft := Center.X + Round((LayoutLeft + Image.Bounds.Left -
+      Image.LayoutBounds.Left) * ScaleX);
+    DrawTop := Center.Y + Round((LayoutTop + Image.Bounds.Top -
+      Image.LayoutBounds.Top) * ScaleY);
+    DrawWidth := Max(1, Round(Bitmap.Width * ScaleX));
+    DrawHeight := Max(1, Round(Bitmap.Height * ScaleY));
+    SavedDC := SaveDC(BackgroundPaintBox.Canvas.Handle);
+    try
+      if AfterPhase then
+        IntersectClipRect(BackgroundPaintBox.Canvas.Handle, 0, 0,
+          TransitionX, BackgroundPaintBox.ClientHeight)
+      else
+        IntersectClipRect(BackgroundPaintBox.Canvas.Handle, TransitionX, 0,
+          BackgroundPaintBox.ClientWidth, BackgroundPaintBox.ClientHeight);
+      Blend.BlendOp := AC_SRC_OVER;
+      Blend.BlendFlags := 0;
+      Blend.SourceConstantAlpha := 255;
+      Blend.AlphaFormat := AC_SRC_ALPHA;
+      Winapi.Windows.AlphaBlend(BackgroundPaintBox.Canvas.Handle,
+        DrawLeft, DrawTop, DrawWidth, DrawHeight, Bitmap.Canvas.Handle,
+        0, 0, Bitmap.Width, Bitmap.Height, Blend);
+    finally
+      RestoreDC(BackgroundPaintBox.Canvas.Handle, SavedDC);
+    end;
+  finally
+    Bitmap.Free;
+  end;
+end;
+
 procedure TFormLyricsCharacterLayoutSettings.PaintDisplayUnit(
   Index: Integer);
 var
+  BaseAfterImage: TTextRenderImage;
+  BaseBeforeImage: TTextRenderImage;
+  BaseLayoutLeft: Single;
+  BaseLayoutTop: Single;
   BaseSize: TSize;
   BaseText: string;
   Bounds: TRect;
   Canvas: TCanvas;
   Center: TPoint;
   IdentityTransform: TXForm;
+  RubyAfterImage: TTextRenderImage;
+  RubyBeforeImage: TTextRenderImage;
+  RubyLayoutLeft: Single;
+  RubyLayoutTop: Single;
   RubySize: TSize;
   RubyText: string;
   Scale: Double;
@@ -873,47 +1153,97 @@ begin
   end;
   SetTextCharacterExtra(Canvas.Handle, 0);
   TextTop := -BaseSize.cy div 2;
-  SetGraphicsMode(Canvas.Handle, GM_ADVANCED);
-  FillChar(WorldTransform, SizeOf(WorldTransform), 0);
-  WorldTransform.eM11 := Scale * FPlacements[Index].ScaleX;
-  WorldTransform.eM22 := Scale * FPlacements[Index].ScaleY;
-  WorldTransform.eDx := Center.X;
-  WorldTransform.eDy := Center.Y;
-  if SetWorldTransform(Canvas.Handle, WorldTransform) then
+  if FPreviewRenderer <> nil then
   begin
+    BaseLayoutTop := 0;
+    BaseBeforeImage := nil;
+    BaseAfterImage := nil;
+    RubyBeforeImage := nil;
+    RubyAfterImage := nil;
     try
-    begin
+      BaseBeforeImage := RenderDisplayUnitTextImage(Index, BaseText,
+        False, False);
+      BaseAfterImage := RenderDisplayUnitTextImage(Index, BaseText,
+        False, True);
+      if BaseBeforeImage <> nil then
+      begin
+        BaseLayoutLeft := -BaseBeforeImage.LayoutBounds.Width * 0.5;
+        BaseLayoutTop := -BaseBeforeImage.LayoutBounds.Height * 0.5;
+        DrawDisplayUnitTextImage(Index, BaseAfterImage, BaseLayoutLeft,
+          BaseLayoutTop, Center.X, True);
+        DrawDisplayUnitTextImage(Index, BaseBeforeImage, BaseLayoutLeft,
+          BaseLayoutTop, Center.X, False);
+      end;
       if RubyText <> '' then
       begin
-        Canvas.Font.Name := DisplayUnitRubyFontName(Index);
+        RubyBeforeImage := RenderDisplayUnitTextImage(Index, RubyText,
+          True, False);
+        RubyAfterImage := RenderDisplayUnitTextImage(Index, RubyText,
+          True, True);
+        if (RubyBeforeImage <> nil) and (BaseBeforeImage <> nil) then
+        begin
+          RubyLayoutLeft := -RubyBeforeImage.LayoutBounds.Width * 0.5 +
+            DisplayUnitRubyOffsetX(Index);
+          RubyLayoutTop := BaseLayoutTop -
+            RubyBeforeImage.LayoutBounds.Height - FRubyGap +
+            DisplayUnitRubyOffsetY(Index);
+          DrawDisplayUnitTextImage(Index, RubyAfterImage, RubyLayoutLeft,
+            RubyLayoutTop, Center.X, True);
+          DrawDisplayUnitTextImage(Index, RubyBeforeImage, RubyLayoutLeft,
+            RubyLayoutTop, Center.X, False);
+        end;
+      end;
+    finally
+      RubyAfterImage.Free;
+      RubyBeforeImage.Free;
+      BaseAfterImage.Free;
+      BaseBeforeImage.Free;
+    end;
+  end
+  else
+  begin
+    SetGraphicsMode(Canvas.Handle, GM_ADVANCED);
+    FillChar(WorldTransform, SizeOf(WorldTransform), 0);
+    WorldTransform.eM11 := Scale * FPlacements[Index].ScaleX;
+    WorldTransform.eM22 := Scale * FPlacements[Index].ScaleY;
+    WorldTransform.eDx := Center.X;
+    WorldTransform.eDy := Center.Y;
+    if SetWorldTransform(Canvas.Handle, WorldTransform) then
+    begin
+      try
+      begin
+        if RubyText <> '' then
+        begin
+          Canvas.Font.Name := DisplayUnitRubyFontName(Index);
+          Canvas.Font.Height := -Max(1,
+            DisplayUnitRubyFontHeight(Index));
+          Canvas.Font.Style :=
+            FontStyleByteToSet(DisplayUnitRubyFontStyle(Index));
+          SetTextCharacterExtra(Canvas.Handle,
+            DisplayUnitRubyCharacterSpacing(Index));
+          DrawOutlinedText(-RubySize.cx div 2 +
+            DisplayUnitRubyOffsetX(Index),
+            TextTop - RubySize.cy - FRubyGap +
+            DisplayUnitRubyOffsetY(Index), RubyText,
+            DisplayUnitBeforeColor(Index));
+        end;
+        Canvas.Font.Name := DisplayUnitBaseFontName(Index);
         Canvas.Font.Height := -Max(1,
-          DisplayUnitRubyFontHeight(Index));
+          DisplayUnitBaseFontHeight(Index));
         Canvas.Font.Style :=
-          FontStyleByteToSet(DisplayUnitRubyFontStyle(Index));
+          FontStyleByteToSet(DisplayUnitBaseFontStyle(Index));
         SetTextCharacterExtra(Canvas.Handle,
-          DisplayUnitRubyCharacterSpacing(Index));
-        DrawOutlinedText(-RubySize.cx div 2 +
-          DisplayUnitRubyOffsetX(Index),
-          TextTop - RubySize.cy - FRubyGap +
-          DisplayUnitRubyOffsetY(Index), RubyText,
+          DisplayUnitBaseCharacterSpacing(Index));
+        DrawOutlinedText(-BaseSize.cx div 2, TextTop, BaseText,
           DisplayUnitBeforeColor(Index));
       end;
-      Canvas.Font.Name := DisplayUnitBaseFontName(Index);
-      Canvas.Font.Height := -Max(1,
-        DisplayUnitBaseFontHeight(Index));
-      Canvas.Font.Style :=
-        FontStyleByteToSet(DisplayUnitBaseFontStyle(Index));
-      SetTextCharacterExtra(Canvas.Handle,
-        DisplayUnitBaseCharacterSpacing(Index));
-      DrawOutlinedText(-BaseSize.cx div 2, TextTop, BaseText,
-        DisplayUnitBeforeColor(Index));
-    end;
-    finally
-      FillChar(IdentityTransform, SizeOf(IdentityTransform), 0);
-      IdentityTransform.eM11 := 1;
-      IdentityTransform.eM22 := 1;
-      SetWorldTransform(Canvas.Handle, IdentityTransform);
-      SetTextCharacterExtra(Canvas.Handle, 0);
+      finally
+        FillChar(IdentityTransform, SizeOf(IdentityTransform), 0);
+        IdentityTransform.eM11 := 1;
+        IdentityTransform.eM22 := 1;
+        SetWorldTransform(Canvas.Handle, IdentityTransform);
+        SetTextCharacterExtra(Canvas.Handle, 0);
+      end;
     end;
   end;
 
@@ -1983,6 +2313,9 @@ begin
     (Length(Pixels) <> NativeInt(Width) * Height * 4) then
     Exit;
 
+  FBackgroundPixels := Copy(Pixels);
+  FBackgroundPixelWidth := Width;
+  FBackgroundPixelHeight := Height;
   FBackground.PixelFormat := pf32bit;
   FBackground.SetSize(Width, Height);
   Source := @Pixels[0];

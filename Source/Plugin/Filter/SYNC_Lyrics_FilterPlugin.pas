@@ -198,7 +198,7 @@ var
     Name: '表示設定';
     Value: ''
   );
-  PluginItems: array[0..29] of Pointer;
+  PluginItems: array[0..33] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -229,6 +229,44 @@ type
     InitialCandidate: Integer;
   end;
 
+procedure SetLyricsRenderColor(var Target: TLyricsRenderColor;
+  Color: Cardinal; Opacity: Byte);
+begin
+  Target.A := Opacity;
+  Target.R := Color and $FF;
+  Target.G := (Color shr 8) and $FF;
+  Target.B := (Color shr 16) and $FF;
+end;
+
+procedure ApplyDisplayDecoration(const Common: TDisplayCommonSettings;
+  var Settings: TLyricsRenderSettings);
+begin
+  SetLyricsRenderColor(Settings.BeforeColor, Common.BeforeColor,
+    Common.BeforeOpacity);
+  SetLyricsRenderColor(Settings.AfterColor, Common.AfterColor,
+    Common.AfterOpacity);
+  SetLyricsRenderColor(Settings.BeforeOutlineColor,
+    Common.BeforeOutlineColor, Common.BeforeOutlineOpacity);
+  SetLyricsRenderColor(Settings.AfterOutlineColor,
+    Common.AfterOutlineColor, Common.AfterOutlineOpacity);
+  SetLyricsRenderColor(Settings.BeforeShadowColor,
+    Common.BeforeShadowColor, Common.BeforeShadowOpacity);
+  SetLyricsRenderColor(Settings.AfterShadowColor,
+    Common.AfterShadowColor, Common.AfterShadowOpacity);
+  SetLyricsRenderColor(Settings.BeforeBlurColor, Common.BeforeBlurColor,
+    Common.BeforeBlurOpacity);
+  SetLyricsRenderColor(Settings.AfterBlurColor, Common.AfterBlurColor,
+    Common.AfterBlurOpacity);
+  Settings.OutlineEnabled := Common.OutlineEnabled;
+  Settings.OutlineWidth := Common.OutlineWidth;
+  Settings.OutlineBlur := Common.OutlineBlur;
+  Settings.ShadowEnabled := Common.ShadowEnabled;
+  Settings.ShadowOffsetX := Common.ShadowOffsetX;
+  Settings.ShadowOffsetY := Common.ShadowOffsetY;
+  Settings.ShadowBlur := Common.ShadowBlur;
+  Settings.ShadowSpread := Common.ShadowSpread;
+end;
+
 procedure ApplySerifSyncStyle(var Settings: TLyricsRenderSettings);
 begin
   Settings.SyncKind := TLyricsSyncKind(EnsureRange(
@@ -251,12 +289,14 @@ begin
   Settings.SyncColor.R := SerifSyncColorItem.R;
   Settings.SyncColor.G := SerifSyncColorItem.G;
   Settings.SyncColor.B := SerifSyncColorItem.B;
-  if SerifSyncTypeItem.Value = SERIF_SYNC_COLOR then
+  Settings.SyncColor.A := 255;
+  if SerifSyncTypeItem.Value <> SERIF_SYNC_COLOR then
   begin
-    Settings.AfterColor := Settings.SyncColor;
-  end
-  else
     Settings.AfterColor := Settings.BeforeColor;
+    Settings.AfterOutlineColor := Settings.BeforeOutlineColor;
+    Settings.AfterShadowColor := Settings.BeforeShadowColor;
+    Settings.AfterBlurColor := Settings.BeforeBlurColor;
+  end;
 end;
 
 function CurrentSerifSyncAnimation: TLyricsSyncAnimation;
@@ -1120,16 +1160,7 @@ begin
     CommonSettings.BaseCharacterSpacing;
   RenderSettings.RubyCharacterSpacing :=
     CommonSettings.RubyCharacterSpacing;
-  RenderSettings.BeforeColor.R := CommonSettings.BeforeColor and $FF;
-  RenderSettings.BeforeColor.G :=
-    (CommonSettings.BeforeColor shr 8) and $FF;
-  RenderSettings.BeforeColor.B :=
-    (CommonSettings.BeforeColor shr 16) and $FF;
-  RenderSettings.AfterColor.R := CommonSettings.AfterColor and $FF;
-  RenderSettings.AfterColor.G :=
-    (CommonSettings.AfterColor shr 8) and $FF;
-  RenderSettings.AfterColor.B :=
-    (CommonSettings.AfterColor shr 16) and $FF;
+  ApplyDisplayDecoration(CommonSettings, RenderSettings);
   ApplySerifSyncStyle(RenderSettings);
 
   HasFreePlacement := False;
@@ -1363,16 +1394,7 @@ begin
       CommonSettings.BaseCharacterSpacing;
     RenderSettings.RubyCharacterSpacing :=
       CommonSettings.RubyCharacterSpacing;
-    RenderSettings.BeforeColor.R := CommonSettings.BeforeColor and $FF;
-    RenderSettings.BeforeColor.G :=
-      (CommonSettings.BeforeColor shr 8) and $FF;
-    RenderSettings.BeforeColor.B :=
-      (CommonSettings.BeforeColor shr 16) and $FF;
-    RenderSettings.AfterColor.R := CommonSettings.AfterColor and $FF;
-    RenderSettings.AfterColor.G :=
-      (CommonSettings.AfterColor shr 8) and $FF;
-    RenderSettings.AfterColor.B :=
-      (CommonSettings.AfterColor shr 16) and $FF;
+    ApplyDisplayDecoration(CommonSettings, RenderSettings);
     ApplySerifSyncStyle(RenderSettings);
     HasFreePlacement := False;
     if SelectedPlacementMode = PLACEMENT_MODE_FREE then
@@ -1519,7 +1541,7 @@ begin
         Exit(1);
       PixelCount := NativeInt(Width) * Height;
       GetMem(Buffer, PixelCount * SizeOf(TPIXEL_RGBA));
-      FillChar(Buffer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
+      InitializeLyricsRenderBuffer(Video, Buffer, PixelCount);
       HasFrameState := TryGetLyricsFrameState(Video, FrameState);
       MusicOffsetSeconds := EnsureRange(MusicOffsetItem.Value, -5.0, 5.0);
       if HasFrameState then
@@ -1589,35 +1611,39 @@ begin
     // AviUtl2はnil終端された項目ポインター配列を参照する。
     InitializeSerifAnimationItems;
     PluginItems[0] := @MusicFileItem;
-    PluginItems[1] := @MusicSyncSettingsButton;
-    PluginItems[2] := @PreDisplayTimeItem;
-    PluginItems[3] := @HoldTimeItem;
-    PluginItems[4] := @DisplaySettingsButton;
-    PluginItems[5] := @SerifBeforeGroup;
-    PluginItems[6] := @SerifBeforeTypeItem;
-    PluginItems[7] := @SerifBeforeDirectionItem;
-    PluginItems[8] := @SerifBeforeZoomOriginItem;
-    PluginItems[9] := @SerifBeforeValue1Item;
-    PluginItems[10] := @SerifDuringGroup;
-    PluginItems[11] := @SerifDuringEmotionItem;
-    PluginItems[12] := @SerifDuringSpeedItem;
-    PluginItems[13] := @SerifSyncGroup;
-    PluginItems[14] := @SerifSyncTypeItem;
-    PluginItems[15] := @SerifSyncFillItem;
-    PluginItems[16] := @SerifSyncAfterItem;
-    PluginItems[17] := @SerifSyncShapeItem;
-    PluginItems[18] := @SerifSyncColorItem;
-    PluginItems[19] := @SerifSyncSizeItem;
-    PluginItems[20] := @SerifSyncOffsetXItem;
-    PluginItems[21] := @SerifSyncOffsetYItem;
-    PluginItems[22] := @SerifAfterGroup;
-    PluginItems[23] := @SerifAfterTypeItem;
-    PluginItems[24] := @SerifAfterDirectionItem;
-    PluginItems[25] := @SerifAfterZoomDestinationItem;
-    PluginItems[26] := @SerifAfterValue1Item;
-    PluginItems[27] := @SongDocumentItem;
-    PluginItems[28] := @DisplaySettingsTextItem;
-    PluginItems[29] := nil;
+    PluginItems[1] := @TrackItem;
+    PluginItems[2] := @MusicOffsetItem;
+    PluginItems[3] := @MusicSyncSettingsButton;
+    PluginItems[4] := @PreDisplayTimeItem;
+    PluginItems[5] := @HoldTimeItem;
+    PluginItems[6] := @PlacementModeItem;
+    PluginItems[7] := @DisplayEffectItem;
+    PluginItems[8] := @DisplaySettingsButton;
+    PluginItems[9] := @SerifBeforeGroup;
+    PluginItems[10] := @SerifBeforeTypeItem;
+    PluginItems[11] := @SerifBeforeDirectionItem;
+    PluginItems[12] := @SerifBeforeZoomOriginItem;
+    PluginItems[13] := @SerifBeforeValue1Item;
+    PluginItems[14] := @SerifDuringGroup;
+    PluginItems[15] := @SerifDuringEmotionItem;
+    PluginItems[16] := @SerifDuringSpeedItem;
+    PluginItems[17] := @SerifSyncGroup;
+    PluginItems[18] := @SerifSyncTypeItem;
+    PluginItems[19] := @SerifSyncFillItem;
+    PluginItems[20] := @SerifSyncAfterItem;
+    PluginItems[21] := @SerifSyncShapeItem;
+    PluginItems[22] := @SerifSyncColorItem;
+    PluginItems[23] := @SerifSyncSizeItem;
+    PluginItems[24] := @SerifSyncOffsetXItem;
+    PluginItems[25] := @SerifSyncOffsetYItem;
+    PluginItems[26] := @SerifAfterGroup;
+    PluginItems[27] := @SerifAfterTypeItem;
+    PluginItems[28] := @SerifAfterDirectionItem;
+    PluginItems[29] := @SerifAfterZoomDestinationItem;
+    PluginItems[30] := @SerifAfterValue1Item;
+    PluginItems[31] := @SongDocumentItem;
+    PluginItems[32] := @DisplaySettingsTextItem;
+    PluginItems[33] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

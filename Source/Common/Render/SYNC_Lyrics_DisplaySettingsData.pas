@@ -16,6 +16,28 @@ type
     RubyFontStyle: Byte;
     BeforeColor: Cardinal;
     AfterColor: Cardinal;
+    BeforeOpacity: Byte;
+    AfterOpacity: Byte;
+    BeforeOutlineColor: Cardinal;
+    AfterOutlineColor: Cardinal;
+    BeforeOutlineOpacity: Byte;
+    AfterOutlineOpacity: Byte;
+    BeforeShadowColor: Cardinal;
+    AfterShadowColor: Cardinal;
+    BeforeShadowOpacity: Byte;
+    AfterShadowOpacity: Byte;
+    BeforeBlurColor: Cardinal;
+    AfterBlurColor: Cardinal;
+    BeforeBlurOpacity: Byte;
+    AfterBlurOpacity: Byte;
+    OutlineEnabled: Boolean;
+    OutlineWidth: Single;
+    OutlineBlur: Single;
+    ShadowEnabled: Boolean;
+    ShadowOffsetX: Single;
+    ShadowOffsetY: Single;
+    ShadowBlur: Single;
+    ShadowSpread: Single;
     RubyGapAdjustment: Integer;
     BaseCharacterSpacing: Integer;
     RubyCharacterSpacing: Integer;
@@ -103,6 +125,28 @@ begin
   Result.RubyFontStyle := 1;
   Result.BeforeColor := $00FFFFFF;
   Result.AfterColor := $00FFFF00;
+  Result.BeforeOpacity := 255;
+  Result.AfterOpacity := 255;
+  Result.BeforeOutlineColor := $00000000;
+  Result.AfterOutlineColor := $00000000;
+  Result.BeforeOutlineOpacity := 255;
+  Result.AfterOutlineOpacity := 255;
+  Result.BeforeShadowColor := $00000000;
+  Result.AfterShadowColor := $00000000;
+  Result.BeforeShadowOpacity := 160;
+  Result.AfterShadowOpacity := 160;
+  Result.BeforeBlurColor := $00000000;
+  Result.AfterBlurColor := $00000000;
+  Result.BeforeBlurOpacity := 255;
+  Result.AfterBlurOpacity := 255;
+  Result.OutlineEnabled := False;
+  Result.OutlineWidth := 8;
+  Result.OutlineBlur := 0;
+  Result.ShadowEnabled := False;
+  Result.ShadowOffsetX := 10;
+  Result.ShadowOffsetY := 10;
+  Result.ShadowBlur := 4;
+  Result.ShadowSpread := 0;
   Result.RubyGapAdjustment := 0;
   Result.BaseCharacterSpacing := 0;
   Result.RubyCharacterSpacing := 0;
@@ -229,6 +273,24 @@ begin
     (Common.BaseFontStyle <= $0F) and (Common.RubyFontStyle <= $0F) and
     (Common.BeforeColor <= $FFFFFF) and
     (Common.AfterColor <= $FFFFFF) and
+    (Common.BeforeOutlineColor <= $FFFFFF) and
+    (Common.AfterOutlineColor <= $FFFFFF) and
+    (Common.BeforeShadowColor <= $FFFFFF) and
+    (Common.AfterShadowColor <= $FFFFFF) and
+    (Common.BeforeBlurColor <= $FFFFFF) and
+    (Common.AfterBlurColor <= $FFFFFF) and
+    not IsNan(Common.OutlineWidth) and not IsInfinite(Common.OutlineWidth) and
+    (Common.OutlineWidth >= 0) and (Common.OutlineWidth <= 500) and
+    not IsNan(Common.OutlineBlur) and not IsInfinite(Common.OutlineBlur) and
+    (Common.OutlineBlur >= 0) and (Common.OutlineBlur <= 500) and
+    not IsNan(Common.ShadowOffsetX) and not IsInfinite(Common.ShadowOffsetX) and
+    (Common.ShadowOffsetX >= -2000) and (Common.ShadowOffsetX <= 2000) and
+    not IsNan(Common.ShadowOffsetY) and not IsInfinite(Common.ShadowOffsetY) and
+    (Common.ShadowOffsetY >= -2000) and (Common.ShadowOffsetY <= 2000) and
+    not IsNan(Common.ShadowBlur) and not IsInfinite(Common.ShadowBlur) and
+    (Common.ShadowBlur >= 0) and (Common.ShadowBlur <= 500) and
+    not IsNan(Common.ShadowSpread) and not IsInfinite(Common.ShadowSpread) and
+    (Common.ShadowSpread >= 0) and (Common.ShadowSpread <= 500) and
     (Common.RubyGapAdjustment >= -200) and
     (Common.RubyGapAdjustment <= 500) and
     (Common.BaseCharacterSpacing >= -100) and
@@ -260,8 +322,25 @@ begin
      Common.BaseFontHeight, Common.RubyFontHeight,
      Common.BaseFontStyle and $0F, Common.RubyFontStyle and $0F,
      Common.BeforeColor and $FFFFFF, Common.AfterColor and $FFFFFF,
-     Common.RubyGapAdjustment, Common.BaseCharacterSpacing,
-     Common.RubyCharacterSpacing]);
+      Common.RubyGapAdjustment, Common.BaseCharacterSpacing,
+      Common.RubyCharacterSpacing]);
+  CommonText := CommonText + Format(
+    ',%d,%d,%.6X,%.6X,%d,%d,%.6X,%.6X,%d,%d,%.6X,%.6X,%d,%d,' +
+    '%d,%d,%d,%d,%d,%d,%d,%d',
+    [Common.BeforeOpacity, Common.AfterOpacity,
+     Common.BeforeOutlineColor and $FFFFFF,
+     Common.AfterOutlineColor and $FFFFFF,
+     Common.BeforeOutlineOpacity, Common.AfterOutlineOpacity,
+     Common.BeforeShadowColor and $FFFFFF,
+     Common.AfterShadowColor and $FFFFFF,
+     Common.BeforeShadowOpacity, Common.AfterShadowOpacity,
+     Common.BeforeBlurColor and $FFFFFF,
+     Common.AfterBlurColor and $FFFFFF,
+     Common.BeforeBlurOpacity, Common.AfterBlurOpacity,
+     Ord(Common.OutlineEnabled), Round(Common.OutlineWidth * 1000),
+     Round(Common.OutlineBlur * 1000), Ord(Common.ShadowEnabled),
+     Round(Common.ShadowOffsetX * 1000), Round(Common.ShadowOffsetY * 1000),
+     Round(Common.ShadowBlur * 1000), Round(Common.ShadowSpread * 1000)]);
   Text := Text + '|' + CommonText;
   for I := 0 to High(Items) do
   begin
@@ -360,7 +439,7 @@ begin
     CommonFields.StrictDelimiter := True;
     CommonFields.Delimiter := ',';
     CommonFields.DelimitedText := Records[3];
-    if (CommonFields.Count <> 13) or
+    if not (CommonFields.Count in [13, 35]) or
       not TryParseInteger(CommonFields[0], Common.PositionX) or
       not TryParseInteger(CommonFields[1], Common.PositionY) or
       not TryDecodeUtf8Hex(CommonFields[2], Common.BaseFontName) or
@@ -381,8 +460,66 @@ begin
       not TryParseInteger(CommonFields[11],
         Common.BaseCharacterSpacing) or
       not TryParseInteger(CommonFields[12],
-        Common.RubyCharacterSpacing) or
-      not IsValidCommonSettings(Common) then
+        Common.RubyCharacterSpacing) then
+      Exit;
+    if CommonFields.Count = 35 then
+    begin
+      if not TryParseInteger(CommonFields[13], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.BeforeOpacity := IntegerValue;
+      if not TryParseInteger(CommonFields[14], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.AfterOpacity := IntegerValue;
+      if not TryParseHexCardinal(CommonFields[15],
+        Common.BeforeOutlineColor) or
+        not TryParseHexCardinal(CommonFields[16],
+          Common.AfterOutlineColor) then Exit;
+      if not TryParseInteger(CommonFields[17], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.BeforeOutlineOpacity := IntegerValue;
+      if not TryParseInteger(CommonFields[18], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.AfterOutlineOpacity := IntegerValue;
+      if not TryParseHexCardinal(CommonFields[19],
+        Common.BeforeShadowColor) or
+        not TryParseHexCardinal(CommonFields[20],
+          Common.AfterShadowColor) then Exit;
+      if not TryParseInteger(CommonFields[21], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.BeforeShadowOpacity := IntegerValue;
+      if not TryParseInteger(CommonFields[22], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.AfterShadowOpacity := IntegerValue;
+      if not TryParseHexCardinal(CommonFields[23],
+        Common.BeforeBlurColor) or
+        not TryParseHexCardinal(CommonFields[24],
+          Common.AfterBlurColor) then Exit;
+      if not TryParseInteger(CommonFields[25], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.BeforeBlurOpacity := IntegerValue;
+      if not TryParseInteger(CommonFields[26], IntegerValue) or
+        (IntegerValue < 0) or (IntegerValue > 255) then Exit;
+      Common.AfterBlurOpacity := IntegerValue;
+      if not TryParseInteger(CommonFields[27], IntegerValue) or
+        not (IntegerValue in [0, 1]) then Exit;
+      Common.OutlineEnabled := IntegerValue <> 0;
+      if not TryParseInteger(CommonFields[28], IntegerValue) then Exit;
+      Common.OutlineWidth := IntegerValue / 1000;
+      if not TryParseInteger(CommonFields[29], IntegerValue) then Exit;
+      Common.OutlineBlur := IntegerValue / 1000;
+      if not TryParseInteger(CommonFields[30], IntegerValue) or
+        not (IntegerValue in [0, 1]) then Exit;
+      Common.ShadowEnabled := IntegerValue <> 0;
+      if not TryParseInteger(CommonFields[31], IntegerValue) then Exit;
+      Common.ShadowOffsetX := IntegerValue / 1000;
+      if not TryParseInteger(CommonFields[32], IntegerValue) then Exit;
+      Common.ShadowOffsetY := IntegerValue / 1000;
+      if not TryParseInteger(CommonFields[33], IntegerValue) then Exit;
+      Common.ShadowBlur := IntegerValue / 1000;
+      if not TryParseInteger(CommonFields[34], IntegerValue) then Exit;
+      Common.ShadowSpread := IntegerValue / 1000;
+    end;
+    if not IsValidCommonSettings(Common) then
       Exit;
 
     SetLength(Items, ItemCount);

@@ -39,6 +39,12 @@ type
     tbgFont,
     tbgBeforeColor,
     tbgAfterColor,
+    tbgOutline,
+    tbgShadow,
+    tbgFillColor,
+    tbgOutlineColor,
+    tbgShadowColor,
+    tbgBlurColor,
     tbgMoveToCenter,
     tbgResetSelected,
     tbgResetAll,
@@ -343,6 +349,31 @@ var
         Point(ArrowX, MidY), Point(ArrowX + 4, MidY + 3)]);
   end;
 
+  procedure DrawOutlinedAGlyph;
+  const
+    OFFSETS: array[0..7] of TPoint = (
+      (X: -1; Y: -1), (X: 0; Y: -1), (X: 1; Y: -1),
+      (X: -1; Y: 0),                 (X: 1; Y: 0),
+      (X: -1; Y: 1),  (X: 0; Y: 1),  (X: 1; Y: 1));
+  var
+    I: Integer;
+    OutlineRect: TRect;
+  begin
+    Canvas.Brush.Style := bsClear;
+    Canvas.Font.Name := 'Segoe UI';
+    Canvas.Font.Height := -Max(8, H * 54 div 100);
+    Canvas.Font.Style := [fsBold];
+    Canvas.Font.Color := clWhite;
+    for I := Low(OFFSETS) to High(OFFSETS) do
+    begin
+      OutlineRect := GlyphRect;
+      OffsetRect(OutlineRect, OFFSETS[I].X, OFFSETS[I].Y);
+      DrawText(Canvas.Handle, 'A', 1, OutlineRect, TEXT_FLAGS);
+    end;
+    Canvas.Font.Color := clBlack;
+    DrawText(Canvas.Handle, 'A', 1, GlyphRect, TEXT_FLAGS);
+  end;
+
   procedure DrawResetGlyph(AllItems: Boolean);
   var
     Offset: Integer;
@@ -434,6 +465,53 @@ begin
       DrawColorGlyph(False);
     tbgAfterColor:
       DrawColorGlyph(True);
+    tbgOutline:
+      DrawOutlinedAGlyph;
+    tbgShadow:
+      begin
+        R := GlyphRect;
+        OffsetRect(R, Max(4, H div 6), Max(2, H div 12));
+        Canvas.Brush.Style := bsClear;
+        Canvas.Font.Name := 'Segoe UI';
+        Canvas.Font.Height := -Max(8, H * 50 div 100);
+        Canvas.Font.Style := [fsBold];
+        Canvas.Font.Color := BlendColor(BackColor, TextColor, 100);
+        DrawText(Canvas.Handle, 'A', 1, R, TEXT_FLAGS);
+        OffsetRect(R, -Max(4, H div 6), -Max(2, H div 12));
+        Canvas.Font.Color := TextColor;
+        DrawText(Canvas.Handle, 'A', 1, R, TEXT_FLAGS);
+      end;
+    tbgFillColor:
+      DrawTextGlyph('A', [fsBold]);
+    tbgOutlineColor:
+      DrawOutlinedAGlyph;
+    tbgShadowColor:
+      begin
+        R := GlyphRect;
+        OffsetRect(R, Max(4, H div 6), Max(2, H div 12));
+        Canvas.Brush.Style := bsClear;
+        Canvas.Font.Name := 'Segoe UI';
+        Canvas.Font.Height := -Max(8, H * 46 div 100);
+        Canvas.Font.Style := [fsBold];
+        Canvas.Font.Color := BlendColor(BackColor, TextColor, 110);
+        DrawText(Canvas.Handle, 'A', 1, R, TEXT_FLAGS);
+        OffsetRect(R, -Max(4, H div 6), -Max(2, H div 12));
+        Canvas.Font.Color := TextColor;
+        DrawText(Canvas.Handle, 'A', 1, R, TEXT_FLAGS);
+      end;
+    tbgBlurColor:
+      begin
+        DrawTextGlyph('A', [fsBold], 48);
+        Canvas.Brush.Style := bsSolid;
+        Canvas.Brush.Color := BlendColor(BackColor, TextColor, 120);
+        Canvas.Pen.Color := Canvas.Brush.Color;
+        Canvas.Ellipse(MidX + H div 7, MidY - H div 5,
+          MidX + H div 7 + Max(3, H div 9),
+          MidY - H div 5 + Max(3, H div 9));
+        Canvas.Ellipse(MidX + H div 5, MidY,
+          MidX + H div 5 + Max(2, H div 11),
+          MidY + Max(2, H div 11));
+      end;
     tbgMoveToCenter:
       begin
         Canvas.Brush.Style := bsClear;

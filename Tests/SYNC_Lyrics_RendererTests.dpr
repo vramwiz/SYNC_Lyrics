@@ -62,6 +62,22 @@ begin
       Inc(Result);
 end;
 
+procedure SupplyInputImage(Buffer: PPIXEL_RGBA); cdecl;
+var
+  I: Integer;
+  Pixel: PPIXEL_RGBA;
+begin
+  Pixel := Buffer;
+  for I := 0 to TEST_WIDTH * TEST_HEIGHT - 1 do
+  begin
+    Pixel^.R := 17;
+    Pixel^.G := 34;
+    Pixel^.B := 51;
+    Pixel^.A := 255;
+    Inc(Pixel);
+  end;
+end;
+
 function MaximumAlpha: Integer;
 var
   I: Integer;
@@ -449,6 +465,8 @@ var
   RubySpans: TLyricsRubySpans;
   RubyStyle: TResolvedLyricsStyle;
 begin
+  BaseStyle := Default(TResolvedLyricsStyle);
+  RubyStyle := Default(TResolvedLyricsStyle);
   BaseStyle.FontName := 'Base default';
   BaseStyle.FontHeight := 96;
   BaseStyle.FontStyle := 1;
@@ -778,6 +796,41 @@ begin
   FindVisibleBounds(SpacedLeft, SpacedTop, SpacedRight, SpacedBottom);
   Check((SpacedRight - SpacedLeft) > (BaseRight - BaseLeft),
     'configured character spacing did not increase text width');
+end;
+
+procedure TestInputImageIsPreserved;
+var
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+
+  procedure CheckBackgroundPixel(Index: Integer; const MessageText: string);
+  begin
+    Check((CapturedPixels[Index].R = 17) and
+      (CapturedPixels[Index].G = 34) and
+      (CapturedPixels[Index].B = 51) and
+      (CapturedPixels[Index].A = 255), MessageText);
+  end;
+
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.GetImageData := SupplyInputImage;
+  Video.SetImageData := CaptureImage;
+
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '', 0, Settings, 0, 0),
+    'input image passthrough failed');
+  CheckBackgroundPixel(0, 'empty lyrics replaced the input image');
+  CheckBackgroundPixel(High(CapturedPixels),
+    'empty lyrics damaged the input image tail');
+
+  Check(RenderLyrics(@Video, '歌詞', 0, Settings, 0, 0),
+    'input image lyrics composite failed');
+  CheckBackgroundPixel(0, 'lyrics render cleared the input image');
 end;
 
 procedure TestFourColorChangeModes;
@@ -1513,6 +1566,70 @@ begin
     'individual ruby Y offset did not move ruby upward');
 end;
 
+procedure TestTextDecorationAndOpacity;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  DecoratedBottom: Integer;
+  DecoratedLeft: Integer;
+  DecoratedRight: Integer;
+  DecoratedTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.SyncKind := lskNone;
+  Settings.AfterColor := Settings.BeforeColor;
+  Check(RenderLyrics(@Video, '装飾', 0, Settings, 0, 0),
+    'plain decoration baseline failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+
+  Settings.OutlineEnabled := True;
+  Settings.OutlineWidth := 10;
+  Settings.BeforeOutlineColor.A := 255;
+  Settings.AfterOutlineColor := Settings.BeforeOutlineColor;
+  Check(RenderLyrics(@Video, '装飾', 0, Settings, 0, 0),
+    'outline render failed');
+  FindVisibleBounds(DecoratedLeft, DecoratedTop, DecoratedRight,
+    DecoratedBottom);
+  Check(((DecoratedRight - DecoratedLeft) > (BaseRight - BaseLeft)) and
+    ((DecoratedBottom - DecoratedTop) > (BaseBottom - BaseTop)),
+    Format('outline did not expand visible bounds: base=%d,%d,%d,%d ' +
+      'decorated=%d,%d,%d,%d', [BaseLeft, BaseTop, BaseRight, BaseBottom,
+      DecoratedLeft, DecoratedTop, DecoratedRight, DecoratedBottom]));
+
+  Settings.OutlineEnabled := False;
+  Settings.ShadowEnabled := True;
+  Settings.ShadowOffsetX := 24;
+  Settings.ShadowOffsetY := 18;
+  Settings.ShadowBlur := 3;
+  Settings.BeforeShadowColor.A := 200;
+  Settings.AfterShadowColor := Settings.BeforeShadowColor;
+  Check(RenderLyrics(@Video, '装飾', 0, Settings, 0, 0),
+    'shadow render failed');
+  FindVisibleBounds(DecoratedLeft, DecoratedTop, DecoratedRight,
+    DecoratedBottom);
+  Check((DecoratedRight > BaseRight) and (DecoratedBottom > BaseBottom),
+    'shadow did not expand visible bounds toward its offset');
+
+  Settings.ShadowEnabled := False;
+  Settings.BeforeColor.A := 96;
+  Settings.AfterColor := Settings.BeforeColor;
+  Check(RenderLyrics(@Video, '装飾', 0, Settings, 0, 0),
+    'transparent text render failed');
+  Check((MaximumAlpha > 0) and (MaximumAlpha <= 96),
+    'text opacity was not applied to the rendered pixels');
+end;
+
 begin
   InitializeLyricsRenderer;
   try
@@ -1543,7 +1660,9 @@ begin
     TestFreePlacementBaseCharacterSpacing;
     TestFreePlacementRubyCharacterSpacing;
     TestFreePlacementRubyOffset;
+    TestTextDecorationAndOpacity;
     TestEmptyLyricsIsTransparent;
+    TestInputImageIsPreserved;
     Writeln('PASS');
   finally
     FinalizeLyricsRenderer;

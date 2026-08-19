@@ -276,6 +276,28 @@ begin
   Common.RubyFontStyle := 1;
   Common.BeforeColor := $001E140A;
   Common.AfterColor := $003C3228;
+  Common.BeforeOpacity := 210;
+  Common.AfterOpacity := 220;
+  Common.BeforeOutlineColor := $00010203;
+  Common.AfterOutlineColor := $00040506;
+  Common.BeforeOutlineOpacity := 180;
+  Common.AfterOutlineOpacity := 190;
+  Common.BeforeShadowColor := $00070809;
+  Common.AfterShadowColor := $000A0B0C;
+  Common.BeforeShadowOpacity := 120;
+  Common.AfterShadowOpacity := 130;
+  Common.BeforeBlurColor := $000D0E0F;
+  Common.AfterBlurColor := $00101112;
+  Common.BeforeBlurOpacity := 90;
+  Common.AfterBlurOpacity := 100;
+  Common.OutlineEnabled := True;
+  Common.OutlineWidth := 7.5;
+  Common.OutlineBlur := 2.25;
+  Common.ShadowEnabled := True;
+  Common.ShadowOffsetX := -4.5;
+  Common.ShadowOffsetY := 8.25;
+  Common.ShadowBlur := 3.75;
+  Common.ShadowSpread := 1.5;
   Common.RubyGapAdjustment := 12;
   Common.BaseCharacterSpacing := -3;
   Common.RubyCharacterSpacing := 5;
@@ -328,6 +350,28 @@ begin
     SameText(DecodedCommon.BaseFontName, '游ゴシック') and
     (DecodedCommon.BaseFontHeight = 88) and
     (DecodedCommon.BaseFontStyle = 6) and
+    (DecodedCommon.BeforeOpacity = 210) and
+    (DecodedCommon.AfterOpacity = 220) and
+    (DecodedCommon.BeforeOutlineColor = $00010203) and
+    (DecodedCommon.AfterOutlineColor = $00040506) and
+    (DecodedCommon.BeforeOutlineOpacity = 180) and
+    (DecodedCommon.AfterOutlineOpacity = 190) and
+    (DecodedCommon.BeforeShadowColor = $00070809) and
+    (DecodedCommon.AfterShadowColor = $000A0B0C) and
+    (DecodedCommon.BeforeShadowOpacity = 120) and
+    (DecodedCommon.AfterShadowOpacity = 130) and
+    (DecodedCommon.BeforeBlurColor = $000D0E0F) and
+    (DecodedCommon.AfterBlurColor = $00101112) and
+    (DecodedCommon.BeforeBlurOpacity = 90) and
+    (DecodedCommon.AfterBlurOpacity = 100) and
+    DecodedCommon.OutlineEnabled and
+    (Abs(DecodedCommon.OutlineWidth - 7.5) < 0.001) and
+    (Abs(DecodedCommon.OutlineBlur - 2.25) < 0.001) and
+    DecodedCommon.ShadowEnabled and
+    (Abs(DecodedCommon.ShadowOffsetX + 4.5) < 0.001) and
+    (Abs(DecodedCommon.ShadowOffsetY - 8.25) < 0.001) and
+    (Abs(DecodedCommon.ShadowBlur - 3.75) < 0.001) and
+    (Abs(DecodedCommon.ShadowSpread - 1.5) < 0.001) and
     (DecodedCommon.RubyGapAdjustment = 12) and
     (DecodedCommon.BaseCharacterSpacing = -3) and
     (DecodedCommon.RubyCharacterSpacing = 5) and
@@ -345,6 +389,16 @@ begin
     DecodedCommon, DecodedItems, PlacementsMatchLyrics) and
     not PlacementsMatchLyrics and (DecodedCommon.PositionX = 123),
     'lyrics change did not preserve common settings and reject placements');
+
+  SettingsText := 'SL2|00000000|0|' +
+    '0,0,597520476F74686963205549,597520476F74686963205549,' +
+    '96,42,1,1,FFFFFF,FFFF00,0,0,0';
+  Check(TryDecodeDisplaySettingsText(SettingsText, 'legacy', DecodedCommon,
+    DecodedItems, PlacementsMatchLyrics) and
+    (DecodedCommon.BeforeOpacity = 255) and
+    (DecodedCommon.AfterOpacity = 255) and
+    not DecodedCommon.OutlineEnabled and not DecodedCommon.ShadowEnabled,
+    'legacy 13-field display settings were not upgraded with defaults');
 
   SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
   Check(not TryEncodeDisplaySettingsText('oversized', Common,

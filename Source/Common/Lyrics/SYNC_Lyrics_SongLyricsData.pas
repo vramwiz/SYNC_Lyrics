@@ -38,7 +38,11 @@ end;
 
 function EncodeTextField(const Value: string): string;
 begin
-  Result := TNetEncoding.Base64.Encode(Value);
+  // TNetEncoding.Base64 uses MIME line wrapping for long values. AviUtl2
+  // stores a string item on one project-file line, so embedded CR/LF would
+  // truncate the SLD1 document when the project is loaded again.
+  Result := TNetEncoding.Base64.Encode(Value).Replace(#13, '').Replace(#10,
+    '');
 end;
 
 function HasDuplicateLineID(const Lines: TLyricsSongLines;
