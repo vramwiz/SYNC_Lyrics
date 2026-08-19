@@ -23,7 +23,9 @@ uses
   System.SysUtils,
   System.UITypes,
   SYNC_Lyrics_DisplaySettingsData,
+  SYNC_Lyrics_DisplaySettingsForm,
   SYNC_Lyrics_CharacterLayoutSettingsForm,
+  SYNC_Lyrics_CharacterDisplaySettingsPage,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_SongLyricsData,
   SYNC_Lyrics_SongLyricsModel,
@@ -38,6 +40,7 @@ uses
   SYNC_Lyrics_SyncEditorForm,
   SYNC_Lyrics_SerifAnimationItems,
   SYNC_Lyrics_LineDisplaySettingsForm,
+  SYNC_Lyrics_LineDisplaySettingsPage,
   SYNC_Lyrics_Animation,
   SYNC_Lyrics_Renderer,
   SYNC_Lyrics_SyncSourceKind,
@@ -661,29 +664,226 @@ begin
     ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
 end;
 
+function TryStoreSongLinePlacements(Edit: PEDIT_SECTION;
+  Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
+  PlacementMode: Integer; const SettingsTexts: TArray<string>;
+  out ErrorText: string): Boolean;
+var
+  CandidatePosition: Integer;
+  EncodedSongText: string;
+  Model: TLyricsSongModel;
+  Utf8SongText: UTF8String;
+begin
+  Result := False;
+  ErrorText := '';
+  if Length(SettingsTexts) <> Length(Context.CandidateIndexes) then
+  begin
+    ErrorText := '自由配置の編集内容を取得できませんでした。';
+    Exit;
+  end;
+  Model := TLyricsSongModel.Create;
+  try
+    Model.ReplaceLines(Context.Lines);
+    Model.ReplaceLanePlacementTexts(Context.LanePlacementTexts);
+    if Context.StartLineID > 0 then
+      Model.TrySetStartLineID(Context.StartLineID);
+    Model.PlacementMode := TLyricsPlacementMode(EnsureRange(
+      PlacementMode, PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
+    for CandidatePosition := 0 to High(SettingsTexts) do
+      if not Model.TrySetPlacementText(
+        Context.CandidateIndexes[CandidatePosition],
+        SettingsTexts[CandidatePosition]) then
+      begin
+        ErrorText := '自由配置設定を歌詞データへ反映できませんでした。';
+        Exit;
+      end;
+    if not TryEncodeSongLyrics(Model, EncodedSongText, ErrorText) then
+      Exit;
+  finally
+    Model.Free;
+  end;
+  if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
+    (Obj = nil) then
+  begin
+    ErrorText := '配置を反映する対象オブジェクトを取得できませんでした。';
+    Exit;
+  end;
+  Utf8SongText := UTF8String(EncodedSongText);
+  Result := Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+    '歌詞データ', PAnsiChar(Utf8SongText));
+  if not Result then
+    ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
+end;
+
+function TryStoreSongLanePlacements(Edit: PEDIT_SECTION;
+  Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
+  PlacementMode: Integer; const SettingsTexts: TArray<string>;
+  out ErrorText: string): Boolean;
+var
+  EncodedSongText: string;
+  LanePosition: Integer;
+  Model: TLyricsSongModel;
+  Utf8SongText: UTF8String;
+begin
+  Result := False;
+  ErrorText := '';
+  if Length(SettingsTexts) <> 3 then
+  begin
+    ErrorText := '共通配置1～3の設定を取得できませんでした。';
+    Exit;
+  end;
+  Model := TLyricsSongModel.Create;
+  try
+    Model.ReplaceLines(Context.Lines);
+    Model.ReplaceLanePlacementTexts(Context.LanePlacementTexts);
+    if Context.StartLineID > 0 then
+      Model.TrySetStartLineID(Context.StartLineID);
+    Model.PlacementMode := TLyricsPlacementMode(EnsureRange(
+      PlacementMode, PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
+    for LanePosition := 0 to 2 do
+      if not Model.TrySetLanePlacementText(LanePosition + 1,
+        SettingsTexts[LanePosition]) then
+      begin
+        ErrorText := '共通配置設定を歌詞データへ反映できませんでした。';
+        Exit;
+      end;
+    if not TryEncodeSongLyrics(Model, EncodedSongText, ErrorText) then
+      Exit;
+  finally
+    Model.Free;
+  end;
+  if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
+    (Obj = nil) then
+  begin
+    ErrorText := '配置を反映する対象オブジェクトを取得できませんでした。';
+    Exit;
+  end;
+  Utf8SongText := UTF8String(EncodedSongText);
+  Result := Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+    '歌詞データ', PAnsiChar(Utf8SongText));
+  if not Result then
+    ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
+end;
+
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
 var
-  NextMode: Integer;
+  BackgroundHeight: Integer;
+  BackgroundPixels: TBytes;
+  BackgroundStatus: string;
+  BackgroundWidth: Integer;
+  CandidateCaptions: TArray<string>;
+  CandidateCommon: TDisplayCommonSettingsArray;
+  CandidateLyrics: TArray<string>;
+  CandidateSettingsTexts: TArray<string>;
+  CharacterPage: TFrameLyricsCharacterDisplaySettingsPage;
+  CurrentSettingsText: string;
+  DisplaySettingsForm: TFormLyricsDisplaySettings;
+  ErrorText: string;
+  FormResult: Integer;
+  I: Integer;
+  LinePage: TFrameLyricsLineDisplaySettingsPage;
   Obj: OBJECT_HANDLE;
   PlacementContext: TPlacementCandidateContext;
   PlacementMode: TLyricsPlacementMode;
+  WholeSongMode: Boolean;
 begin
-  PlacementMode := lpmLine;
-  Obj := nil;
-  if (Edit <> nil) and Assigned(Edit^.GetFocusObject) then
-    Obj := Edit^.GetFocusObject();
-  if TryBuildPlacementCandidateContext(Edit, Obj, PlacementContext) then
-    PlacementMode := PlacementContext.PlacementMode;
-  repeat
-    if PlacementMode = lpmFree then
-      NextMode := CharacterLayoutSettingsButtonCallback(Edit)
-    else
-      NextMode := LineDisplaySettingsButtonCallback(Edit);
-    if NextMode < 0 then
-      Break;
-    PlacementMode := TLyricsPlacementMode(EnsureRange(NextMode,
-      PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
-  until False;
+  try
+    PlacementMode := lpmLine;
+    Obj := nil;
+    if (Edit <> nil) and Assigned(Edit^.GetFocusObject) then
+      Obj := Edit^.GetFocusObject();
+    CurrentSettingsText := '';
+    if Assigned(DisplaySettingsTextItem.Value) then
+      CurrentSettingsText := string(DisplaySettingsTextItem.Value);
+    WholeSongMode := TryBuildPlacementCandidateContext(
+      Edit, Obj, PlacementContext);
+    if WholeSongMode then
+    begin
+      PlacementMode := PlacementContext.PlacementMode;
+    end;
+    DisplaySettingsForm := TFormLyricsDisplaySettings.Create(nil);
+    try
+      LinePage := TFrameLyricsLineDisplaySettingsPage(
+        DisplaySettingsForm.PageForMode(Ord(lpmLine)));
+      CharacterPage := TFrameLyricsCharacterDisplaySettingsPage(
+        DisplaySettingsForm.PageForMode(Ord(lpmFree)));
+      if CopyLastFrame(BackgroundPixels, BackgroundWidth,
+        BackgroundHeight, BackgroundStatus) then
+      begin
+        LinePage.SetBackgroundRgba(BackgroundPixels,
+          BackgroundWidth, BackgroundHeight);
+        CharacterPage.SetBackgroundRgba(BackgroundPixels,
+          BackgroundWidth, BackgroundHeight);
+      end;
+      if WholeSongMode then
+      begin
+        BuildLanePlacementValues(PlacementContext, CurrentSettingsText,
+          CandidateCaptions, CandidateLyrics, CandidateSettingsTexts,
+          CandidateCommon);
+        DisplaySettingsForm.ConfigureModeCandidates(
+          Ord(lpmLine), CandidateCaptions,
+          PlacementContext.InitialLane);
+        LinePage.ConfigureCandidates(CandidateLyrics, CandidateCommon,
+          PlacementContext.InitialLane);
+        BuildPlacementCandidateValues(PlacementContext,
+          CurrentSettingsText, CandidateCaptions, CandidateLyrics,
+          CandidateSettingsTexts, CandidateCommon);
+        DisplaySettingsForm.ConfigureModeCandidates(
+          Ord(lpmFree), CandidateCaptions,
+          PlacementContext.InitialCandidate);
+        CharacterPage.ConfigureCandidates(CandidateLyrics,
+          CandidateCommon, CandidateSettingsTexts,
+          PlacementContext.InitialCandidate);
+      end;
+      DisplaySettingsForm.SetMode(Ord(PlacementMode));
+      FormResult := DisplaySettingsForm.ShowModal;
+      if WholeSongMode and (FormResult = mrOk) and
+        (DisplaySettingsForm.CurrentMode = Ord(lpmLine)) then
+      begin
+        CandidateLyrics := LinePage.CandidateLyrics;
+        CandidateCommon := LinePage.CandidateCommonSettings;
+        if (Length(CandidateLyrics) <> 3) or
+          (Length(CandidateCommon) <> 3) then
+        begin
+          ShowFontSettingsError(
+            '共通配置1～3の編集内容を取得できませんでした。');
+          Exit;
+        end;
+        SetLength(CandidateSettingsTexts, 3);
+        for I := 0 to 2 do
+          if not TryEncodeDisplaySettingsText(CandidateLyrics[I],
+            CandidateCommon[I], nil, CandidateSettingsTexts[I]) then
+          begin
+            ShowFontSettingsError(
+              '共通配置設定を文字列へ変換できませんでした。');
+            Exit;
+          end;
+        if not TryStoreSongLanePlacements(Edit, Obj, PlacementContext,
+          Ord(lpmLine), CandidateSettingsTexts, ErrorText) then
+          ShowFontSettingsError(ErrorText);
+      end;
+      if WholeSongMode and (FormResult = mrOk) and
+        (DisplaySettingsForm.CurrentMode = Ord(lpmFree)) then
+      begin
+        if not CharacterPage.TryBuildCandidateSettingsTexts(
+          CandidateSettingsTexts) then
+        begin
+          ShowFontSettingsError(
+            '自由配置設定を文字列へ変換できませんでした。');
+          Exit;
+        end;
+        if not TryStoreSongLinePlacements(Edit, Obj, PlacementContext,
+          Ord(lpmFree), CandidateSettingsTexts, ErrorText) then
+          ShowFontSettingsError(ErrorText);
+      end;
+    finally
+      DisplaySettingsForm.Free;
+    end;
+  except
+    on E: Exception do
+      ShowFontSettingsError(
+        '表示設定画面を開けませんでした: ' + E.Message);
+  end;
 end;
 
 function LineDisplaySettingsButtonCallback(

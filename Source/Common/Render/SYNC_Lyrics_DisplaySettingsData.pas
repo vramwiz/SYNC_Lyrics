@@ -187,8 +187,8 @@ begin
   Result.PositionY := 0;
   Result.BaseFontName := 'Yu Gothic UI';
   Result.RubyFontName := 'Yu Gothic UI';
-  Result.BaseFontHeight := 96;
-  Result.RubyFontHeight := 42;
+  Result.BaseFontHeight := 64;
+  Result.RubyFontHeight := 28;
   Result.BaseFontStyle := 1;
   Result.RubyFontStyle := 1;
   Result.BeforeColor := $00FFFFFF;

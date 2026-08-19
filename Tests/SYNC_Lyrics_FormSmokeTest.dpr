@@ -8,6 +8,7 @@ uses
   System.UITypes,
   Vcl.Controls,
   Vcl.Forms,
+  Vcl.Graphics,
   Vcl.StdCtrls,
   TextRendererSkiaRuntime in '..\Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
   SYNC_Lyrics_DarkTheme in '..\Source\Lib\SYNC_Lyrics_DarkTheme.pas',
@@ -23,14 +24,24 @@ uses
   SYNC_Lyrics_MusicSyncEditorFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas',
   SYNC_Lyrics_LineDisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas',
   SYNC_Lyrics_CharacterLayoutSettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas',
+  SYNC_Lyrics_DisplaySettingsModePage in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsModePage.pas',
+  SYNC_Lyrics_DisplaySettingsColorPanel in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsColorPanel.pas',
+  SYNC_Lyrics_DisplayPreviewBackground in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplayPreviewBackground.pas',
+  SYNC_Lyrics_LineDisplaySettingsPage in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsPage.pas',
+  SYNC_Lyrics_CharacterDisplaySettingsPage in '..\Source\Plugin\Filter\SYNC_Lyrics_CharacterDisplaySettingsPage.pas',
+  SYNC_Lyrics_DisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsForm.pas',
   SYNC_Lyrics_SyncEditorForm in '..\Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas';
 
 var
   CandidateCaptions: TArray<string>;
   CandidateCommon: TArray<TDisplayCommonSettings>;
   CandidateLyrics: TArray<string>;
+  CandidateSettingsTexts: TArray<string>;
   CharacterLayoutForm: TFormLyricsCharacterLayoutSettings;
   CharacterLayoutToolbar: TSyncLyricsToolbarButtons;
+  DisplaySettingsForm: TFormLyricsDisplaySettings;
+  DisplayCharacterPage: TFrameLyricsCharacterDisplaySettingsPage;
+  DisplayLinePage: TFrameLyricsLineDisplaySettingsPage;
   EditorForm: TFormLyricsSyncEditor;
   InputFrame: TFrameLyricsInitialInput;
   LineDisplayForm: TFormLyricsLineDisplaySettings;
@@ -38,6 +49,9 @@ var
   MusicSyncForm: TFormLyricsMusicSyncSettings;
   PreviewPixels: TBytes;
   LyricsToolbar: TSyncLyricsToolbarButtons;
+  LegacyDisplayFontHeight: Integer;
+  LegacyDisplayFontName: string;
+  LegacyDisplayWidth: Integer;
   LineDisplayToolbar: TSyncLyricsToolbarButtons;
   TopToolbar: TSyncLyricsToolbarButtons;
   Key: Word;
@@ -85,6 +99,9 @@ begin
     TTextRendererSkiaRuntime.Acquire(
       ExtractFilePath(ParamStr(0)) + 'sk4d.dll');
     LineDisplayForm := TFormLyricsLineDisplaySettings.Create(nil);
+    LegacyDisplayFontHeight := LineDisplayForm.Font.Height;
+    LegacyDisplayFontName := LineDisplayForm.Font.Name;
+    LegacyDisplayWidth := LineDisplayForm.ClientWidth;
     try
       if LineDisplayForm.Color <> SYNC_LYRICS_DARK_BACKGROUND_COLOR then
         raise Exception.Create('The placement editor did not use the dark background.');
@@ -226,6 +243,81 @@ begin
           'The free editor did not request an immediate line-mode switch.');
     finally
       CharacterLayoutForm.Free;
+    end;
+    DisplaySettingsForm := TFormLyricsDisplaySettings.Create(nil);
+    try
+      DisplayLinePage := TFrameLyricsLineDisplaySettingsPage(
+        DisplaySettingsForm.PageForMode(DISPLAY_SETTINGS_MODE_LINE));
+      DisplayCharacterPage := TFrameLyricsCharacterDisplaySettingsPage(
+        DisplaySettingsForm.PageForMode(DISPLAY_SETTINGS_MODE_FREE));
+      SetLength(PreviewPixels, 64 * 36 * 4);
+      FillChar(PreviewPixels[0], Length(PreviewPixels), $20);
+      DisplayLinePage.SetBackgroundRgba(PreviewPixels, 64, 36);
+      DisplayCharacterPage.SetBackgroundRgba(PreviewPixels, 64, 36);
+      if not DisplayLinePage.HasBackgroundImage or
+        not DisplayCharacterPage.HasBackgroundImage then
+        raise Exception.Create(
+          'The shared display previews did not load the Filter frame.');
+      if DisplaySettingsForm.Font.Name <> LegacyDisplayFontName then
+        raise Exception.Create(
+          'The common display form did not use the legacy form font.');
+      if DisplaySettingsForm.Font.Height <> LegacyDisplayFontHeight then
+        raise Exception.Create(
+          'The common display form did not match the legacy DPI font size.');
+      if DisplaySettingsForm.ClientWidth <> LegacyDisplayWidth then
+        raise Exception.Create(
+          'The common display form did not match the legacy DPI width.');
+      if (DisplaySettingsForm.Color <>
+        SYNC_LYRICS_DARK_BACKGROUND_COLOR) or
+        (DisplaySettingsForm.ModePageCount <> 2) or
+        (DisplaySettingsForm.CurrentMode <> DISPLAY_SETTINGS_MODE_LINE) or
+        not (DisplaySettingsForm.CurrentPage is
+          TFrameLyricsLineDisplaySettingsPage) then
+        raise Exception.Create(
+          'The shared display settings host did not initialize line mode.');
+      DisplaySettingsForm.ConfigureModeCandidates(
+        DISPLAY_SETTINGS_MODE_LINE, ['lane 1', 'lane 2', 'lane 3'], 2);
+       DisplaySettingsForm.ConfigureModeCandidates(
+         DISPLAY_SETTINGS_MODE_FREE, ['line 1', 'line 2'], 1);
+       SetLength(CandidateSettingsTexts, Length(CandidateLyrics));
+       DisplayCharacterPage.ConfigureCandidates(CandidateLyrics,
+         CandidateCommon, CandidateSettingsTexts, 1);
+      if (DisplaySettingsForm.CandidateCombo.Items.Count <> 3) or
+        (DisplaySettingsForm.SelectedCandidateIndex <> 2) then
+        raise Exception.Create(
+          'The shared host did not load line-mode candidates.');
+      if (DisplaySettingsForm.ModeToolbar.FindByTag(
+          DISPLAY_SETTINGS_MODE_LINE) = nil) or
+        (DisplaySettingsForm.ModeToolbar.FindByTag(
+          DISPLAY_SETTINGS_MODE_FREE) = nil) then
+        raise Exception.Create(
+          'The shared display settings host did not expose mode icons.');
+      DisplaySettingsForm.SetMode(DISPLAY_SETTINGS_MODE_FREE);
+      if (DisplaySettingsForm.CurrentMode <> DISPLAY_SETTINGS_MODE_FREE) or
+        not (DisplaySettingsForm.CurrentPage is
+          TFrameLyricsCharacterDisplaySettingsPage) or
+        not DisplaySettingsForm.CurrentPage.Visible then
+        raise Exception.Create(
+          'The shared display settings host did not switch to free mode.');
+      if (DisplaySettingsForm.CandidateCombo.Items.Count <> 2) or
+        (DisplaySettingsForm.SelectedCandidateIndex <> 1) then
+        raise Exception.Create(
+          'The shared host did not switch candidate sets with the mode.');
+      with TFrameLyricsCharacterDisplaySettingsPage(
+        DisplaySettingsForm.CurrentPage) do
+        if (ColorPanel.Width < 180) or
+          (ElementPanel.Width >= ColorPanel.Width) or
+          (ElementPanel.Left + ElementPanel.Width >= ColorPanel.Left) or
+          (ElementList.Items.Count = 0) then
+          raise Exception.Create(
+            'The new free-mode page layout was not constructed.');
+      DisplaySettingsForm.SetMode(DISPLAY_SETTINGS_MODE_LINE);
+      if not (DisplaySettingsForm.CurrentPage is
+        TFrameLyricsLineDisplaySettingsPage) then
+        raise Exception.Create(
+          'The shared display settings host did not return to line mode.');
+    finally
+      DisplaySettingsForm.Free;
     end;
     EditorForm := TFormLyricsSyncEditor.Create(nil);
     try

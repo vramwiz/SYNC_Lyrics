@@ -1285,8 +1285,8 @@ begin
     except
       FPreviewRenderer := nil;
     end;
-  FBaseFontHeight := 96;
-  FRubyFontHeight := 42;
+  FBaseFontHeight := 64;
+  FRubyFontHeight := 28;
   FBaseFontName := 'Yu Gothic UI';
   FRubyFontName := FBaseFontName;
   FBaseCharacterSpacing := 0;

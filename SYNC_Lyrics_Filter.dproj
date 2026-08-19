@@ -161,6 +161,12 @@
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutDrawing.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsModePage.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsColorPanel.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplayPreviewBackground.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsPage.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterDisplaySettingsPage.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsForm.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas">
             <Form>FormLyricsCharacterLayoutSettings</Form>
         </DCCReference>
