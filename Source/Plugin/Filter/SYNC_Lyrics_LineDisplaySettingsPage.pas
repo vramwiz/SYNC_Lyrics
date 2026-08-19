@@ -143,6 +143,7 @@ type
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
     property BaseFontCombo: TComboBox read FBaseFontCombo;
+    property RubyFontCombo: TComboBox read FRubyFontCombo;
     property BasePreviewBounds: TRect read FBasePreviewBounds;
     property ColorPanel: TDisplaySettingsColorPanel read FColorPanel;
     property ActionToolbar: TSyncLyricsToolbarButtons read FActionToolbar;

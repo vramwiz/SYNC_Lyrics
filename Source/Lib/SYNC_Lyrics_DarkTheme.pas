@@ -83,6 +83,7 @@ procedure ApplySyncLyricsDarkComboBox(ComboBox: TComboBox;
   DrawItemEvent: TDrawItemEvent);
 begin
   ComboBox.Style := csOwnerDrawFixed;
+  ComboBox.ItemHeight := MulDiv(16, ComboBox.CurrentPPI, 96);
   ComboBox.Color := SYNC_LYRICS_DARK_CONTROL_COLOR;
   ComboBox.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
   ComboBox.StyleElements := ComboBox.StyleElements - [seClient];

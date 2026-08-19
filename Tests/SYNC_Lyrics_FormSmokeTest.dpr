@@ -6,6 +6,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.UITypes,
+  Winapi.Windows,
   Vcl.Controls,
   Vcl.Forms,
   Vcl.Graphics,
@@ -54,6 +55,7 @@ var
   LegacyDisplayWidth: Integer;
   LineDisplayToolbar: TSyncLyricsToolbarButtons;
   TopToolbar: TSyncLyricsToolbarButtons;
+  ToolbarExtent: Integer;
   Key: Word;
   ErrorText: string;
   SongDataText: string;
@@ -351,6 +353,16 @@ begin
         (TopToolbar.Items[4].Glyph <> tbgResetAll) then
         raise Exception.Create(
           'The top actions did not use the common icon toolbar.');
+      ToolbarExtent := MulDiv(28, EditorForm.CurrentPPI, 96);
+      if (TopToolbar.ButtonExtent <> ToolbarExtent) or
+        (TopToolbar.Left <> MulDiv(12, EditorForm.CurrentPPI, 96)) or
+        (TopToolbar.Top <> MulDiv(12, EditorForm.CurrentPPI, 96)) or
+        (TopToolbar.Width <> ToolbarExtent * 5) or
+        (TopToolbar.Height <> ToolbarExtent) or
+        (TopToolbar.Items[0].Width <> ToolbarExtent) or
+        (TopToolbar.Items[0].Height <> ToolbarExtent) then
+        raise Exception.Create(
+          'The top icon toolbar did not scale for the current DPI.');
       if (EditorForm.SyncStateLabel.Top <> TopToolbar.Top) or
         (EditorForm.SyncStateLabel.Height <> TopToolbar.Height) then
         raise Exception.Create(
@@ -382,6 +394,12 @@ begin
       if (LyricsToolbar = nil) or (LyricsToolbar.ItemCount <> 3) then
         raise Exception.Create(
           'The lyric-line toolbar was not created above the line list.');
+      if (LyricsToolbar.ButtonExtent <> ToolbarExtent) or
+        (LyricsToolbar.Width <> ToolbarExtent * 3) or
+        (LyricsToolbar.Items[0].Width <> ToolbarExtent) or
+        (LyricsToolbar.Items[0].Height <> ToolbarExtent) then
+        raise Exception.Create(
+          'The lyric-line icon toolbar did not scale for the current DPI.');
       if (LyricsToolbar.Items[0].Glyph <> tbgAdd) or
         (LyricsToolbar.Items[1].Glyph <> tbgDelete) or
         (LyricsToolbar.Items[2].Glyph <> tbgEdit) then

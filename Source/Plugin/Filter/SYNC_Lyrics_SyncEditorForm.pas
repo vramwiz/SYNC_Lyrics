@@ -206,12 +206,15 @@ begin
 end;
 
 procedure TFormLyricsSyncEditor.CreateLyricsToolbar;
+var
+  ButtonExtent: Integer;
 begin
+  ButtonExtent := MulDiv(28, CurrentPPI, 96);
   FLyricsToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FLyricsToolbar.Parent := LineToolbarPanel;
   FLyricsToolbar.Align := alLeft;
-  FLyricsToolbar.Width := 84;
-  FLyricsToolbar.ButtonExtent := 28;
+  FLyricsToolbar.Width := ButtonExtent * 3;
+  FLyricsToolbar.ButtonExtent := ButtonExtent;
   FLyricsToolbar.Color := SYNC_LYRICS_DARK_PANEL_COLOR;
   FLyricsToolbar.ParentBackground := False;
   FLyricsToolbar.OnButtonExecute := LyricsToolbarButtonExecute;
@@ -224,11 +227,15 @@ begin
 end;
 
 procedure TFormLyricsSyncEditor.CreateTopToolbar;
+var
+  ButtonExtent: Integer;
 begin
+  ButtonExtent := MulDiv(28, CurrentPPI, 96);
   FTopToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FTopToolbar.Parent := BottomPanel;
-  FTopToolbar.SetBounds(12, 12, 140, 28);
-  FTopToolbar.ButtonExtent := 28;
+  FTopToolbar.SetBounds(MulDiv(12, CurrentPPI, 96),
+    MulDiv(12, CurrentPPI, 96), ButtonExtent * 5, ButtonExtent);
+  FTopToolbar.ButtonExtent := ButtonExtent;
   FTopToolbar.Color := SYNC_LYRICS_DARK_PANEL_COLOR;
   FTopToolbar.ParentBackground := False;
   FTopToolbar.OnButtonExecute := TopToolbarButtonExecute;

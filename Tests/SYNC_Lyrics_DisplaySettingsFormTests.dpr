@@ -93,6 +93,9 @@ begin
           raise Exception.Create('form width DPI scaling mismatch');
         if Form.ClientHeight <> MulDiv(682, Form.CurrentPPI, 96) then
           raise Exception.Create('form height DPI scaling mismatch');
+        if Form.CandidateCombo.ItemHeight <>
+          MulDiv(16, Form.CandidateCombo.CurrentPPI, 96) then
+          raise Exception.Create('candidate combo item height DPI mismatch');
         if Form.ModePageCount <> 2 then
           raise Exception.Create('mode page count mismatch');
         Form.ConfigureModeCandidates(DISPLAY_SETTINGS_MODE_LINE,
@@ -108,6 +111,15 @@ begin
           raise Exception.Create('line Skia preview renderer was not created');
         CharacterPage := TFrameLyricsCharacterDisplaySettingsPage(
           Form.PageForMode(DISPLAY_SETTINGS_MODE_FREE));
+        if (LinePage.BaseFontCombo.ItemHeight <>
+          MulDiv(16, LinePage.BaseFontCombo.CurrentPPI, 96)) or
+          (LinePage.RubyFontCombo.ItemHeight <>
+          MulDiv(16, LinePage.RubyFontCombo.CurrentPPI, 96)) or
+          (CharacterPage.BaseFontCombo.ItemHeight <>
+          MulDiv(16, CharacterPage.BaseFontCombo.CurrentPPI, 96)) or
+          (CharacterPage.RubyFontCombo.ItemHeight <>
+          MulDiv(16, CharacterPage.RubyFontCombo.CurrentPPI, 96)) then
+          raise Exception.Create('font combo item height DPI mismatch');
         SetLength(BackgroundPixels, 640 * 360 * 4);
         FillChar(BackgroundPixels[0], Length(BackgroundPixels), $40);
         LinePage.SetBackgroundRgba(BackgroundPixels, 640, 360);

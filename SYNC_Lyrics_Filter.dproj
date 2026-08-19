@@ -69,7 +69,7 @@
         <DCC_ExeOutput>C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics</DCC_ExeOutput>
         <PreBuildEvent><![CDATA[if not exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics" mkdir "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics"]]></PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
-        <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"]]></PostBuildEvent>
+        <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"&&copy /Y "$(BDS)\bin64\sk4d.dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new"&&move /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll"]]></PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
         <Debugger_HostApplication>D:\aviutl2_v2.1.3a\aviutl2.exe</Debugger_HostApplication>
     </PropertyGroup>
@@ -86,7 +86,7 @@
         <DCC_ExeOutput>C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics</DCC_ExeOutput>
         <PreBuildEvent><![CDATA[if not exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics" mkdir "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics"]]></PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
-        <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm"]]></PostBuildEvent>
+        <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"&&copy /Y "$(BDS)\bin64\sk4d.dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new"&&move /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm"]]></PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
         <Debugger_HostApplication>D:\aviutl2_v2.1.0\aviutl2.exe</Debugger_HostApplication>
     </PropertyGroup>
@@ -228,16 +228,12 @@
     <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
     <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
-    <Target Name="CopyLyricsSkiaRuntime" AfterTargets="PostBuildEvent" Condition="'$(Platform)'=='Win64'">
-        <Copy SourceFiles="$(BDS)\bin64\sk4d.dll" DestinationFiles="$(DCC_ExeOutput)\sk4d.dll.new" SkipUnchangedFiles="false"/>
-        <Exec Command="move /Y &quot;$(DCC_ExeOutput)\sk4d.dll.new&quot; &quot;$(DCC_ExeOutput)\sk4d.dll&quot;"/>
-    </Target>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
         <PreBuildEvent>if not exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot; mkdir &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>copy /Y &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2&quot;&amp;&amp;copy /Y &quot;$(BDS)\bin64\sk4d.dll&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new&quot;&amp;&amp;move /Y &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win64'">
@@ -245,7 +241,7 @@
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>copy /Y &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2&quot;&amp;&amp;if exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot; del /Q &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot;&amp;&amp;if exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm&quot; del /Q &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2&quot;&amp;&amp;copy /Y &quot;$(BDS)\bin64\sk4d.dll&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new&quot;&amp;&amp;move /Y &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new&quot; &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll&quot;&amp;&amp;if exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot; del /Q &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll&quot;&amp;&amp;if exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm&quot; del /Q &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
 </Project>

@@ -1229,3 +1229,11 @@
   装飾色・透明度を複数選択へ共通設定との差分として反映する。`SL3`保存後の全装飾値を専用表示テストで
   デコード確認して`DISPLAY_FORM_OK`、フォームスモークテストは`FORM_OK`、FilterのWin64 Debug／Release
   ビルドは警告0、エラー0で成功し、Release版を配置した。
+- 2026-08-19: IDE側のビルド経路で独立したMSBuildの`AfterTargets`が実行されず、Filterの初期化時に
+  `sk4d.dll`不足で`LoadLibrary`が失敗する問題を修正した。Debug／Release双方の既存PostBuildコマンドへ
+  `sk4d.dll`の原子的な配備を統合した。Win64 Debug／Releaseビルドは警告0、エラー0で成功し、配備DLLの
+  SHA-256がDelphi同梱元と一致すること、およびRelease版Filterの`LoadLibrary`成功を確認した。
+- 2026-08-19: 200% DPI環境で歌詞表示設定のオーナードローコンボだけ項目高さが96 DPI値のままになる
+  問題を修正した。共通ダークコンボ適用時に16px基準の`ItemHeight`を現在PPIへ換算し、候補、本文フォント、
+  ルビフォントへ共通適用する。専用表示テストは`DISPLAY_FORM_OK`、FilterのWin64 Debug／Releaseビルドは
+  警告0、エラー0で成功し、Release版を配置した。
