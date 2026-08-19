@@ -19,6 +19,7 @@ uses
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_CharacterLayoutInteraction,
+  SYNC_Lyrics_LineDisplaySettingsForm,
   SYNC_Lyrics_ToolbarButtons,
   TextRendererSkia,
   TextRendererTypes;
@@ -30,11 +31,14 @@ type
     DescriptionLabel: TLabel;
     BackgroundPaintBox: TPaintBox;
     ButtonPanel: TPanel;
+    PlacementModeLabel: TLabel;
+    PlacementModeCombo: TComboBox;
     ButtonOK: TButton;
     ButtonCancel: TButton;
     ElementPanel: TPanel;
     ElementListLabel: TLabel;
     ElementListView: TListView;
+    ColorPanel: TPanel;
     procedure BackgroundPaintBoxMouseDown(Sender: TObject;
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure BackgroundPaintBoxMouseMove(Sender: TObject;
@@ -47,6 +51,7 @@ type
     procedure BackgroundPaintBoxPaint(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure FormResize(Sender: TObject);
     procedure CandidateComboChange(Sender: TObject);
     procedure DarkComboBoxDrawItem(Control: TWinControl; Index: Integer;
       Rect: TRect; State: TOwnerDrawState);
@@ -103,6 +108,24 @@ type
     FToolbarItalic: TSyncLyricsToolbarButton;
     FToolbarStrikeOut: TSyncLyricsToolbarButton;
     FToolbarUnderline: TSyncLyricsToolbarButton;
+    FPlacementModeButton: TSyncLyricsToolbarButton;
+    FAfterColorPicker: TSyncLyricsEmbeddedColorPicker;
+    FAfterColorLabel: TLabel;
+    FAfterOpacityLabel: TLabel;
+    FAfterOpacityTrack: TTrackBar;
+    FBeforeColorPicker: TSyncLyricsEmbeddedColorPicker;
+    FBeforeColorLabel: TLabel;
+    FBeforeOpacityLabel: TLabel;
+    FBeforeOpacityTrack: TTrackBar;
+    FColorTarget: TLineDisplayColorTarget;
+    FColorTargetToolbar: TSyncLyricsToolbarButtons;
+    FColorTargetButtons: array[TLineDisplayColorTarget] of
+      TSyncLyricsToolbarButton;
+    FBeforePalette: array[TLineDisplayColorTarget] of TColor;
+    FAfterPalette: array[TLineDisplayColorTarget] of TColor;
+    FBeforePaletteOpacity: array[TLineDisplayColorTarget] of Byte;
+    FAfterPaletteOpacity: array[TLineDisplayColorTarget] of Byte;
+    FUpdatingColorControls: Boolean;
     FCandidateLyrics: TArray<string>;
     FCandidateSettings: TArray<TDisplayCommonSettings>;
     FCandidateSettingsText: TArray<string>;
@@ -114,7 +137,21 @@ type
     procedure BuildInitialPlacements;
     procedure BuildDefaultPlacements(out Placements: TDisplayPlacementItems);
     procedure EditCommonSettings;
+    procedure EditSelectedDecoration;
+    function ResolvedDecorationSettings(
+      Index: Integer): TDisplayCommonSettings;
+    procedure ApplyDecorationOverrides(Index: Integer;
+      const Settings: TDisplayCommonSettings);
     procedure CreateFormattingToolbar;
+    procedure CreateColorControls;
+    procedure ColorPickerChange(Sender: TObject);
+    procedure ColorTargetExecute(Sender: TObject;
+      Button: TSyncLyricsToolbarButton);
+    procedure OpacityTrackChange(Sender: TObject);
+    procedure ApplySelectedColorControls;
+    procedure UpdateColorControls;
+    procedure LayoutRightPanels;
+    procedure LayoutColorControls;
     procedure ClearSelection;
     function DisplayUnitBaseText(Index: Integer): string;
     function DisplayUnitBaseFontName(Index: Integer): string;
@@ -165,7 +202,10 @@ type
     procedure ConfigureCandidates(const Captions, Lyrics: TArray<string>;
       const CommonSettings: TArray<TDisplayCommonSettings>;
       const SettingsText: TArray<string>; InitialIndex: Integer);
+    procedure ConfigurePlacementMode(PlacementMode: Integer);
+    procedure SetPlacementModeSwitchVisible(Value: Boolean);
     function SelectedCandidateIndex: Integer;
+    function SelectedPlacementMode: Integer;
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
     procedure SetCaptureStatus(const Value: string);
@@ -178,7 +218,6 @@ uses
   System.Math,
   ColorPickerDialog,
   SYNC_Lyrics_CharacterLayoutDrawing,
-  SYNC_Lyrics_LineDisplaySettingsForm,
   SYNC_Lyrics_FontSettingsForm,
   SYNC_Lyrics_DarkTheme,
   TextRendererSkiaRuntime;
@@ -194,11 +233,14 @@ const
   TOOLBAR_STRIKE_OUT = 5;
   TOOLBAR_BEFORE_COLOR = 6;
   TOOLBAR_AFTER_COLOR = 7;
+  TOOLBAR_DECORATION = 8;
+  TOOLBAR_SWITCH_TO_LINE = 9;
   TOOLBAR_MOVE_TO_CENTER = 20;
   TOOLBAR_RESET_SELECTED = 21;
   TOOLBAR_RESET_ALL = 22;
   TOOLBAR_ALIGN_HORIZONTAL = 23;
   TOOLBAR_DISTRIBUTE_HORIZONTAL = 24;
+  CHARACTER_COLOR_TARGET_BASE = 200;
 
 function FontStyleByteToSet(Value: Byte): TFontStyles;
 begin
@@ -254,6 +296,9 @@ begin
   FToolbar.ParentBackground := False;
   FToolbar.OnButtonExecute := ToolbarButtonExecute;
 
+  FPlacementModeButton := FToolbar.AddCommandButton(
+    '1行配置へ切替', tbgLinePlacement, TOOLBAR_SWITCH_TO_LINE);
+  FToolbar.AddSeparator;
   FToolbar.AddDialogButton('行共通設定', tbgOutline,
     TOOLBAR_COMMON_SETTINGS);
   FToolbar.AddSeparator;
@@ -272,6 +317,8 @@ begin
     tbgBeforeColor, TOOLBAR_BEFORE_COLOR);
   FToolbarAfterColor := FToolbar.AddDialogButton('同期後色',
     tbgAfterColor, TOOLBAR_AFTER_COLOR);
+  FToolbar.AddDialogButton('選択要素の装飾', tbgOutline,
+    TOOLBAR_DECORATION);
   FToolbar.AddSeparator;
   FToolbar.AddCommandButton('選択を画面中央へ', tbgMoveToCenter,
     TOOLBAR_MOVE_TO_CENTER);
@@ -285,6 +332,202 @@ begin
     tbgDistributeHorizontal, TOOLBAR_DISTRIBUTE_HORIZONTAL);
 end;
 
+procedure TFormLyricsCharacterLayoutSettings.CreateColorControls;
+const
+  HINTS: array[TLineDisplayColorTarget] of string = (
+    '地色', '縁取り色', '影色', '縁取りぼかし色');
+  GLYPHS: array[TLineDisplayColorTarget] of TSyncLyricsToolbarGlyph = (
+    tbgFillColor, tbgOutlineColor, tbgShadowColor, tbgBlurColor);
+var
+  Target: TLineDisplayColorTarget;
+begin
+  FColorTargetToolbar := TSyncLyricsToolbarButtons.Create(Self);
+  FColorTargetToolbar.Parent := ColorPanel;
+  FColorTargetToolbar.SeparatorExtent := 0;
+  FColorTargetToolbar.Color := ColorPanel.Color;
+  FColorTargetToolbar.ParentBackground := False;
+  FColorTargetToolbar.OnButtonExecute := ColorTargetExecute;
+  for Target := Low(TLineDisplayColorTarget) to High(TLineDisplayColorTarget) do
+    FColorTargetButtons[Target] := FColorTargetToolbar.AddToggleButton(
+      HINTS[Target], GLYPHS[Target],
+      CHARACTER_COLOR_TARGET_BASE + Ord(Target));
+
+  FBeforeColorLabel := TLabel.Create(Self);
+  FBeforeColorLabel.Parent := ColorPanel;
+  FBeforeColorLabel.Caption := '同期前';
+  FBeforeColorLabel.Font.Assign(Font);
+  FBeforeColorPicker := TSyncLyricsEmbeddedColorPicker.Create(Self);
+  FBeforeColorPicker.Parent := ColorPanel;
+  FBeforeColorPicker.OnChange := ColorPickerChange;
+  FBeforeOpacityTrack := TTrackBar.Create(Self);
+  FBeforeOpacityTrack.Parent := ColorPanel;
+  FBeforeOpacityTrack.Min := 0;
+  FBeforeOpacityTrack.Max := 255;
+  FBeforeOpacityTrack.TickStyle := tsNone;
+  FBeforeOpacityTrack.OnChange := OpacityTrackChange;
+  FBeforeOpacityLabel := TLabel.Create(Self);
+  FBeforeOpacityLabel.Parent := ColorPanel;
+  FBeforeOpacityLabel.Caption := '透明度';
+  FBeforeOpacityLabel.Font.Assign(Font);
+
+  FAfterColorLabel := TLabel.Create(Self);
+  FAfterColorLabel.Parent := ColorPanel;
+  FAfterColorLabel.Caption := '同期後';
+  FAfterColorLabel.Font.Assign(Font);
+  FAfterColorPicker := TSyncLyricsEmbeddedColorPicker.Create(Self);
+  FAfterColorPicker.Parent := ColorPanel;
+  FAfterColorPicker.OnChange := ColorPickerChange;
+  FAfterOpacityTrack := TTrackBar.Create(Self);
+  FAfterOpacityTrack.Parent := ColorPanel;
+  FAfterOpacityTrack.Min := 0;
+  FAfterOpacityTrack.Max := 255;
+  FAfterOpacityTrack.TickStyle := tsNone;
+  FAfterOpacityTrack.OnChange := OpacityTrackChange;
+  FAfterOpacityLabel := TLabel.Create(Self);
+  FAfterOpacityLabel.Parent := ColorPanel;
+  FAfterOpacityLabel.Caption := '透明度';
+  FAfterOpacityLabel.Font.Assign(Font);
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.ColorTargetExecute(
+  Sender: TObject; Button: TSyncLyricsToolbarButton);
+begin
+  if (Button.Tag < CHARACTER_COLOR_TARGET_BASE) or
+    (Button.Tag > CHARACTER_COLOR_TARGET_BASE +
+      Ord(High(TLineDisplayColorTarget))) then
+    Exit;
+  FColorTarget := TLineDisplayColorTarget(
+    Button.Tag - CHARACTER_COLOR_TARGET_BASE);
+  UpdateColorControls;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.ColorPickerChange(
+  Sender: TObject);
+begin
+  if FUpdatingColorControls or (SelectionCount = 0) then
+    Exit;
+  if Sender = FBeforeColorPicker then
+    FBeforePalette[FColorTarget] := FBeforeColorPicker.Color
+  else if Sender = FAfterColorPicker then
+    FAfterPalette[FColorTarget] := FAfterColorPicker.Color
+  else
+    Exit;
+  ApplySelectedColorControls;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.OpacityTrackChange(
+  Sender: TObject);
+begin
+  if FUpdatingColorControls or (SelectionCount = 0) then
+    Exit;
+  if Sender = FBeforeOpacityTrack then
+    FBeforePaletteOpacity[FColorTarget] := FBeforeOpacityTrack.Position
+  else if Sender = FAfterOpacityTrack then
+    FAfterPaletteOpacity[FColorTarget] := FAfterOpacityTrack.Position
+  else
+    Exit;
+  ApplySelectedColorControls;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.ApplySelectedColorControls;
+var
+  I: Integer;
+  Settings: TDisplayCommonSettings;
+begin
+  for I := 0 to High(FSelected) do
+    if FSelected[I] then
+    begin
+      Settings := ResolvedDecorationSettings(I);
+      case FColorTarget of
+        ldctFill:
+          begin
+            Settings.BeforeColor := Cardinal(FBeforePalette[ldctFill]);
+            Settings.AfterColor := Cardinal(FAfterPalette[ldctFill]);
+            Settings.BeforeOpacity := FBeforePaletteOpacity[ldctFill];
+            Settings.AfterOpacity := FAfterPaletteOpacity[ldctFill];
+          end;
+        ldctOutline:
+          begin
+            Settings.BeforeOutlineColor :=
+              Cardinal(FBeforePalette[ldctOutline]);
+            Settings.AfterOutlineColor :=
+              Cardinal(FAfterPalette[ldctOutline]);
+            Settings.BeforeOutlineOpacity :=
+              FBeforePaletteOpacity[ldctOutline];
+            Settings.AfterOutlineOpacity :=
+              FAfterPaletteOpacity[ldctOutline];
+          end;
+        ldctShadow:
+          begin
+            Settings.BeforeShadowColor :=
+              Cardinal(FBeforePalette[ldctShadow]);
+            Settings.AfterShadowColor :=
+              Cardinal(FAfterPalette[ldctShadow]);
+            Settings.BeforeShadowOpacity :=
+              FBeforePaletteOpacity[ldctShadow];
+            Settings.AfterShadowOpacity :=
+              FAfterPaletteOpacity[ldctShadow];
+          end;
+        ldctBlur:
+          begin
+            Settings.BeforeBlurColor :=
+              Cardinal(FBeforePalette[ldctBlur]);
+            Settings.AfterBlurColor :=
+              Cardinal(FAfterPalette[ldctBlur]);
+            Settings.BeforeBlurOpacity :=
+              FBeforePaletteOpacity[ldctBlur];
+            Settings.AfterBlurOpacity :=
+              FAfterPaletteOpacity[ldctBlur];
+          end;
+      end;
+      ApplyDecorationOverrides(I, Settings);
+    end;
+  UpdateToolbarButtons;
+  BackgroundPaintBox.Invalidate;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.UpdateColorControls;
+var
+  Settings: TDisplayCommonSettings;
+  Target: TLineDisplayColorTarget;
+begin
+  if (FBeforeColorPicker = nil) or (FAfterColorPicker = nil) then
+    Exit;
+  ColorPanel.Enabled := SelectionCount > 0;
+  if SelectionCount = 0 then
+    Exit;
+  Settings := ResolvedDecorationSettings(FSelectedIndex);
+  FBeforePalette[ldctFill] := TColor(Settings.BeforeColor);
+  FAfterPalette[ldctFill] := TColor(Settings.AfterColor);
+  FBeforePaletteOpacity[ldctFill] := Settings.BeforeOpacity;
+  FAfterPaletteOpacity[ldctFill] := Settings.AfterOpacity;
+  FBeforePalette[ldctOutline] := TColor(Settings.BeforeOutlineColor);
+  FAfterPalette[ldctOutline] := TColor(Settings.AfterOutlineColor);
+  FBeforePaletteOpacity[ldctOutline] := Settings.BeforeOutlineOpacity;
+  FAfterPaletteOpacity[ldctOutline] := Settings.AfterOutlineOpacity;
+  FBeforePalette[ldctShadow] := TColor(Settings.BeforeShadowColor);
+  FAfterPalette[ldctShadow] := TColor(Settings.AfterShadowColor);
+  FBeforePaletteOpacity[ldctShadow] := Settings.BeforeShadowOpacity;
+  FAfterPaletteOpacity[ldctShadow] := Settings.AfterShadowOpacity;
+  FBeforePalette[ldctBlur] := TColor(Settings.BeforeBlurColor);
+  FAfterPalette[ldctBlur] := TColor(Settings.AfterBlurColor);
+  FBeforePaletteOpacity[ldctBlur] := Settings.BeforeBlurOpacity;
+  FAfterPaletteOpacity[ldctBlur] := Settings.AfterBlurOpacity;
+  FUpdatingColorControls := True;
+  try
+    for Target := Low(TLineDisplayColorTarget) to
+      High(TLineDisplayColorTarget) do
+      FColorTargetButtons[Target].CheckState :=
+        TSyncLyricsToolbarCheckState(Ord(Target = FColorTarget));
+    FBeforeColorPicker.Color := FBeforePalette[FColorTarget];
+    FAfterColorPicker.Color := FAfterPalette[FColorTarget];
+    FBeforeOpacityTrack.Position := FBeforePaletteOpacity[FColorTarget];
+    FAfterOpacityTrack.Position := FAfterPaletteOpacity[FColorTarget];
+  finally
+    FUpdatingColorControls := False;
+  end;
+end;
+
 procedure TFormLyricsCharacterLayoutSettings.DarkComboBoxDrawItem(
   Control: TWinControl; Index: Integer; Rect: TRect;
   State: TOwnerDrawState);
@@ -293,13 +536,100 @@ begin
     State, CurrentPPI);
 end;
 
+procedure TFormLyricsCharacterLayoutSettings.LayoutRightPanels;
+var
+  Gap: Integer;
+  Margin: Integer;
+begin
+  Margin := MulDiv(12, CurrentPPI, 96);
+  Gap := MulDiv(12, CurrentPPI, 96);
+  ColorPanel.Width := MulDiv(188, CurrentPPI, 96);
+  ColorPanel.Left := ClientWidth - Margin - ColorPanel.Width;
+  ColorPanel.Top := BackgroundPaintBox.Top;
+  ColorPanel.Height := Max(1, ButtonPanel.Top - ColorPanel.Top - MulDiv(8,
+    CurrentPPI, 96));
+  ElementPanel.Width := MulDiv(128, CurrentPPI, 96);
+  ElementPanel.Left := ColorPanel.Left - Gap - ElementPanel.Width;
+  ElementPanel.Top := ColorPanel.Top;
+  ElementPanel.Height := ColorPanel.Height;
+  BackgroundPaintBox.Width := Max(1,
+    ElementPanel.Left - Gap - BackgroundPaintBox.Left);
+  BackgroundPaintBox.Height := ElementPanel.Height;
+  LayoutColorControls;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.LayoutColorControls;
+var
+  AlphaHeight: Integer;
+  Extent: Integer;
+  Gap: Integer;
+  LabelHeight: Integer;
+  Margin: Integer;
+  PickerHeight: Integer;
+  TopValue: Integer;
+begin
+  if FColorTargetToolbar = nil then
+    Exit;
+  Margin := MulDiv(8, CurrentPPI, 96);
+  Gap := MulDiv(6, CurrentPPI, 96);
+  Extent := MulDiv(28, CurrentPPI, 96);
+  LabelHeight := MulDiv(18, CurrentPPI, 96);
+  AlphaHeight := MulDiv(24, CurrentPPI, 96);
+  PickerHeight := Min(
+    Max(MulDiv(72, CurrentPPI, 96), ColorPanel.ClientWidth - Margin * 2 -
+      MulDiv(24, CurrentPPI, 96)),
+    Max(MulDiv(72, CurrentPPI, 96),
+      (ColorPanel.ClientHeight - Margin * 2 - Extent - Gap * 5 -
+        LabelHeight * 2 - AlphaHeight * 2) div 2));
+  FColorTargetToolbar.ButtonExtent := Extent;
+  FColorTargetToolbar.SetBounds(Margin, Margin,
+    ColorPanel.ClientWidth - Margin * 2, Extent);
+  TopValue := Margin + Extent + Gap;
+  FBeforeColorLabel.SetBounds(Margin, TopValue,
+    ColorPanel.ClientWidth - Margin * 2, LabelHeight);
+  Inc(TopValue, LabelHeight);
+  FBeforeColorPicker.SetBounds(Margin, TopValue,
+    ColorPanel.ClientWidth - Margin * 2, PickerHeight);
+  Inc(TopValue, PickerHeight + Gap);
+  FBeforeOpacityLabel.SetBounds(Margin, TopValue,
+    MulDiv(42, CurrentPPI, 96), AlphaHeight);
+  FBeforeOpacityTrack.SetBounds(FBeforeOpacityLabel.Left +
+    FBeforeOpacityLabel.Width, TopValue,
+    ColorPanel.ClientWidth - Margin - FBeforeOpacityLabel.Left -
+      FBeforeOpacityLabel.Width, AlphaHeight);
+  Inc(TopValue, AlphaHeight + Gap);
+  FAfterColorLabel.SetBounds(Margin, TopValue,
+    ColorPanel.ClientWidth - Margin * 2, LabelHeight);
+  Inc(TopValue, LabelHeight);
+  FAfterColorPicker.SetBounds(Margin, TopValue,
+    ColorPanel.ClientWidth - Margin * 2, PickerHeight);
+  Inc(TopValue, PickerHeight + Gap);
+  FAfterOpacityLabel.SetBounds(Margin, TopValue,
+    MulDiv(42, CurrentPPI, 96), AlphaHeight);
+  FAfterOpacityTrack.SetBounds(FAfterOpacityLabel.Left +
+    FAfterOpacityLabel.Width, TopValue,
+    ColorPanel.ClientWidth - Margin - FAfterOpacityLabel.Left -
+      FAfterOpacityLabel.Width, AlphaHeight);
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.FormResize(Sender: TObject);
+begin
+  LayoutRightPanels;
+end;
+
 procedure TFormLyricsCharacterLayoutSettings.FormCreate(Sender: TObject);
 begin
   ApplySyncLyricsDarkForm(Self);
   ApplySyncLyricsDarkPanel(ElementPanel);
+  ApplySyncLyricsDarkPanel(ColorPanel);
   ApplySyncLyricsDarkPanel(ButtonPanel);
   ApplySyncLyricsDarkListView(ElementListView);
   ApplySyncLyricsDarkComboBox(CandidateCombo, DarkComboBoxDrawItem);
+  PlacementModeCombo.Items.Clear;
+  PlacementModeCombo.Items.Add('1行配置');
+  PlacementModeCombo.Items.Add('文字自由配置');
+  PlacementModeCombo.ItemIndex := 1;
+  ApplySyncLyricsDarkComboBox(PlacementModeCombo, DarkComboBoxDrawItem);
   ApplySyncLyricsDarkButton(ButtonOK);
   ApplySyncLyricsDarkButton(ButtonCancel);
   FBackground := TBitmap.Create;
@@ -315,7 +645,10 @@ begin
   OnMouseWheel := BackgroundPaintBoxMouseWheel;
   DoubleBuffered := True;
   CreateFormattingToolbar;
+  CreateColorControls;
+  LayoutRightPanels;
   UpdateToolbarButtons;
+  UpdateColorControls;
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.FormDestroy(Sender: TObject);
@@ -357,6 +690,7 @@ begin
   FUpdatingSelectedSettings := True;
   try
     UpdateToolbarButtons;
+    UpdateColorControls;
   finally
     FUpdatingSelectedSettings := False;
   end;
@@ -420,6 +754,7 @@ begin
   SetEnabled(TOOLBAR_RESET_ALL, Length(FPlacements) > 0);
   SetEnabled(TOOLBAR_ALIGN_HORIZONTAL, Count >= 2);
   SetEnabled(TOOLBAR_DISTRIBUTE_HORIZONTAL, Count >= 3);
+  SetEnabled(TOOLBAR_DECORATION, Count > 0);
 
   FToolbarBold.CheckState := ResolveStyleState(1);
   FToolbarItalic.CheckState := ResolveStyleState(2);
@@ -479,6 +814,12 @@ procedure TFormLyricsCharacterLayoutSettings.ToolbarButtonExecute(
 
 begin
   case Button.Tag of
+    TOOLBAR_SWITCH_TO_LINE:
+      begin
+        PlacementModeCombo.ItemIndex := 0;
+        ModalResult := PLACEMENT_MODE_SWITCH_MODAL_RESULT;
+        Exit;
+      end;
     TOOLBAR_COMMON_SETTINGS:
       EditCommonSettings;
     TOOLBAR_FONT:
@@ -495,6 +836,8 @@ begin
       ButtonBeforeColorClick(Button);
     TOOLBAR_AFTER_COLOR:
       ButtonAfterColorClick(Button);
+    TOOLBAR_DECORATION:
+      EditSelectedDecoration;
     TOOLBAR_MOVE_TO_CENTER:
       ButtonMoveToCenterClick(Button);
     TOOLBAR_RESET_SELECTED:
@@ -506,6 +849,170 @@ begin
     TOOLBAR_DISTRIBUTE_HORIZONTAL:
       ButtonDistributeHorizontalClick(Button);
   end;
+end;
+
+function TFormLyricsCharacterLayoutSettings.ResolvedDecorationSettings(
+  Index: Integer): TDisplayCommonSettings;
+var
+  Item: TDisplayPlacementItem;
+begin
+  Result := FCommonSettings;
+  if (Index < 0) or (Index >= Length(FPlacements)) then
+    Exit;
+  Item := FPlacements[Index];
+  if Item.HasBeforeColor then Result.BeforeColor := Item.BeforeColor;
+  if Item.HasAfterColor then Result.AfterColor := Item.AfterColor;
+  if Item.HasBeforeOpacity then Result.BeforeOpacity := Item.BeforeOpacity;
+  if Item.HasAfterOpacity then Result.AfterOpacity := Item.AfterOpacity;
+  if Item.HasBeforeOutlineColor then
+    Result.BeforeOutlineColor := Item.BeforeOutlineColor;
+  if Item.HasAfterOutlineColor then
+    Result.AfterOutlineColor := Item.AfterOutlineColor;
+  if Item.HasBeforeOutlineOpacity then
+    Result.BeforeOutlineOpacity := Item.BeforeOutlineOpacity;
+  if Item.HasAfterOutlineOpacity then
+    Result.AfterOutlineOpacity := Item.AfterOutlineOpacity;
+  if Item.HasBeforeShadowColor then
+    Result.BeforeShadowColor := Item.BeforeShadowColor;
+  if Item.HasAfterShadowColor then
+    Result.AfterShadowColor := Item.AfterShadowColor;
+  if Item.HasBeforeShadowOpacity then
+    Result.BeforeShadowOpacity := Item.BeforeShadowOpacity;
+  if Item.HasAfterShadowOpacity then
+    Result.AfterShadowOpacity := Item.AfterShadowOpacity;
+  if Item.HasBeforeBlurColor then
+    Result.BeforeBlurColor := Item.BeforeBlurColor;
+  if Item.HasAfterBlurColor then
+    Result.AfterBlurColor := Item.AfterBlurColor;
+  if Item.HasBeforeBlurOpacity then
+    Result.BeforeBlurOpacity := Item.BeforeBlurOpacity;
+  if Item.HasAfterBlurOpacity then
+    Result.AfterBlurOpacity := Item.AfterBlurOpacity;
+  if Item.HasOutlineEnabled then
+    Result.OutlineEnabled := Item.OutlineEnabled;
+  if Item.HasOutlineWidth then Result.OutlineWidth := Item.OutlineWidth;
+  if Item.HasOutlineBlur then Result.OutlineBlur := Item.OutlineBlur;
+  if Item.HasShadowEnabled then Result.ShadowEnabled := Item.ShadowEnabled;
+  if Item.HasShadowOffsetX then
+    Result.ShadowOffsetX := Item.ShadowOffsetX;
+  if Item.HasShadowOffsetY then
+    Result.ShadowOffsetY := Item.ShadowOffsetY;
+  if Item.HasShadowBlur then Result.ShadowBlur := Item.ShadowBlur;
+  if Item.HasShadowSpread then Result.ShadowSpread := Item.ShadowSpread;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.ApplyDecorationOverrides(
+  Index: Integer; const Settings: TDisplayCommonSettings);
+var
+  Item: TDisplayPlacementItem;
+begin
+  if (Index < 0) or (Index >= Length(FPlacements)) then
+    Exit;
+  Item := FPlacements[Index];
+  Item.BeforeColor := Settings.BeforeColor;
+  Item.HasBeforeColor := Settings.BeforeColor <> FCommonSettings.BeforeColor;
+  Item.AfterColor := Settings.AfterColor;
+  Item.HasAfterColor := Settings.AfterColor <> FCommonSettings.AfterColor;
+  Item.BeforeOpacity := Settings.BeforeOpacity;
+  Item.HasBeforeOpacity :=
+    Settings.BeforeOpacity <> FCommonSettings.BeforeOpacity;
+  Item.AfterOpacity := Settings.AfterOpacity;
+  Item.HasAfterOpacity :=
+    Settings.AfterOpacity <> FCommonSettings.AfterOpacity;
+  Item.BeforeOutlineColor := Settings.BeforeOutlineColor;
+  Item.HasBeforeOutlineColor :=
+    Settings.BeforeOutlineColor <> FCommonSettings.BeforeOutlineColor;
+  Item.AfterOutlineColor := Settings.AfterOutlineColor;
+  Item.HasAfterOutlineColor :=
+    Settings.AfterOutlineColor <> FCommonSettings.AfterOutlineColor;
+  Item.BeforeOutlineOpacity := Settings.BeforeOutlineOpacity;
+  Item.HasBeforeOutlineOpacity :=
+    Settings.BeforeOutlineOpacity <> FCommonSettings.BeforeOutlineOpacity;
+  Item.AfterOutlineOpacity := Settings.AfterOutlineOpacity;
+  Item.HasAfterOutlineOpacity :=
+    Settings.AfterOutlineOpacity <> FCommonSettings.AfterOutlineOpacity;
+  Item.BeforeShadowColor := Settings.BeforeShadowColor;
+  Item.HasBeforeShadowColor :=
+    Settings.BeforeShadowColor <> FCommonSettings.BeforeShadowColor;
+  Item.AfterShadowColor := Settings.AfterShadowColor;
+  Item.HasAfterShadowColor :=
+    Settings.AfterShadowColor <> FCommonSettings.AfterShadowColor;
+  Item.BeforeShadowOpacity := Settings.BeforeShadowOpacity;
+  Item.HasBeforeShadowOpacity :=
+    Settings.BeforeShadowOpacity <> FCommonSettings.BeforeShadowOpacity;
+  Item.AfterShadowOpacity := Settings.AfterShadowOpacity;
+  Item.HasAfterShadowOpacity :=
+    Settings.AfterShadowOpacity <> FCommonSettings.AfterShadowOpacity;
+  Item.BeforeBlurColor := Settings.BeforeBlurColor;
+  Item.HasBeforeBlurColor :=
+    Settings.BeforeBlurColor <> FCommonSettings.BeforeBlurColor;
+  Item.AfterBlurColor := Settings.AfterBlurColor;
+  Item.HasAfterBlurColor :=
+    Settings.AfterBlurColor <> FCommonSettings.AfterBlurColor;
+  Item.BeforeBlurOpacity := Settings.BeforeBlurOpacity;
+  Item.HasBeforeBlurOpacity :=
+    Settings.BeforeBlurOpacity <> FCommonSettings.BeforeBlurOpacity;
+  Item.AfterBlurOpacity := Settings.AfterBlurOpacity;
+  Item.HasAfterBlurOpacity :=
+    Settings.AfterBlurOpacity <> FCommonSettings.AfterBlurOpacity;
+  Item.OutlineEnabled := Settings.OutlineEnabled;
+  Item.HasOutlineEnabled :=
+    Settings.OutlineEnabled <> FCommonSettings.OutlineEnabled;
+  Item.OutlineWidth := Settings.OutlineWidth;
+  Item.HasOutlineWidth :=
+    Abs(Settings.OutlineWidth - FCommonSettings.OutlineWidth) > 0.0001;
+  Item.OutlineBlur := Settings.OutlineBlur;
+  Item.HasOutlineBlur :=
+    Abs(Settings.OutlineBlur - FCommonSettings.OutlineBlur) > 0.0001;
+  Item.ShadowEnabled := Settings.ShadowEnabled;
+  Item.HasShadowEnabled :=
+    Settings.ShadowEnabled <> FCommonSettings.ShadowEnabled;
+  Item.ShadowOffsetX := Settings.ShadowOffsetX;
+  Item.HasShadowOffsetX :=
+    Abs(Settings.ShadowOffsetX - FCommonSettings.ShadowOffsetX) > 0.0001;
+  Item.ShadowOffsetY := Settings.ShadowOffsetY;
+  Item.HasShadowOffsetY :=
+    Abs(Settings.ShadowOffsetY - FCommonSettings.ShadowOffsetY) > 0.0001;
+  Item.ShadowBlur := Settings.ShadowBlur;
+  Item.HasShadowBlur :=
+    Abs(Settings.ShadowBlur - FCommonSettings.ShadowBlur) > 0.0001;
+  Item.ShadowSpread := Settings.ShadowSpread;
+  Item.HasShadowSpread :=
+    Abs(Settings.ShadowSpread - FCommonSettings.ShadowSpread) > 0.0001;
+  FPlacements[Index] := Item;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.EditSelectedDecoration;
+var
+  DecorationForm: TFormLyricsLineDisplaySettings;
+  I: Integer;
+  Settings: TDisplayCommonSettings;
+begin
+  if SelectionCount = 0 then
+    Exit;
+  Settings := ResolvedDecorationSettings(FSelectedIndex);
+  DecorationForm := TFormLyricsLineDisplaySettings.Create(Self);
+  try
+    DecorationForm.Caption := '選択要素の装飾';
+    if (Length(FBackgroundPixels) > 0) and
+      (FBackgroundPixelWidth > 0) and
+      (FBackgroundPixelHeight > 0) then
+      DecorationForm.SetBackgroundRgba(FBackgroundPixels,
+        FBackgroundPixelWidth, FBackgroundPixelHeight);
+    DecorationForm.Configure(DisplayUnitBaseText(FSelectedIndex), Settings);
+    DecorationForm.ConfigurePlacementMode(1);
+    DecorationForm.SetPlacementModeSwitchVisible(False);
+    if DecorationForm.ShowModal <> mrOk then
+      Exit;
+    Settings := DecorationForm.SelectedCommonSettings;
+  finally
+    DecorationForm.Free;
+  end;
+  for I := 0 to High(FSelected) do
+    if FSelected[I] then
+      ApplyDecorationOverrides(I, Settings);
+  UpdateSelectedSettings;
+  BackgroundPaintBox.Invalidate;
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.EditCommonSettings;
@@ -879,6 +1386,7 @@ function TFormLyricsCharacterLayoutSettings.RenderDisplayUnitTextImage(
 var
   BlurColor: Cardinal;
   BlurOpacity: Byte;
+  Decoration: TDisplayCommonSettings;
   FillColor: TColor;
   FillOpacity: Byte;
   Metrics: TTextRenderMetrics;
@@ -904,6 +1412,7 @@ begin
   Result := nil;
   if (FPreviewRenderer = nil) or (Text = '') then
     Exit;
+  Decoration := ResolvedDecorationSettings(Index);
   Request := TTextRenderRequest.Default;
   Request.Text := Text;
   if Ruby then
@@ -941,56 +1450,56 @@ begin
   if AfterPhase then
   begin
     FillColor := DisplayUnitAfterColor(Index);
-    FillOpacity := FCommonSettings.AfterOpacity;
-    OutlineColor := FCommonSettings.AfterOutlineColor;
-    OutlineOpacity := FCommonSettings.AfterOutlineOpacity;
-    ShadowColor := FCommonSettings.AfterShadowColor;
-    ShadowOpacity := FCommonSettings.AfterShadowOpacity;
-    BlurColor := FCommonSettings.AfterBlurColor;
-    BlurOpacity := FCommonSettings.AfterBlurOpacity;
+    FillOpacity := Decoration.AfterOpacity;
+    OutlineColor := Decoration.AfterOutlineColor;
+    OutlineOpacity := Decoration.AfterOutlineOpacity;
+    ShadowColor := Decoration.AfterShadowColor;
+    ShadowOpacity := Decoration.AfterShadowOpacity;
+    BlurColor := Decoration.AfterBlurColor;
+    BlurOpacity := Decoration.AfterBlurOpacity;
   end
   else
   begin
     FillColor := DisplayUnitBeforeColor(Index);
-    FillOpacity := FCommonSettings.BeforeOpacity;
-    OutlineColor := FCommonSettings.BeforeOutlineColor;
-    OutlineOpacity := FCommonSettings.BeforeOutlineOpacity;
-    ShadowColor := FCommonSettings.BeforeShadowColor;
-    ShadowOpacity := FCommonSettings.BeforeShadowOpacity;
-    BlurColor := FCommonSettings.BeforeBlurColor;
-    BlurOpacity := FCommonSettings.BeforeBlurOpacity;
+    FillOpacity := Decoration.BeforeOpacity;
+    OutlineColor := Decoration.BeforeOutlineColor;
+    OutlineOpacity := Decoration.BeforeOutlineOpacity;
+    ShadowColor := Decoration.BeforeShadowColor;
+    ShadowOpacity := Decoration.BeforeShadowOpacity;
+    BlurColor := Decoration.BeforeBlurColor;
+    BlurOpacity := Decoration.BeforeBlurOpacity;
   end;
   Request.FillColor := AlphaColor(Cardinal(ColorToRGB(FillColor)),
     FillOpacity);
   Request.Outlines := [];
-  if FCommonSettings.OutlineEnabled and
-    (FCommonSettings.OutlineWidth > 0) then
+  if Decoration.OutlineEnabled and
+    (Decoration.OutlineWidth > 0) then
   begin
-    if FCommonSettings.OutlineBlur <= 0 then
+    if Decoration.OutlineBlur <= 0 then
       Request.Outlines := [TTextRenderOutline.Create(
-        FCommonSettings.OutlineWidth,
+        Decoration.OutlineWidth,
         AlphaColor(OutlineColor, OutlineOpacity))]
     else if (BlurColor = OutlineColor) and
       (BlurOpacity = OutlineOpacity) then
       Request.Outlines := [TTextRenderOutline.Create(
-        FCommonSettings.OutlineWidth, FCommonSettings.OutlineBlur,
+        Decoration.OutlineWidth, Decoration.OutlineBlur,
         AlphaColor(OutlineColor, OutlineOpacity))]
     else
       Request.Outlines := [
-        TTextRenderOutline.Create(FCommonSettings.OutlineWidth,
-          FCommonSettings.OutlineBlur,
+        TTextRenderOutline.Create(Decoration.OutlineWidth,
+          Decoration.OutlineBlur,
           AlphaColor(BlurColor, BlurOpacity)),
-        TTextRenderOutline.Create(FCommonSettings.OutlineWidth,
+        TTextRenderOutline.Create(Decoration.OutlineWidth,
           AlphaColor(OutlineColor, OutlineOpacity))];
   end;
   Request.Shadows := [];
-  if FCommonSettings.ShadowEnabled then
+  if Decoration.ShadowEnabled then
   begin
     Shadow := System.Default(TTextRenderShadow);
-    Shadow.Offset := PointF(FCommonSettings.ShadowOffsetX,
-      FCommonSettings.ShadowOffsetY);
-    Shadow.BlurRadius := FCommonSettings.ShadowBlur;
-    Shadow.SpreadRadius := FCommonSettings.ShadowSpread;
+    Shadow.Offset := PointF(Decoration.ShadowOffsetX,
+      Decoration.ShadowOffsetY);
+    Shadow.BlurRadius := Decoration.ShadowBlur;
+    Shadow.SpreadRadius := Decoration.ShadowSpread;
     Shadow.Color := AlphaColor(ShadowColor, ShadowOpacity);
     Request.Shadows := [Shadow];
   end;
@@ -2245,6 +2754,7 @@ begin
     -1024, 1024);
   ParseLyrics(FLyrics, FPlainText, FRubySpans);
   BuildLyricsDisplayUnits(FPlainText, FRubySpans, FUnits);
+  PlacementsMatchLyrics := False;
   if not TryDecodeDisplaySettingsText(SettingsText, FLyrics,
     DecodedCommon, DecodedPlacements, PlacementsMatchLyrics) or
     not PlacementsMatchLyrics or
@@ -2285,6 +2795,24 @@ begin
   CandidateCombo.ItemIndex := EnsureRange(InitialIndex, 0,
     CandidateCombo.Items.Count - 1);
   CandidateComboChange(CandidateCombo);
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.ConfigurePlacementMode(
+  PlacementMode: Integer);
+begin
+  PlacementModeCombo.ItemIndex := EnsureRange(PlacementMode, 0, 1);
+  if FPlacementModeButton <> nil then
+  begin
+    FPlacementModeButton.Glyph := tbgLinePlacement;
+    FPlacementModeButton.Hint := '1行配置へ切替';
+  end;
+end;
+
+procedure TFormLyricsCharacterLayoutSettings.SetPlacementModeSwitchVisible(
+  Value: Boolean);
+begin
+  if FPlacementModeButton <> nil then
+    FPlacementModeButton.Visible := Value;
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.CandidateComboChange(
@@ -2352,6 +2880,11 @@ function TFormLyricsCharacterLayoutSettings.SelectedCandidateIndex:
   Integer;
 begin
   Result := CandidateCombo.ItemIndex;
+end;
+
+function TFormLyricsCharacterLayoutSettings.SelectedPlacementMode: Integer;
+begin
+  Result := EnsureRange(PlacementModeCombo.ItemIndex, 0, 1);
 end;
 
 end.

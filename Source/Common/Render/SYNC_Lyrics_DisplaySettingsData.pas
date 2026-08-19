@@ -71,6 +71,50 @@ type
     RubyOffsetX: SmallInt;
     HasRubyOffsetY: Boolean;
     RubyOffsetY: SmallInt;
+    HasBeforeOpacity: Boolean;
+    BeforeOpacity: Byte;
+    HasAfterOpacity: Boolean;
+    AfterOpacity: Byte;
+    HasBeforeOutlineColor: Boolean;
+    BeforeOutlineColor: Cardinal;
+    HasAfterOutlineColor: Boolean;
+    AfterOutlineColor: Cardinal;
+    HasBeforeOutlineOpacity: Boolean;
+    BeforeOutlineOpacity: Byte;
+    HasAfterOutlineOpacity: Boolean;
+    AfterOutlineOpacity: Byte;
+    HasBeforeShadowColor: Boolean;
+    BeforeShadowColor: Cardinal;
+    HasAfterShadowColor: Boolean;
+    AfterShadowColor: Cardinal;
+    HasBeforeShadowOpacity: Boolean;
+    BeforeShadowOpacity: Byte;
+    HasAfterShadowOpacity: Boolean;
+    AfterShadowOpacity: Byte;
+    HasBeforeBlurColor: Boolean;
+    BeforeBlurColor: Cardinal;
+    HasAfterBlurColor: Boolean;
+    AfterBlurColor: Cardinal;
+    HasBeforeBlurOpacity: Boolean;
+    BeforeBlurOpacity: Byte;
+    HasAfterBlurOpacity: Boolean;
+    AfterBlurOpacity: Byte;
+    HasOutlineEnabled: Boolean;
+    OutlineEnabled: Boolean;
+    HasOutlineWidth: Boolean;
+    OutlineWidth: Single;
+    HasOutlineBlur: Boolean;
+    OutlineBlur: Single;
+    HasShadowEnabled: Boolean;
+    ShadowEnabled: Boolean;
+    HasShadowOffsetX: Boolean;
+    ShadowOffsetX: Single;
+    HasShadowOffsetY: Boolean;
+    ShadowOffsetY: Single;
+    HasShadowBlur: Boolean;
+    ShadowBlur: Single;
+    HasShadowSpread: Boolean;
+    ShadowSpread: Single;
   end;
   TDisplayPlacementItems = TArray<TDisplayPlacementItem>;
 
@@ -96,7 +140,7 @@ uses
   System.SysUtils;
 
 const
-  DISPLAY_SETTINGS_TEXT_PREFIX = 'SL2';
+  DISPLAY_SETTINGS_TEXT_PREFIX = 'SL3';
   FNV1A_OFFSET_BASIS = Cardinal(2166136261);
   FNV1A_PRIME = Cardinal(16777619);
   MIN_PLACEMENT_SCALE = 0.05;
@@ -112,6 +156,30 @@ const
   FLAG_RUBY_CHARACTER_SPACING = 128;
   FLAG_RUBY_OFFSET_X = 256;
   FLAG_RUBY_OFFSET_Y = 512;
+
+  DECORATION_BEFORE_OPACITY = UInt64(1) shl 0;
+  DECORATION_AFTER_OPACITY = UInt64(1) shl 1;
+  DECORATION_BEFORE_OUTLINE_COLOR = UInt64(1) shl 2;
+  DECORATION_AFTER_OUTLINE_COLOR = UInt64(1) shl 3;
+  DECORATION_BEFORE_OUTLINE_OPACITY = UInt64(1) shl 4;
+  DECORATION_AFTER_OUTLINE_OPACITY = UInt64(1) shl 5;
+  DECORATION_BEFORE_SHADOW_COLOR = UInt64(1) shl 6;
+  DECORATION_AFTER_SHADOW_COLOR = UInt64(1) shl 7;
+  DECORATION_BEFORE_SHADOW_OPACITY = UInt64(1) shl 8;
+  DECORATION_AFTER_SHADOW_OPACITY = UInt64(1) shl 9;
+  DECORATION_BEFORE_BLUR_COLOR = UInt64(1) shl 10;
+  DECORATION_AFTER_BLUR_COLOR = UInt64(1) shl 11;
+  DECORATION_BEFORE_BLUR_OPACITY = UInt64(1) shl 12;
+  DECORATION_AFTER_BLUR_OPACITY = UInt64(1) shl 13;
+  DECORATION_OUTLINE_ENABLED = UInt64(1) shl 14;
+  DECORATION_OUTLINE_WIDTH = UInt64(1) shl 15;
+  DECORATION_OUTLINE_BLUR = UInt64(1) shl 16;
+  DECORATION_SHADOW_ENABLED = UInt64(1) shl 17;
+  DECORATION_SHADOW_OFFSET_X = UInt64(1) shl 18;
+  DECORATION_SHADOW_OFFSET_Y = UInt64(1) shl 19;
+  DECORATION_SHADOW_BLUR = UInt64(1) shl 20;
+  DECORATION_SHADOW_SPREAD = UInt64(1) shl 21;
+  DECORATION_ALL_FLAGS = (UInt64(1) shl 22) - 1;
 
 function DefaultDisplayCommonSettings: TDisplayCommonSettings;
 begin
@@ -261,6 +329,296 @@ begin
     Result := Result or FLAG_RUBY_OFFSET_Y;
 end;
 
+function BuildDecorationFlags(const Item: TDisplayPlacementItem): UInt64;
+begin
+  Result := 0;
+  if Item.HasBeforeOpacity then Result := Result or DECORATION_BEFORE_OPACITY;
+  if Item.HasAfterOpacity then Result := Result or DECORATION_AFTER_OPACITY;
+  if Item.HasBeforeOutlineColor then
+    Result := Result or DECORATION_BEFORE_OUTLINE_COLOR;
+  if Item.HasAfterOutlineColor then
+    Result := Result or DECORATION_AFTER_OUTLINE_COLOR;
+  if Item.HasBeforeOutlineOpacity then
+    Result := Result or DECORATION_BEFORE_OUTLINE_OPACITY;
+  if Item.HasAfterOutlineOpacity then
+    Result := Result or DECORATION_AFTER_OUTLINE_OPACITY;
+  if Item.HasBeforeShadowColor then
+    Result := Result or DECORATION_BEFORE_SHADOW_COLOR;
+  if Item.HasAfterShadowColor then
+    Result := Result or DECORATION_AFTER_SHADOW_COLOR;
+  if Item.HasBeforeShadowOpacity then
+    Result := Result or DECORATION_BEFORE_SHADOW_OPACITY;
+  if Item.HasAfterShadowOpacity then
+    Result := Result or DECORATION_AFTER_SHADOW_OPACITY;
+  if Item.HasBeforeBlurColor then
+    Result := Result or DECORATION_BEFORE_BLUR_COLOR;
+  if Item.HasAfterBlurColor then
+    Result := Result or DECORATION_AFTER_BLUR_COLOR;
+  if Item.HasBeforeBlurOpacity then
+    Result := Result or DECORATION_BEFORE_BLUR_OPACITY;
+  if Item.HasAfterBlurOpacity then
+    Result := Result or DECORATION_AFTER_BLUR_OPACITY;
+  if Item.HasOutlineEnabled then
+    Result := Result or DECORATION_OUTLINE_ENABLED;
+  if Item.HasOutlineWidth then Result := Result or DECORATION_OUTLINE_WIDTH;
+  if Item.HasOutlineBlur then Result := Result or DECORATION_OUTLINE_BLUR;
+  if Item.HasShadowEnabled then Result := Result or DECORATION_SHADOW_ENABLED;
+  if Item.HasShadowOffsetX then
+    Result := Result or DECORATION_SHADOW_OFFSET_X;
+  if Item.HasShadowOffsetY then
+    Result := Result or DECORATION_SHADOW_OFFSET_Y;
+  if Item.HasShadowBlur then Result := Result or DECORATION_SHADOW_BLUR;
+  if Item.HasShadowSpread then Result := Result or DECORATION_SHADOW_SPREAD;
+end;
+
+function IsValidPlacementDecoration(
+  const Item: TDisplayPlacementItem): Boolean;
+begin
+  Result :=
+    (not Item.HasBeforeOutlineColor or
+      (Item.BeforeOutlineColor <= $FFFFFF)) and
+    (not Item.HasAfterOutlineColor or
+      (Item.AfterOutlineColor <= $FFFFFF)) and
+    (not Item.HasBeforeShadowColor or
+      (Item.BeforeShadowColor <= $FFFFFF)) and
+    (not Item.HasAfterShadowColor or
+      (Item.AfterShadowColor <= $FFFFFF)) and
+    (not Item.HasBeforeBlurColor or
+      (Item.BeforeBlurColor <= $FFFFFF)) and
+    (not Item.HasAfterBlurColor or
+      (Item.AfterBlurColor <= $FFFFFF)) and
+    (not Item.HasOutlineWidth or
+      (not IsNan(Item.OutlineWidth) and not IsInfinite(Item.OutlineWidth) and
+       (Item.OutlineWidth >= 0) and (Item.OutlineWidth <= 500))) and
+    (not Item.HasOutlineBlur or
+      (not IsNan(Item.OutlineBlur) and not IsInfinite(Item.OutlineBlur) and
+       (Item.OutlineBlur >= 0) and (Item.OutlineBlur <= 500))) and
+    (not Item.HasShadowOffsetX or
+      (not IsNan(Item.ShadowOffsetX) and
+       not IsInfinite(Item.ShadowOffsetX) and
+       (Item.ShadowOffsetX >= -2000) and
+       (Item.ShadowOffsetX <= 2000))) and
+    (not Item.HasShadowOffsetY or
+      (not IsNan(Item.ShadowOffsetY) and
+       not IsInfinite(Item.ShadowOffsetY) and
+       (Item.ShadowOffsetY >= -2000) and
+       (Item.ShadowOffsetY <= 2000))) and
+    (not Item.HasShadowBlur or
+      (not IsNan(Item.ShadowBlur) and not IsInfinite(Item.ShadowBlur) and
+       (Item.ShadowBlur >= 0) and (Item.ShadowBlur <= 500))) and
+    (not Item.HasShadowSpread or
+      (not IsNan(Item.ShadowSpread) and not IsInfinite(Item.ShadowSpread) and
+       (Item.ShadowSpread >= 0) and (Item.ShadowSpread <= 500)));
+end;
+
+procedure AppendDecorationValue(var Text: string; Value: Integer);
+begin
+  Text := Text + ':' + IntToStr(Value);
+end;
+
+function EncodeDecoration(const Item: TDisplayPlacementItem): string;
+var
+  Flags: UInt64;
+begin
+  Flags := BuildDecorationFlags(Item);
+  Result := IntToHex(Flags, 1);
+  if Item.HasBeforeOpacity then AppendDecorationValue(Result, Item.BeforeOpacity);
+  if Item.HasAfterOpacity then AppendDecorationValue(Result, Item.AfterOpacity);
+  if Item.HasBeforeOutlineColor then
+    AppendDecorationValue(Result, Item.BeforeOutlineColor);
+  if Item.HasAfterOutlineColor then
+    AppendDecorationValue(Result, Item.AfterOutlineColor);
+  if Item.HasBeforeOutlineOpacity then
+    AppendDecorationValue(Result, Item.BeforeOutlineOpacity);
+  if Item.HasAfterOutlineOpacity then
+    AppendDecorationValue(Result, Item.AfterOutlineOpacity);
+  if Item.HasBeforeShadowColor then
+    AppendDecorationValue(Result, Item.BeforeShadowColor);
+  if Item.HasAfterShadowColor then
+    AppendDecorationValue(Result, Item.AfterShadowColor);
+  if Item.HasBeforeShadowOpacity then
+    AppendDecorationValue(Result, Item.BeforeShadowOpacity);
+  if Item.HasAfterShadowOpacity then
+    AppendDecorationValue(Result, Item.AfterShadowOpacity);
+  if Item.HasBeforeBlurColor then
+    AppendDecorationValue(Result, Item.BeforeBlurColor);
+  if Item.HasAfterBlurColor then
+    AppendDecorationValue(Result, Item.AfterBlurColor);
+  if Item.HasBeforeBlurOpacity then
+    AppendDecorationValue(Result, Item.BeforeBlurOpacity);
+  if Item.HasAfterBlurOpacity then
+    AppendDecorationValue(Result, Item.AfterBlurOpacity);
+  if Item.HasOutlineEnabled then
+    AppendDecorationValue(Result, Ord(Item.OutlineEnabled));
+  if Item.HasOutlineWidth then
+    AppendDecorationValue(Result, Round(Item.OutlineWidth * 1000));
+  if Item.HasOutlineBlur then
+    AppendDecorationValue(Result, Round(Item.OutlineBlur * 1000));
+  if Item.HasShadowEnabled then
+    AppendDecorationValue(Result, Ord(Item.ShadowEnabled));
+  if Item.HasShadowOffsetX then
+    AppendDecorationValue(Result, Round(Item.ShadowOffsetX * 1000));
+  if Item.HasShadowOffsetY then
+    AppendDecorationValue(Result, Round(Item.ShadowOffsetY * 1000));
+  if Item.HasShadowBlur then
+    AppendDecorationValue(Result, Round(Item.ShadowBlur * 1000));
+  if Item.HasShadowSpread then
+    AppendDecorationValue(Result, Round(Item.ShadowSpread * 1000));
+end;
+
+function TryReadDecorationValue(const Parts: TArray<string>;
+  var Position: Integer; MinValue, MaxValue: Integer;
+  out Value: Integer): Boolean;
+begin
+  Result := (Position < Length(Parts)) and
+    TryStrToInt(Parts[Position], Value) and
+    (Value >= MinValue) and (Value <= MaxValue);
+  if Result then
+    Inc(Position);
+end;
+
+function TryDecodeDecoration(const Text: string;
+  var Item: TDisplayPlacementItem): Boolean;
+var
+  Flags: UInt64;
+  Parts: TArray<string>;
+  Position: Integer;
+  Value: Integer;
+begin
+  Result := False;
+  Parts := Text.Split([':']);
+  if (Length(Parts) < 1) or not TryStrToUInt64('$' + Parts[0], Flags) or
+    ((Flags and not DECORATION_ALL_FLAGS) <> 0) then
+    Exit;
+  Position := 1;
+  Item.HasBeforeOpacity := (Flags and DECORATION_BEFORE_OPACITY) <> 0;
+  if Item.HasBeforeOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.BeforeOpacity := Value;
+  end;
+  Item.HasAfterOpacity := (Flags and DECORATION_AFTER_OPACITY) <> 0;
+  if Item.HasAfterOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.AfterOpacity := Value;
+  end;
+  Item.HasBeforeOutlineColor :=
+    (Flags and DECORATION_BEFORE_OUTLINE_COLOR) <> 0;
+  if Item.HasBeforeOutlineColor then begin
+    if not TryReadDecorationValue(Parts, Position, 0, $FFFFFF, Value) then Exit;
+    Item.BeforeOutlineColor := Value;
+  end;
+  Item.HasAfterOutlineColor :=
+    (Flags and DECORATION_AFTER_OUTLINE_COLOR) <> 0;
+  if Item.HasAfterOutlineColor then begin
+    if not TryReadDecorationValue(Parts, Position, 0, $FFFFFF, Value) then Exit;
+    Item.AfterOutlineColor := Value;
+  end;
+  Item.HasBeforeOutlineOpacity :=
+    (Flags and DECORATION_BEFORE_OUTLINE_OPACITY) <> 0;
+  if Item.HasBeforeOutlineOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.BeforeOutlineOpacity := Value;
+  end;
+  Item.HasAfterOutlineOpacity :=
+    (Flags and DECORATION_AFTER_OUTLINE_OPACITY) <> 0;
+  if Item.HasAfterOutlineOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.AfterOutlineOpacity := Value;
+  end;
+  Item.HasBeforeShadowColor :=
+    (Flags and DECORATION_BEFORE_SHADOW_COLOR) <> 0;
+  if Item.HasBeforeShadowColor then begin
+    if not TryReadDecorationValue(Parts, Position, 0, $FFFFFF, Value) then Exit;
+    Item.BeforeShadowColor := Value;
+  end;
+  Item.HasAfterShadowColor :=
+    (Flags and DECORATION_AFTER_SHADOW_COLOR) <> 0;
+  if Item.HasAfterShadowColor then begin
+    if not TryReadDecorationValue(Parts, Position, 0, $FFFFFF, Value) then Exit;
+    Item.AfterShadowColor := Value;
+  end;
+  Item.HasBeforeShadowOpacity :=
+    (Flags and DECORATION_BEFORE_SHADOW_OPACITY) <> 0;
+  if Item.HasBeforeShadowOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.BeforeShadowOpacity := Value;
+  end;
+  Item.HasAfterShadowOpacity :=
+    (Flags and DECORATION_AFTER_SHADOW_OPACITY) <> 0;
+  if Item.HasAfterShadowOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.AfterShadowOpacity := Value;
+  end;
+  Item.HasBeforeBlurColor :=
+    (Flags and DECORATION_BEFORE_BLUR_COLOR) <> 0;
+  if Item.HasBeforeBlurColor then begin
+    if not TryReadDecorationValue(Parts, Position, 0, $FFFFFF, Value) then Exit;
+    Item.BeforeBlurColor := Value;
+  end;
+  Item.HasAfterBlurColor :=
+    (Flags and DECORATION_AFTER_BLUR_COLOR) <> 0;
+  if Item.HasAfterBlurColor then begin
+    if not TryReadDecorationValue(Parts, Position, 0, $FFFFFF, Value) then Exit;
+    Item.AfterBlurColor := Value;
+  end;
+  Item.HasBeforeBlurOpacity :=
+    (Flags and DECORATION_BEFORE_BLUR_OPACITY) <> 0;
+  if Item.HasBeforeBlurOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.BeforeBlurOpacity := Value;
+  end;
+  Item.HasAfterBlurOpacity :=
+    (Flags and DECORATION_AFTER_BLUR_OPACITY) <> 0;
+  if Item.HasAfterBlurOpacity then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 255, Value) then Exit;
+    Item.AfterBlurOpacity := Value;
+  end;
+  Item.HasOutlineEnabled := (Flags and DECORATION_OUTLINE_ENABLED) <> 0;
+  if Item.HasOutlineEnabled then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 1, Value) then Exit;
+    Item.OutlineEnabled := Value <> 0;
+  end;
+  Item.HasOutlineWidth := (Flags and DECORATION_OUTLINE_WIDTH) <> 0;
+  if Item.HasOutlineWidth then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 500000, Value) then Exit;
+    Item.OutlineWidth := Value / 1000;
+  end;
+  Item.HasOutlineBlur := (Flags and DECORATION_OUTLINE_BLUR) <> 0;
+  if Item.HasOutlineBlur then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 500000, Value) then Exit;
+    Item.OutlineBlur := Value / 1000;
+  end;
+  Item.HasShadowEnabled := (Flags and DECORATION_SHADOW_ENABLED) <> 0;
+  if Item.HasShadowEnabled then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 1, Value) then Exit;
+    Item.ShadowEnabled := Value <> 0;
+  end;
+  Item.HasShadowOffsetX := (Flags and DECORATION_SHADOW_OFFSET_X) <> 0;
+  if Item.HasShadowOffsetX then begin
+    if not TryReadDecorationValue(Parts, Position, -2000000, 2000000,
+      Value) then Exit;
+    Item.ShadowOffsetX := Value / 1000;
+  end;
+  Item.HasShadowOffsetY := (Flags and DECORATION_SHADOW_OFFSET_Y) <> 0;
+  if Item.HasShadowOffsetY then begin
+    if not TryReadDecorationValue(Parts, Position, -2000000, 2000000,
+      Value) then Exit;
+    Item.ShadowOffsetY := Value / 1000;
+  end;
+  Item.HasShadowBlur := (Flags and DECORATION_SHADOW_BLUR) <> 0;
+  if Item.HasShadowBlur then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 500000, Value) then Exit;
+    Item.ShadowBlur := Value / 1000;
+  end;
+  Item.HasShadowSpread := (Flags and DECORATION_SHADOW_SPREAD) <> 0;
+  if Item.HasShadowSpread then begin
+    if not TryReadDecorationValue(Parts, Position, 0, 500000, Value) then Exit;
+    Item.ShadowSpread := Value / 1000;
+  end;
+  Result := (Position = Length(Parts)) and
+    IsValidPlacementDecoration(Item);
+end;
+
 function IsValidCommonSettings(
   const Common: TDisplayCommonSettings): Boolean;
 begin
@@ -347,13 +705,14 @@ begin
     Item := Items[I];
     if (Item.Index <> I) or not IsValidCoordinate(Item.X) or
       not IsValidCoordinate(Item.Y) or not IsValidScale(Item.ScaleX) or
-      not IsValidScale(Item.ScaleY) then
+      not IsValidScale(Item.ScaleY) or
+      not IsValidPlacementDecoration(Item) then
     begin
       Text := '';
       Exit(False);
     end;
     RecordText := Format(
-      '%d,%d,%d,%d,%d,%d,%s,%s,%.6X,%.6X,%d,%d,%d,%d,%d,%d,%d,%d',
+      '%d,%d,%d,%d,%d,%d,%s,%s,%.6X,%.6X,%d,%d,%d,%d,%d,%d,%d,%d,%s',
       [Item.Index, Round(Item.X), Round(Item.Y),
        Round(Item.ScaleX * 1000), Round(Item.ScaleY * 1000),
        BuildFlags(Item), EncodeUtf8Hex(Item.BaseFontName),
@@ -361,7 +720,8 @@ begin
        Item.AfterColor and $FFFFFF, Item.BaseFontHeight,
        Item.RubyFontHeight, Item.BaseFontStyle and $0F,
        Item.RubyFontStyle and $0F, Item.BaseCharacterSpacing,
-       Item.RubyCharacterSpacing, Item.RubyOffsetX, Item.RubyOffsetY]);
+       Item.RubyCharacterSpacing, Item.RubyOffsetX, Item.RubyOffsetY,
+       EncodeDecoration(Item)]);
     Text := Text + '|' + RecordText;
   end;
   Result := (Length(Text) <= MAX_DISPLAY_SETTINGS_TEXT_LENGTH) and
@@ -439,7 +799,7 @@ begin
     CommonFields.StrictDelimiter := True;
     CommonFields.Delimiter := ',';
     CommonFields.DelimitedText := Records[3];
-    if not (CommonFields.Count in [13, 35]) or
+    if (CommonFields.Count <> 35) or
       not TryParseInteger(CommonFields[0], Common.PositionX) or
       not TryParseInteger(CommonFields[1], Common.PositionY) or
       not TryDecodeUtf8Hex(CommonFields[2], Common.BaseFontName) or
@@ -528,7 +888,7 @@ begin
     for I := 0 to ItemCount - 1 do
     begin
       Fields.DelimitedText := Records[I + 4];
-      if Fields.Count <> 18 then
+      if Fields.Count <> 19 then
         Exit;
       FillChar(Item, SizeOf(Item), 0);
       if not TryParseInteger(Fields[0], Item.Index) or
@@ -590,6 +950,8 @@ begin
         (IntegerValue < Low(SmallInt)) or (IntegerValue > High(SmallInt)) then
         Exit;
       Item.RubyOffsetY := IntegerValue;
+      if not TryDecodeDecoration(Fields[18], Item) then
+        Exit;
 
       Item.HasBeforeColor := (Flags and FLAG_BEFORE_COLOR) <> 0;
       Item.HasAfterColor := (Flags and FLAG_AFTER_COLOR) <> 0;

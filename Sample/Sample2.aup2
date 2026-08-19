@@ -11,12 +11,12 @@ video.height=1080
 video.rate=30
 video.scale=1
 audio.rate=44100
-cursor.frame=228
+cursor.frame=254
 cursor.layer=3
 preview.frame=0
 display.frame=0
 display.layer=0
-display.zoom=10000
+display.zoom=7500
 display.order=0
 display.camera=
 display.grid.x=16,-16
@@ -31,7 +31,7 @@ display.tempo.start=0.000000
 display.tempo.offset=0.000000
 [0]
 layer=0
-frame=0,419
+frame=0,554
 [0.0]
 effect.name=画像ファイル
 ファイル=C:\Users\vramw\Pictures\nc364781_海の中.jpg
@@ -70,7 +70,6 @@ effect.name=SYNC_歌詞テロップ_Filter
 曲同期設定=
 同期前表示 (秒)=0.50
 同期後維持 (秒)=0.50
-配置モード=1行配置
 同期演出=通常カラオケ
 表示設定=
 前 種類=なし
@@ -96,7 +95,7 @@ effect.name=SYNC_歌詞テロップ_Filter
 [2]
 layer=1
 focus=1
-frame=175,414
+frame=175,554
 [2.0]
 effect.name=フィルタオブジェクト
 [2.1]
@@ -107,7 +106,6 @@ effect.name=SYNC_歌詞テロップ_Filter
 曲同期設定=
 同期前表示 (秒)=0.50
 同期後維持 (秒)=0.50
-配置モード=1行配置
 同期演出=通常カラオケ
 表示設定=
 前 種類=なし
@@ -128,7 +126,7 @@ effect.name=SYNC_歌詞テロップ_Filter
 後 方向=標準
 後 奥行き=奥へ
 後 値1=0.00
-歌詞データ=SLD1,1|L,1,1,1,0.5,0.5,45,164,60,149,0,W+aYn+epul0o44G744GX44Ge44KJKeOCkuimi+S4iuOBkuOBpg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,U0wyfEUxMzY0ODBGfDB8MCwwLDU5NzUyMDQ3NkY3NDY4Njk2MzIwNTU0OSw1OTc1MjA0NzZGNzQ2ODY5NjMyMDU1NDksOTYsNDIsMSwxLEZGRkZGRixGRkZGMDAsMCwwLDAsMjU1LDI1NSwwMDAwMDAsMDAwMDAwLDI1NSwyNTUsMDAwMDAwLDAwMDAwMCwxNjAsMTYwLDAwMDAwMCwwMDAwMDAsMjU1LDI1NSwxLDgwMDAsMCwxLDEwMDAwLDEwMDAwLDQwMDAsMA==,0|L,2,1,1,0.5,0.5,165,314,180,299,6,W+WQm10o44GN44G/KeOBruWjsOOCkuaOouOBl+OBpuOCiw==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,3,1,1,0.5,0.5,285,427,300,412,14,W+acquadpV0o44G/44KJ44GEKeOBuOe2muOBj+OBk+OBrumBk+OCkg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,4,1,1,0.5,0.5,427,607,442,592,22,W+WFiV0o44Gy44GL44KKKeOBruS4reOBp+atjOOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,5,1,1,0.5,0.5,577,734,592,719,29,44G+44GfW+aYjuaXpV0o44GC44GX44GfKeOBk+OBk+OBp+S8muOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0
+歌詞データ=SLD1,1,1,U0wzfEUxMzY0ODBGfDB8NjIsLTgyLDU5NzUyMDQ3NkY3NDY4Njk2MzIwNTU0OSw1OTc1MjA0NzZGNzQ2ODY5NjMyMDU1NDksOTksNDIsMSwxLEZGRkZGRixGRkZGMDAsMCwwLDAsMjU1LDI1NSwwMDAwMDAsMDAwMDAwLDI1NSwyNTUsMDAwMDAwLDAwMDAwMCwxNjAsMTYwLDAwMDAwMCwwMDAwMDAsMjU1LDI1NSwwLDgwMDAsMCwwLDEwMDAwLDEwMDAwLDQwMDAsMA==,,|L,1,1,1,0.5,0.5,45,164,60,149,0,W+aYn+epul0o44G744GX44Ge44KJKeOCkuimi+S4iuOBkuOBpg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,2,1,1,0.5,0.5,165,314,180,299,6,W+WQm10o44GN44G/KeOBruWjsOOCkuaOouOBl+OBpuOCiw==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,3,1,1,0.5,0.5,285,427,300,412,14,W+acquadpV0o44G/44KJ44GEKeOBuOe2muOBj+OBk+OBrumBk+OCkg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,4,1,1,0.5,0.5,427,607,442,592,22,W+WFiV0o44Gy44GL44KKKeOBruS4reOBp+atjOOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0|L,5,1,1,0.5,0.5,577,734,592,719,29,44G+44GfW+aYjuaXpV0o44GC44GX44GfKeOBk+OBk+OBp+S8muOBiuOBhg==,U1lOQ19MWVJJQ1NfU1lOQy8xO21vZGU9bXVzaWM7c3RhZ2VzPQ==,,0
 表示設定=
 [plugin.0]
 plugin.name=Syncroh2_Extension2

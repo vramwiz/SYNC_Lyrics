@@ -473,12 +473,20 @@ begin
   BaseStyle.CharacterSpacing := 2;
   BaseStyle.BeforeColor := $00112233;
   BaseStyle.AfterColor := $00445566;
+  BaseStyle.BeforeOpacity := 210;
+  BaseStyle.OutlineEnabled := True;
+  BaseStyle.OutlineWidth := 2;
+  BaseStyle.ShadowEnabled := False;
   RubyStyle.FontName := 'Ruby default';
   RubyStyle.FontHeight := 42;
   RubyStyle.FontStyle := 2;
   RubyStyle.CharacterSpacing := 3;
   RubyStyle.BeforeColor := $00112233;
   RubyStyle.AfterColor := $00445566;
+  RubyStyle.BeforeOpacity := 210;
+  RubyStyle.OutlineEnabled := True;
+  RubyStyle.OutlineWidth := 2;
+  RubyStyle.ShadowEnabled := False;
 
   SetLength(Placements, 0);
   Check(BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
@@ -526,6 +534,16 @@ begin
   Placements[1].RubyOffsetX := 10;
   Placements[1].HasRubyOffsetY := True;
   Placements[1].RubyOffsetY := -11;
+  Placements[1].HasBeforeOpacity := True;
+  Placements[1].BeforeOpacity := 123;
+  Placements[1].HasOutlineEnabled := True;
+  Placements[1].OutlineEnabled := False;
+  Placements[1].HasOutlineWidth := True;
+  Placements[1].OutlineWidth := 5.5;
+  Placements[1].HasShadowEnabled := True;
+  Placements[1].ShadowEnabled := True;
+  Placements[1].HasShadowOffsetX := True;
+  Placements[1].ShadowOffsetX := -3.25;
   Check(BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
     BaseStyle, RubyStyle, Placements, True, PlainText, RubySpans,
     LogicalUnits, ResolvedUnits), 'free resolved-unit build failed');
@@ -547,6 +565,17 @@ begin
     (ResolvedUnits[1].Ruby.OffsetX = 10) and
     (ResolvedUnits[1].Ruby.OffsetY = -11),
     'free resolved-unit style override mismatch');
+  Check((ResolvedUnits[1].Base.Style.BeforeOpacity = 123) and
+    (ResolvedUnits[1].Ruby.Style.BeforeOpacity = 123) and
+    not ResolvedUnits[1].Base.Style.OutlineEnabled and
+    not ResolvedUnits[1].Ruby.Style.OutlineEnabled and
+    (Abs(ResolvedUnits[1].Base.Style.OutlineWidth - 5.5) < 0.001) and
+    (Abs(ResolvedUnits[1].Ruby.Style.OutlineWidth - 5.5) < 0.001) and
+    ResolvedUnits[1].Base.Style.ShadowEnabled and
+    ResolvedUnits[1].Ruby.Style.ShadowEnabled and
+    (Abs(ResolvedUnits[1].Base.Style.ShadowOffsetX + 3.25) < 0.001) and
+    (Abs(ResolvedUnits[1].Ruby.Style.ShadowOffsetX + 3.25) < 0.001),
+    'free resolved-unit decoration override mismatch');
 
   SetLength(Placements, 1);
   Check(not BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',

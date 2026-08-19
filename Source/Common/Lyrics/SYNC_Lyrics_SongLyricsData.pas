@@ -66,6 +66,9 @@ var
   Records: TArray<string>;
   StartLineID: Int64;
   HeaderFields: TArray<string>;
+  LanePlacementTexts: TLyricsLanePlacementTexts;
+  DisplayLane: Integer;
+  PlacementModeValue: Integer;
   StartLineFound: Boolean;
   SyncStateValue: Integer;
 begin
@@ -89,15 +92,30 @@ begin
   end;
   HeaderFields := Records[0].Split([',']);
   StartLineID := 0;
-  if (Length(HeaderFields) < 1) or (HeaderFields[0] <> FILE_HEADER) or
-    (Length(HeaderFields) > 2) or
-    ((Length(HeaderFields) = 2) and
-     (not TryStrToInt64(HeaderFields[1], StartLineID) or
-      (StartLineID <= 0))) then
+  if (Length(HeaderFields) <> 6) or
+    (HeaderFields[0] <> FILE_HEADER) or
+    not TryStrToInt64(HeaderFields[1], StartLineID) or
+    (StartLineID < 0) or
+    not TryStrToInt(HeaderFields[2], PlacementModeValue) or
+    (PlacementModeValue < Ord(Low(TLyricsPlacementMode))) or
+    (PlacementModeValue > Ord(High(TLyricsPlacementMode))) then
   begin
     ErrorText := 'The whole-song text header is invalid.';
     Exit;
   end;
+  for DisplayLane := Low(LanePlacementTexts) to
+    High(LanePlacementTexts) do
+    LanePlacementTexts[DisplayLane] := '';
+  for DisplayLane := Low(LanePlacementTexts) to
+    High(LanePlacementTexts) do
+    if not DecodeTextField(HeaderFields[DisplayLane + 2],
+      LanePlacementTexts[DisplayLane]) or
+      (Pos(#10, LanePlacementTexts[DisplayLane]) > 0) or
+      (Pos(#13, LanePlacementTexts[DisplayLane]) > 0) then
+    begin
+      ErrorText := 'A display lane placement field is invalid.';
+      Exit;
+    end;
   SetLength(Lines, Length(Records) - 1);
   for I := 1 to High(Records) do
   begin
@@ -163,6 +181,8 @@ begin
     Exit;
   end;
   Model.ReplaceLines(Lines);
+  Model.ReplaceLanePlacementTexts(LanePlacementTexts);
+  Model.PlacementMode := TLyricsPlacementMode(PlacementModeValue);
   if StartLineID > 0 then
     Model.TrySetStartLineID(StartLineID);
   Result := True;
@@ -171,6 +191,7 @@ end;
 function TryEncodeSongLyrics(const Model: TLyricsSongModel;
   out Text, ErrorText: string): Boolean;
 var
+  DisplayLane: Integer;
   I: Integer;
   LineData: TLyricsSongLine;
 begin
@@ -182,9 +203,11 @@ begin
     ErrorText := 'The source model is not available.';
     Exit;
   end;
-  Text := FILE_HEADER;
-  if Model.StartLineID > 0 then
-    Text := Text + ',' + IntToStr(Model.StartLineID);
+  Text := FILE_HEADER + ',' + IntToStr(Model.StartLineID) + ',' +
+    IntToStr(Ord(Model.PlacementMode));
+  for DisplayLane := 1 to 3 do
+    Text := Text + ',' +
+      EncodeTextField(Model.LanePlacementTexts[DisplayLane]);
   for I := 0 to Model.LineCount - 1 do
   begin
     LineData := Model[I];

@@ -91,6 +91,14 @@ begin
       if (LineDisplayForm.CandidateCombo.Style <> csOwnerDrawFixed) or
         not Assigned(LineDisplayForm.CandidateCombo.OnDrawItem) then
         raise Exception.Create('The placement combo box was not owner-drawn.');
+      if (LineDisplayForm.PlacementModeCombo.Style <> csOwnerDrawFixed) or
+        not Assigned(LineDisplayForm.PlacementModeCombo.OnDrawItem) then
+        raise Exception.Create(
+          'The line placement mode combo box was not owner-drawn.');
+      LineDisplayForm.ConfigurePlacementMode(1);
+      if LineDisplayForm.SelectedPlacementMode <> 1 then
+        raise Exception.Create(
+          'The line placement mode selection was not retained.');
       if (LineDisplayForm.FindComponent('DescriptionLabel') <> nil) or
         (LineDisplayForm.FindComponent('LyricsEdit') <> nil) or
         (LineDisplayForm.FindComponent('SelectionLabel') <> nil) then
@@ -131,6 +139,9 @@ begin
       LineDisplayToolbar := FindOwnedComponentByClass(LineDisplayForm,
         TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
       if (LineDisplayToolbar = nil) or
+        (LineDisplayToolbar.FindByTag(100) = nil) or
+        (LineDisplayToolbar.FindByTag(100).Glyph <> tbgFreePlacement) or
+        LineDisplayForm.PlacementModeCombo.Visible or
         (LineDisplayForm.BaseFontCombo.Width > 160) or
         (LineDisplayForm.RubyFontCombo.Width > 160) or
         (LineDisplayToolbar.Left <= LineDisplayForm.RubyFontCombo.Left +
@@ -138,6 +149,12 @@ begin
         (LineDisplayToolbar.Top >= LineDisplayForm.PreviewPaintBox.Top) then
         raise Exception.Create(
           'The font selectors and formatting icons did not share one row.');
+      LineDisplayToolbar.FindByTag(100).Execute;
+      if (LineDisplayForm.ModalResult <>
+        PLACEMENT_MODE_SWITCH_MODAL_RESULT) or
+        (LineDisplayForm.SelectedPlacementMode <> 1) then
+        raise Exception.Create(
+          'The line editor did not request an immediate free-mode switch.');
     finally
       LineDisplayForm.Free;
     end;
@@ -151,6 +168,15 @@ begin
         not Assigned(CharacterLayoutForm.CandidateCombo.OnDrawItem) then
         raise Exception.Create(
           'The character placement combo box was not owner-drawn.');
+      if (CharacterLayoutForm.PlacementModeCombo.Style <>
+        csOwnerDrawFixed) or
+        not Assigned(CharacterLayoutForm.PlacementModeCombo.OnDrawItem) then
+        raise Exception.Create(
+          'The character placement mode combo box was not owner-drawn.');
+      CharacterLayoutForm.ConfigurePlacementMode(0);
+      if CharacterLayoutForm.SelectedPlacementMode <> 0 then
+        raise Exception.Create(
+          'The character placement mode selection was not retained.');
       if CharacterLayoutForm.ElementListView.Color <>
         SYNC_LYRICS_DARK_CONTROL_COLOR then
         raise Exception.Create(
@@ -164,9 +190,27 @@ begin
         TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
       if (CharacterLayoutToolbar = nil) or
         (CharacterLayoutToolbar.FindByTag(0) = nil) or
-        (CharacterLayoutToolbar.FindByTag(0).Glyph <> tbgOutline) then
+        (CharacterLayoutToolbar.FindByTag(0).Glyph <> tbgOutline) or
+        (CharacterLayoutToolbar.FindByTag(8) = nil) or
+        (CharacterLayoutToolbar.FindByTag(9) = nil) or
+        (CharacterLayoutToolbar.FindByTag(9).Glyph <> tbgLinePlacement) or
+        CharacterLayoutForm.PlacementModeCombo.Visible then
         raise Exception.Create(
-          'The character placement editor did not expose common settings.');
+          'The character placement editor did not expose decoration settings.');
+      if (CharacterLayoutForm.ColorPanel.Width < 180) or
+        (CharacterLayoutForm.ColorPanel.Left +
+          CharacterLayoutForm.ColorPanel.Width >
+          CharacterLayoutForm.ClientWidth) or
+        (CharacterLayoutForm.ElementPanel.Width >=
+          CharacterLayoutForm.ColorPanel.Width) or
+        (CharacterLayoutForm.ElementPanel.Left +
+          CharacterLayoutForm.ElementPanel.Width >=
+          CharacterLayoutForm.ColorPanel.Left) or
+        (CharacterLayoutForm.BackgroundPaintBox.Left +
+          CharacterLayoutForm.BackgroundPaintBox.Width >=
+          CharacterLayoutForm.ElementPanel.Left) then
+        raise Exception.Create(
+          'The character list and fixed color picker layout was incorrect.');
       SetLength(PreviewPixels, 64 * 36 * 4);
       CharacterLayoutForm.SetBackgroundRgba(PreviewPixels, 64, 36);
       CharacterLayoutForm.Configure('[test](ruby)',
@@ -174,6 +218,12 @@ begin
       CharacterLayoutForm.HandleNeeded;
       CharacterLayoutForm.BackgroundPaintBoxPaint(
         CharacterLayoutForm.BackgroundPaintBox);
+      CharacterLayoutToolbar.FindByTag(9).Execute;
+      if (CharacterLayoutForm.ModalResult <>
+        PLACEMENT_MODE_SWITCH_MODAL_RESULT) or
+        (CharacterLayoutForm.SelectedPlacementMode <> 0) then
+        raise Exception.Create(
+          'The free editor did not request an immediate line-mode switch.');
     finally
       CharacterLayoutForm.Free;
     end;

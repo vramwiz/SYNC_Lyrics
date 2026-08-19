@@ -15,7 +15,11 @@ procedure FinalizeSongLyricsRuntime;
 function TryGetSongLyricsLines(const DataText: string;
   out Lines: TLyricsSongLines): Boolean;
 function TryGetSongLyricsDocument(const DataText: string;
-  out Lines: TLyricsSongLines; out StartLineID: Int64): Boolean;
+  out Lines: TLyricsSongLines; out StartLineID: Int64): Boolean; overload;
+function TryGetSongLyricsDocument(const DataText: string;
+  out Lines: TLyricsSongLines; out StartLineID: Int64;
+  out LanePlacementTexts: TLyricsLanePlacementTexts;
+  out PlacementMode: TLyricsPlacementMode): Boolean; overload;
 function ResolveSongLyricsLineIndex(const Lines: TLyricsSongLines;
   LocalFrame: Int64): Integer;
 function ResolveSongLyricsLineIndexes(const Lines: TLyricsSongLines;
@@ -256,6 +260,8 @@ type
   public
     DataText: string;
     Lines: TLyricsSongLines;
+    LanePlacementTexts: TLyricsLanePlacementTexts;
+    PlacementMode: TLyricsPlacementMode;
     StartLineID: Int64;
     LastUse: UInt64;
   end;
@@ -404,7 +410,9 @@ begin
 end;
 
 function TryGetSongLyricsDocument(const DataText: string;
-  out Lines: TLyricsSongLines; out StartLineID: Int64): Boolean;
+  out Lines: TLyricsSongLines; out StartLineID: Int64;
+  out LanePlacementTexts: TLyricsLanePlacementTexts;
+  out PlacementMode: TLyricsPlacementMode): Boolean;
 var
   CacheItem: TSongLyricsCacheItem;
   ErrorText: string;
@@ -414,6 +422,8 @@ var
 begin
   Lines := nil;
   StartLineID := 0;
+  LanePlacementTexts := Default(TLyricsLanePlacementTexts);
+  PlacementMode := lpmLine;
   Result := False;
   if DataText = '' then
     Exit;
@@ -427,6 +437,8 @@ begin
         CacheItem.LastUse := CacheUseCounter;
         Lines := Copy(CacheItem.Lines);
         StartLineID := CacheItem.StartLineID;
+        LanePlacementTexts := CacheItem.LanePlacementTexts;
+        PlacementMode := CacheItem.PlacementMode;
         Exit(True);
       end;
   finally
@@ -439,6 +451,8 @@ begin
       Exit;
     Lines := Model.CopyLines;
     StartLineID := Model.StartLineID;
+    LanePlacementTexts := Model.CopyLanePlacementTexts;
+    PlacementMode := Model.PlacementMode;
   finally
     Model.Free;
   end;
@@ -450,6 +464,8 @@ begin
     CacheItem.DataText := DataText;
     CacheItem.Lines := Copy(Lines);
     CacheItem.StartLineID := StartLineID;
+    CacheItem.LanePlacementTexts := LanePlacementTexts;
+    CacheItem.PlacementMode := PlacementMode;
     CacheItem.LastUse := CacheUseCounter;
     CacheItems.Add(CacheItem);
     if CacheItems.Count > MAX_CACHE_ITEMS then
@@ -464,6 +480,16 @@ begin
     CacheLock.Release;
   end;
   Result := True;
+end;
+
+function TryGetSongLyricsDocument(const DataText: string;
+  out Lines: TLyricsSongLines; out StartLineID: Int64): Boolean;
+var
+  LanePlacementTexts: TLyricsLanePlacementTexts;
+  PlacementMode: TLyricsPlacementMode;
+begin
+  Result := TryGetSongLyricsDocument(DataText, Lines, StartLineID,
+    LanePlacementTexts, PlacementMode);
 end;
 
 function TryGetSongLyricsLines(const DataText: string;

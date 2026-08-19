@@ -332,6 +332,38 @@ begin
     Items[I].HasRubyOffsetY := True;
     Items[I].RubyOffsetY := -I;
   end;
+  Items[98].HasBeforeOpacity := True;
+  Items[98].BeforeOpacity := 101;
+  Items[98].HasAfterOpacity := True;
+  Items[98].AfterOpacity := 102;
+  Items[98].HasBeforeOutlineColor := True;
+  Items[98].BeforeOutlineColor := $00131415;
+  Items[98].HasAfterOutlineOpacity := True;
+  Items[98].AfterOutlineOpacity := 103;
+  Items[98].HasBeforeShadowColor := True;
+  Items[98].BeforeShadowColor := $00161718;
+  Items[98].HasAfterShadowOpacity := True;
+  Items[98].AfterShadowOpacity := 104;
+  Items[98].HasBeforeBlurColor := True;
+  Items[98].BeforeBlurColor := $00191A1B;
+  Items[98].HasAfterBlurOpacity := True;
+  Items[98].AfterBlurOpacity := 105;
+  Items[98].HasOutlineEnabled := True;
+  Items[98].OutlineEnabled := False;
+  Items[98].HasOutlineWidth := True;
+  Items[98].OutlineWidth := 4.25;
+  Items[98].HasOutlineBlur := True;
+  Items[98].OutlineBlur := 1.75;
+  Items[98].HasShadowEnabled := True;
+  Items[98].ShadowEnabled := True;
+  Items[98].HasShadowOffsetX := True;
+  Items[98].ShadowOffsetX := -2.5;
+  Items[98].HasShadowOffsetY := True;
+  Items[98].ShadowOffsetY := 3.5;
+  Items[98].HasShadowBlur := True;
+  Items[98].ShadowBlur := 2.75;
+  Items[98].HasShadowSpread := True;
+  Items[98].ShadowSpread := 1.25;
 
   Check(TryEncodeDisplaySettingsText('私[漢字](かんじ)', Common, Items,
     SettingsText), 'display settings could not be encoded as text');
@@ -383,7 +415,39 @@ begin
     DecodedItems[98].HasBaseCharacterSpacing and
     (DecodedItems[98].BaseCharacterSpacing = 48) and
     DecodedItems[98].HasRubyOffsetY and
-    (DecodedItems[98].RubyOffsetY = -98),
+    (DecodedItems[98].RubyOffsetY = -98) and
+    DecodedItems[98].HasBeforeOpacity and
+    (DecodedItems[98].BeforeOpacity = 101) and
+    DecodedItems[98].HasAfterOpacity and
+    (DecodedItems[98].AfterOpacity = 102) and
+    DecodedItems[98].HasBeforeOutlineColor and
+    (DecodedItems[98].BeforeOutlineColor = $00131415) and
+    DecodedItems[98].HasAfterOutlineOpacity and
+    (DecodedItems[98].AfterOutlineOpacity = 103) and
+    DecodedItems[98].HasBeforeShadowColor and
+    (DecodedItems[98].BeforeShadowColor = $00161718) and
+    DecodedItems[98].HasAfterShadowOpacity and
+    (DecodedItems[98].AfterShadowOpacity = 104) and
+    DecodedItems[98].HasBeforeBlurColor and
+    (DecodedItems[98].BeforeBlurColor = $00191A1B) and
+    DecodedItems[98].HasAfterBlurOpacity and
+    (DecodedItems[98].AfterBlurOpacity = 105) and
+    DecodedItems[98].HasOutlineEnabled and
+    not DecodedItems[98].OutlineEnabled and
+    DecodedItems[98].HasOutlineWidth and
+    (Abs(DecodedItems[98].OutlineWidth - 4.25) < 0.001) and
+    DecodedItems[98].HasOutlineBlur and
+    (Abs(DecodedItems[98].OutlineBlur - 1.75) < 0.001) and
+    DecodedItems[98].HasShadowEnabled and
+    DecodedItems[98].ShadowEnabled and
+    DecodedItems[98].HasShadowOffsetX and
+    (Abs(DecodedItems[98].ShadowOffsetX + 2.5) < 0.001) and
+    DecodedItems[98].HasShadowOffsetY and
+    (Abs(DecodedItems[98].ShadowOffsetY - 3.5) < 0.001) and
+    DecodedItems[98].HasShadowBlur and
+    (Abs(DecodedItems[98].ShadowBlur - 2.75) < 0.001) and
+    DecodedItems[98].HasShadowSpread and
+    (Abs(DecodedItems[98].ShadowSpread - 1.25) < 0.001),
     'display settings text did not round-trip');
   Check(TryDecodeDisplaySettingsText(SettingsText, '変更後',
     DecodedCommon, DecodedItems, PlacementsMatchLyrics) and
@@ -393,12 +457,9 @@ begin
   SettingsText := 'SL2|00000000|0|' +
     '0,0,597520476F74686963205549,597520476F74686963205549,' +
     '96,42,1,1,FFFFFF,FFFF00,0,0,0';
-  Check(TryDecodeDisplaySettingsText(SettingsText, 'legacy', DecodedCommon,
-    DecodedItems, PlacementsMatchLyrics) and
-    (DecodedCommon.BeforeOpacity = 255) and
-    (DecodedCommon.AfterOpacity = 255) and
-    not DecodedCommon.OutlineEnabled and not DecodedCommon.ShadowEnabled,
-    'legacy 13-field display settings were not upgraded with defaults');
+  Check(not TryDecodeDisplaySettingsText(SettingsText, 'legacy', DecodedCommon,
+    DecodedItems, PlacementsMatchLyrics),
+    'obsolete SL2 display settings were accepted');
 
   SetLength(OversizedItems, MAX_DISPLAY_PLACEMENT_ITEMS + 1);
   Check(not TryEncodeDisplaySettingsText('oversized', Common,

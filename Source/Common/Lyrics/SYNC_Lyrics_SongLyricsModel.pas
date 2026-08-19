@@ -10,6 +10,7 @@ uses
 type
   TLyricsLineSyncState = (lssUnset, lssProvisional, lssConfirmed,
     lssInconsistent);
+  TLyricsPlacementMode = (lpmLine, lpmFree);
 
   TLyricsSongLine = record
     LineID     : Int64; // Stable identity within one song model.
@@ -30,15 +31,19 @@ type
     PlacementText: string;
   end;
   TLyricsSongLines = TArray<TLyricsSongLine>;
+  TLyricsLanePlacementTexts = array[1..3] of string;
 
   TLyricsSongModel = class
   private
     FLines: TLyricsSongLines;
+    FLanePlacementTexts: TLyricsLanePlacementTexts;
+    FPlacementMode: TLyricsPlacementMode;
     FNextLineID: Int64;
     FStartLineID: Int64;
     function GetLine(Index: Integer): TLyricsSongLine;
     function GetLineCount: Integer;
     function GetStartLineIndex: Integer;
+    function GetLanePlacementText(DisplayLane: Integer): string;
     procedure InitializeLine(var LineData: TLyricsSongLine;
       const SourceText: string);
     procedure RecalculateNoteOffsets;
@@ -64,6 +69,11 @@ type
     function TrySetDisplayLane(Index, DisplayLane: Integer): Boolean;
     function TrySetPlacementText(Index: Integer;
       const PlacementText: string): Boolean;
+    function TrySetLanePlacementText(DisplayLane: Integer;
+      const PlacementText: string): Boolean;
+    function CopyLanePlacementTexts: TLyricsLanePlacementTexts;
+    procedure ReplaceLanePlacementTexts(
+      const PlacementTexts: TLyricsLanePlacementTexts);
     function TryConfirmSync(Index: Integer; PreDisplaySeconds: Double;
       const SyncText: string): Boolean;
     function TrySetSync(Index: Integer; PreDisplaySeconds: Double;
@@ -80,6 +90,10 @@ type
     property LineCount: Integer read GetLineCount;
     property StartLineID: Int64 read FStartLineID;
     property StartLineIndex: Integer read GetStartLineIndex;
+    property PlacementMode: TLyricsPlacementMode read FPlacementMode
+      write FPlacementMode;
+    property LanePlacementTexts[DisplayLane: Integer]: string
+      read GetLanePlacementText;
     property Lines[Index: Integer]: TLyricsSongLine read GetLine; default;
   end;
 
@@ -103,10 +117,21 @@ begin
 end;
 
 procedure TLyricsSongModel.Clear;
+var
+  DisplayLane: Integer;
 begin
   SetLength(FLines, 0);
+  for DisplayLane := Low(FLanePlacementTexts) to
+    High(FLanePlacementTexts) do
+    FLanePlacementTexts[DisplayLane] := '';
+  FPlacementMode := lpmLine;
   FNextLineID := 1;
   FStartLineID := 0;
+end;
+
+function TLyricsSongModel.CopyLanePlacementTexts: TLyricsLanePlacementTexts;
+begin
+  Result := FLanePlacementTexts;
 end;
 
 function TLyricsSongModel.GetLine(Index: Integer): TLyricsSongLine;
@@ -119,6 +144,15 @@ end;
 function TLyricsSongModel.GetLineCount: Integer;
 begin
   Result := Length(FLines);
+end;
+
+function TLyricsSongModel.GetLanePlacementText(DisplayLane: Integer): string;
+begin
+  if (DisplayLane < Low(FLanePlacementTexts)) or
+    (DisplayLane > High(FLanePlacementTexts)) then
+    raise EArgumentOutOfRangeException.Create(
+      'Lyrics display lane is out of range.');
+  Result := FLanePlacementTexts[DisplayLane];
 end;
 
 function TLyricsSongModel.GetStartLineIndex: Integer;
@@ -263,6 +297,12 @@ begin
   RecalculateNoteOffsets;
 end;
 
+procedure TLyricsSongModel.ReplaceLanePlacementTexts(
+  const PlacementTexts: TLyricsLanePlacementTexts);
+begin
+  FLanePlacementTexts := PlacementTexts;
+end;
+
 procedure TLyricsSongModel.SetLyricsText(const LyricsText: string);
 var
   I: Integer;
@@ -395,6 +435,16 @@ begin
     (Pos(#10, PlacementText) = 0) and (Pos(#13, PlacementText) = 0);
   if Result then
     FLines[Index].PlacementText := PlacementText;
+end;
+
+function TLyricsSongModel.TrySetLanePlacementText(DisplayLane: Integer;
+  const PlacementText: string): Boolean;
+begin
+  Result := (DisplayLane >= Low(FLanePlacementTexts)) and
+    (DisplayLane <= High(FLanePlacementTexts)) and
+    (Pos(#10, PlacementText) = 0) and (Pos(#13, PlacementText) = 0);
+  if Result then
+    FLanePlacementTexts[DisplayLane] := PlacementText;
 end;
 
 function TLyricsSongModel.TryConfirmSync(Index: Integer;

@@ -102,6 +102,55 @@ const
   MIN_PLACEMENT_SCALE = 0.05;
   MAX_PLACEMENT_SCALE = 10.0;
 
+procedure ApplyPlacementDecoration(const Placement: TDisplayPlacementItem;
+  var Style: TResolvedLyricsStyle);
+begin
+  if Placement.HasBeforeOpacity then
+    Style.BeforeOpacity := Placement.BeforeOpacity;
+  if Placement.HasAfterOpacity then
+    Style.AfterOpacity := Placement.AfterOpacity;
+  if Placement.HasBeforeOutlineColor then
+    Style.BeforeOutlineColor := Placement.BeforeOutlineColor;
+  if Placement.HasAfterOutlineColor then
+    Style.AfterOutlineColor := Placement.AfterOutlineColor;
+  if Placement.HasBeforeOutlineOpacity then
+    Style.BeforeOutlineOpacity := Placement.BeforeOutlineOpacity;
+  if Placement.HasAfterOutlineOpacity then
+    Style.AfterOutlineOpacity := Placement.AfterOutlineOpacity;
+  if Placement.HasBeforeShadowColor then
+    Style.BeforeShadowColor := Placement.BeforeShadowColor;
+  if Placement.HasAfterShadowColor then
+    Style.AfterShadowColor := Placement.AfterShadowColor;
+  if Placement.HasBeforeShadowOpacity then
+    Style.BeforeShadowOpacity := Placement.BeforeShadowOpacity;
+  if Placement.HasAfterShadowOpacity then
+    Style.AfterShadowOpacity := Placement.AfterShadowOpacity;
+  if Placement.HasBeforeBlurColor then
+    Style.BeforeBlurColor := Placement.BeforeBlurColor;
+  if Placement.HasAfterBlurColor then
+    Style.AfterBlurColor := Placement.AfterBlurColor;
+  if Placement.HasBeforeBlurOpacity then
+    Style.BeforeBlurOpacity := Placement.BeforeBlurOpacity;
+  if Placement.HasAfterBlurOpacity then
+    Style.AfterBlurOpacity := Placement.AfterBlurOpacity;
+  if Placement.HasOutlineEnabled then
+    Style.OutlineEnabled := Placement.OutlineEnabled;
+  if Placement.HasOutlineWidth then
+    Style.OutlineWidth := Placement.OutlineWidth;
+  if Placement.HasOutlineBlur then
+    Style.OutlineBlur := Placement.OutlineBlur;
+  if Placement.HasShadowEnabled then
+    Style.ShadowEnabled := Placement.ShadowEnabled;
+  if Placement.HasShadowOffsetX then
+    Style.ShadowOffsetX := Placement.ShadowOffsetX;
+  if Placement.HasShadowOffsetY then
+    Style.ShadowOffsetY := Placement.ShadowOffsetY;
+  if Placement.HasShadowBlur then
+    Style.ShadowBlur := Placement.ShadowBlur;
+  if Placement.HasShadowSpread then
+    Style.ShadowSpread := Placement.ShadowSpread;
+end;
+
 procedure ApplyPlacementStyle(const Placement: TDisplayPlacementItem;
   var BaseStyle, RubyStyle: TResolvedLyricsStyle);
 begin
@@ -137,6 +186,8 @@ begin
     RubyStyle.CharacterSpacing := EnsureRange(
       Integer(Placement.RubyCharacterSpacing),
       MIN_CHARACTER_SPACING, MAX_CHARACTER_SPACING);
+  ApplyPlacementDecoration(Placement, BaseStyle);
+  ApplyPlacementDecoration(Placement, RubyStyle);
 end;
 
 function BuildResolvedLyricsDisplayUnits(const Source: string;

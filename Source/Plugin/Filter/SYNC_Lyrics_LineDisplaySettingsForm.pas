@@ -52,6 +52,10 @@ type
     lddOutlineWidth, lddOutlineBlur, lddShadowOffset, lddShadowBlur,
     lddShadowSpread);
 
+const
+  PLACEMENT_MODE_SWITCH_MODAL_RESULT = 10;
+
+type
   TFormLyricsLineDisplaySettings = class(TForm)
     CandidateLabel: TLabel;
     CandidateCombo: TComboBox;
@@ -62,6 +66,8 @@ type
     PreviewPaintBox: TPaintBox;
     ColorPanel: TPanel;
     ButtonPanel: TPanel;
+    PlacementModeLabel: TLabel;
+    PlacementModeCombo: TComboBox;
     ButtonOK: TButton;
     ButtonCancel: TButton;
     procedure FormCreate(Sender: TObject);
@@ -126,6 +132,7 @@ type
     FToolbarShadow: TSyncLyricsToolbarButton;
     FToolbarStrikeOut: TSyncLyricsToolbarButton;
     FToolbarUnderline: TSyncLyricsToolbarButton;
+    FPlacementModeButton: TSyncLyricsToolbarButton;
     FUpdatingControls: Boolean;
     FCandidateLyrics: TArray<string>;
     FCandidateSettings: TArray<TDisplayCommonSettings>;
@@ -193,8 +200,11 @@ type
     procedure ConfigureCandidates(const Captions, Lyrics: TArray<string>;
       const CommonSettings: TArray<TDisplayCommonSettings>;
       InitialIndex: Integer);
+    procedure ConfigurePlacementMode(PlacementMode: Integer);
+    procedure SetPlacementModeSwitchVisible(Value: Boolean);
     function EnteredLyrics: string;
     function SelectedCandidateIndex: Integer;
+    function SelectedPlacementMode: Integer;
     function SelectedCommonSettings: TDisplayCommonSettings;
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
@@ -471,6 +481,24 @@ begin
   CandidateComboChange(CandidateCombo);
 end;
 
+procedure TFormLyricsLineDisplaySettings.ConfigurePlacementMode(
+  PlacementMode: Integer);
+begin
+  PlacementModeCombo.ItemIndex := EnsureRange(PlacementMode, 0, 1);
+  if FPlacementModeButton <> nil then
+  begin
+    FPlacementModeButton.Glyph := tbgFreePlacement;
+    FPlacementModeButton.Hint := '文字自由配置へ切替';
+  end;
+end;
+
+procedure TFormLyricsLineDisplaySettings.SetPlacementModeSwitchVisible(
+  Value: Boolean);
+begin
+  if FPlacementModeButton <> nil then
+    FPlacementModeButton.Visible := Value;
+end;
+
 procedure TFormLyricsLineDisplaySettings.CandidateComboChange(
   Sender: TObject);
 var
@@ -499,6 +527,9 @@ begin
   FToolbar.Color := Color;
   FToolbar.ParentBackground := False;
   FToolbar.OnButtonExecute := ToolbarButtonExecute;
+  FPlacementModeButton := FToolbar.AddCommandButton(
+    '文字自由配置へ切替', tbgFreePlacement, 100);
+  FToolbar.AddSeparator;
   FToolbarBold := FToolbar.AddToggleButton(#22826#23383,
     tbgBold, TOOLBAR_BOLD);
   FToolbarItalic := FToolbar.AddToggleButton(#26012#20307, tbgItalic,
@@ -1178,6 +1209,11 @@ begin
   Result := CandidateCombo.ItemIndex;
 end;
 
+function TFormLyricsLineDisplaySettings.SelectedPlacementMode: Integer;
+begin
+  Result := EnsureRange(PlacementModeCombo.ItemIndex, 0, 1);
+end;
+
 function TFormLyricsLineDisplaySettings.SelectedCommonSettings:
   TDisplayCommonSettings;
 begin
@@ -1232,6 +1268,11 @@ begin
   ApplySyncLyricsDarkPanel(ButtonPanel);
   ApplySyncLyricsDarkPanel(ColorPanel);
   ApplySyncLyricsDarkComboBox(CandidateCombo, DarkComboBoxDrawItem);
+  PlacementModeCombo.Items.Clear;
+  PlacementModeCombo.Items.Add('1行配置');
+  PlacementModeCombo.Items.Add('文字自由配置');
+  PlacementModeCombo.ItemIndex := 0;
+  ApplySyncLyricsDarkComboBox(PlacementModeCombo, DarkComboBoxDrawItem);
   ApplySyncLyricsDarkComboBox(BaseFontCombo, DarkComboBoxDrawItem);
   ApplySyncLyricsDarkComboBox(RubyFontCombo, DarkComboBoxDrawItem);
   ApplySyncLyricsDarkButton(ButtonOK);
@@ -1412,6 +1453,12 @@ var
   StyleValue: Byte;
 begin
   case Button.Tag of
+    100:
+      begin
+        PlacementModeCombo.ItemIndex := 1;
+        ModalResult := PLACEMENT_MODE_SWITCH_MODAL_RESULT;
+        Exit;
+      end;
     TOOLBAR_BOLD, TOOLBAR_ITALIC, TOOLBAR_UNDERLINE, TOOLBAR_STRIKE_OUT:
       begin
         case Button.Tag of

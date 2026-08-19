@@ -50,10 +50,10 @@ function LyricsProcVideo(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 function LyricsProcVideoMulti(Video: PFILTER_PROC_VIDEO): Byte; cdecl; forward;
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
 procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl; forward;
-procedure CharacterLayoutSettingsButtonCallback(
-  Edit: PEDIT_SECTION); cdecl; forward;
-procedure LineDisplaySettingsButtonCallback(
-  Edit: PEDIT_SECTION); cdecl; forward;
+function CharacterLayoutSettingsButtonCallback(
+  Edit: PEDIT_SECTION): Integer; forward;
+function LineDisplaySettingsButtonCallback(
+  Edit: PEDIT_SECTION): Integer; forward;
 
 var
   LyricsItem: TFILTER_ITEM_STRING = (
@@ -94,17 +94,6 @@ var
     S: -5;
     E: 5;
     Step: 0.01
-  );
-  PlacementModeList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
-    (Name: '1行配置'; Value: 0),
-    (Name: '文字自由配置'; Value: 1),
-    (Name: nil; Value: 0)
-  );
-  PlacementModeItem: TFILTER_ITEM_SELECT = (
-    ItemType: 'select';
-    Name: '配置モード';
-    Value: 0;
-    List: @PlacementModeList[0]
   );
   DisplayEffectList: array[0..3] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: '通常カラオケ'; Value: 0),
@@ -198,7 +187,7 @@ var
     Name: '表示設定';
     Value: ''
   );
-  PluginItems: array[0..33] of Pointer;
+  PluginItems: array[0..32] of Pointer;
   Plugin: TFILTER_PLUGIN_TABLE = (
     Flag: FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER;
     Name: 'SYNC_歌詞テロップ_Filter';
@@ -211,8 +200,8 @@ var
 
 const
   FILTER_EFFECT_NAME = 'SYNC_歌詞テロップ_Filter';
-  PLACEMENT_MODE_LINE = 0;
-  PLACEMENT_MODE_FREE = 1;
+  PLACEMENT_MODE_LINE = Ord(lpmLine);
+  PLACEMENT_MODE_FREE = Ord(lpmFree);
 
 type
   TFilterItemUpdate = record
@@ -225,8 +214,12 @@ type
   TPlacementCandidateContext = record
     DataText: string;
     Lines: TLyricsSongLines;
+    LanePlacementTexts: TLyricsLanePlacementTexts;
+    PlacementMode: TLyricsPlacementMode;
+    StartLineID: Int64;
     CandidateIndexes: TLyricsSongLineIndexes;
     InitialCandidate: Integer;
+    InitialLane: Integer;
   end;
 
 procedure SetLyricsRenderColor(var Target: TLyricsRenderColor;
@@ -415,14 +408,19 @@ var
 begin
   Context.DataText := '';
   Context.Lines := nil;
+  Context.LanePlacementTexts := Default(TLyricsLanePlacementTexts);
+  Context.PlacementMode := lpmLine;
+  Context.StartLineID := 0;
   Context.CandidateIndexes := nil;
   Context.InitialCandidate := -1;
+  Context.InitialLane := 0;
   if not TryGetObjectItemText(Edit, Obj, '歌詞データ',
     Context.DataText) then
     Context.DataText := '';
   Result := (Context.DataText <> '') and
     TryGetSongLyricsDocument(Context.DataText, Context.Lines,
-      StartLineID) and
+      StartLineID, Context.LanePlacementTexts,
+      Context.PlacementMode) and
     (Length(Context.Lines) > 0);
   if not Result then
     Exit;
@@ -451,7 +449,85 @@ begin
     ResolveSongLyricsPlacementCandidateIndexes(AdjustedLines, CurrentFrame);
   Context.InitialCandidate := ResolveSongLyricsPlacementInitialCandidate(
     AdjustedLines, Context.CandidateIndexes, CurrentFrame);
+  Context.StartLineID := StartLineID;
+  if (Context.InitialCandidate >= 0) and
+    (Context.InitialCandidate < Length(Context.CandidateIndexes)) then
+    Context.InitialLane := EnsureRange(
+      Context.Lines[Context.CandidateIndexes[
+        Context.InitialCandidate]].DisplayLane, 1, 3) - 1;
   Result := Length(Context.CandidateIndexes) > 0;
+end;
+
+function FindLaneRepresentativeIndex(
+  const Context: TPlacementCandidateContext; DisplayLane: Integer): Integer;
+var
+  CandidateIndex: Integer;
+  I: Integer;
+begin
+  Result := -1;
+  for I := 0 to High(Context.CandidateIndexes) do
+  begin
+    CandidateIndex := Context.CandidateIndexes[I];
+    if (CandidateIndex >= 0) and (CandidateIndex < Length(Context.Lines)) and
+      (Context.Lines[CandidateIndex].DisplayLane = DisplayLane) then
+      Exit(CandidateIndex);
+  end;
+  for I := 0 to High(Context.Lines) do
+    if Context.Lines[I].DisplayLane = DisplayLane then
+      Exit(I);
+  if Length(Context.CandidateIndexes) > 0 then
+    Result := Context.CandidateIndexes[0]
+  else if Length(Context.Lines) > 0 then
+    Result := 0;
+end;
+
+procedure BuildLanePlacementValues(
+  const Context: TPlacementCandidateContext;
+  const GlobalSettingsText: string; out Captions, Lyrics,
+  SettingsTexts: TArray<string>;
+  out CommonSettings: TDisplayCommonSettingsArray);
+var
+  Common: TDisplayCommonSettings;
+  DisplayLane: Integer;
+  Items: TDisplayPlacementItems;
+  LaneCommon: TDisplayCommonSettings;
+  MatchesLyrics: Boolean;
+  RepresentativeIndex: Integer;
+begin
+  SetLength(Captions, 3);
+  SetLength(Lyrics, 3);
+  SetLength(SettingsTexts, 3);
+  SetLength(CommonSettings, 3);
+  for DisplayLane := 1 to 3 do
+  begin
+    RepresentativeIndex := FindLaneRepresentativeIndex(Context,
+      DisplayLane);
+    if RepresentativeIndex >= 0 then
+      Lyrics[DisplayLane - 1] :=
+        Context.Lines[RepresentativeIndex].SourceText
+    else
+      Lyrics[DisplayLane - 1] := '';
+    Captions[DisplayLane - 1] := Format('配置%d（表示段%d）',
+      [DisplayLane, DisplayLane]);
+    Common := DefaultDisplayCommonSettings;
+    Items := nil;
+    MatchesLyrics := False;
+    TryDecodeDisplaySettingsText(GlobalSettingsText,
+      Lyrics[DisplayLane - 1], Common, Items, MatchesLyrics);
+    Inc(Common.PositionY, (DisplayLane - 2) *
+      (Common.BaseFontHeight + Common.RubyFontHeight + 16));
+    SettingsTexts[DisplayLane - 1] :=
+      Context.LanePlacementTexts[DisplayLane];
+    if Context.LanePlacementTexts[DisplayLane] <> '' then
+    begin
+      LaneCommon := Common;
+      if TryDecodeDisplaySettingsText(
+        Context.LanePlacementTexts[DisplayLane],
+        Lyrics[DisplayLane - 1], LaneCommon, Items, MatchesLyrics) then
+        Common := LaneCommon;
+    end;
+    CommonSettings[DisplayLane - 1] := Common;
+  end;
 end;
 
 procedure BuildPlacementCandidateValues(
@@ -497,7 +573,7 @@ end;
 
 function TryStoreSongLinePlacement(Edit: PEDIT_SECTION;
   Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
-  CandidatePosition: Integer; const SettingsText: string;
+  CandidatePosition, PlacementMode: Integer; const SettingsText: string;
   out ErrorText: string): Boolean;
 var
   CandidateIndex: Integer;
@@ -517,6 +593,11 @@ begin
   Model := TLyricsSongModel.Create;
   try
     Model.ReplaceLines(Context.Lines);
+    Model.ReplaceLanePlacementTexts(Context.LanePlacementTexts);
+    if Context.StartLineID > 0 then
+      Model.TrySetStartLineID(Context.StartLineID);
+    Model.PlacementMode := TLyricsPlacementMode(EnsureRange(
+      PlacementMode, PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
     if not Model.TrySetPlacementText(CandidateIndex, SettingsText) or
       not TryEncodeSongLyrics(Model, EncodedSongText, ErrorText) then
       Exit;
@@ -536,16 +617,77 @@ begin
     ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
 end;
 
-procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
+function TryStoreSongLanePlacement(Edit: PEDIT_SECTION;
+  Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
+  LanePosition, PlacementMode: Integer; const SettingsText: string;
+  out ErrorText: string): Boolean;
+var
+  EncodedSongText: string;
+  Model: TLyricsSongModel;
+  Utf8SongText: UTF8String;
 begin
-  if PlacementModeItem.Value = PLACEMENT_MODE_FREE then
-    CharacterLayoutSettingsButtonCallback(Edit)
-  else
-    LineDisplaySettingsButtonCallback(Edit);
+  Result := False;
+  ErrorText := '';
+  if (LanePosition < 0) or (LanePosition >= 3) then
+  begin
+    ErrorText := '編集対象の共通配置を取得できませんでした。';
+    Exit;
+  end;
+  Model := TLyricsSongModel.Create;
+  try
+    Model.ReplaceLines(Context.Lines);
+    Model.ReplaceLanePlacementTexts(Context.LanePlacementTexts);
+    if Context.StartLineID > 0 then
+      Model.TrySetStartLineID(Context.StartLineID);
+    Model.PlacementMode := TLyricsPlacementMode(EnsureRange(
+      PlacementMode, PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
+    if not Model.TrySetLanePlacementText(LanePosition + 1,
+      SettingsText) or
+      not TryEncodeSongLyrics(Model, EncodedSongText, ErrorText) then
+      Exit;
+  finally
+    Model.Free;
+  end;
+  if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
+    (Obj = nil) then
+  begin
+    ErrorText := '配置を反映する対象オブジェクトを取得できませんでした。';
+    Exit;
+  end;
+  Utf8SongText := UTF8String(EncodedSongText);
+  Result := Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
+    '歌詞データ', PAnsiChar(Utf8SongText));
+  if not Result then
+    ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
 end;
 
-procedure LineDisplaySettingsButtonCallback(
-  Edit: PEDIT_SECTION); cdecl;
+procedure DisplaySettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
+var
+  NextMode: Integer;
+  Obj: OBJECT_HANDLE;
+  PlacementContext: TPlacementCandidateContext;
+  PlacementMode: TLyricsPlacementMode;
+begin
+  PlacementMode := lpmLine;
+  Obj := nil;
+  if (Edit <> nil) and Assigned(Edit^.GetFocusObject) then
+    Obj := Edit^.GetFocusObject();
+  if TryBuildPlacementCandidateContext(Edit, Obj, PlacementContext) then
+    PlacementMode := PlacementContext.PlacementMode;
+  repeat
+    if PlacementMode = lpmFree then
+      NextMode := CharacterLayoutSettingsButtonCallback(Edit)
+    else
+      NextMode := LineDisplaySettingsButtonCallback(Edit);
+    if NextMode < 0 then
+      Break;
+    PlacementMode := TLyricsPlacementMode(EnsureRange(NextMode,
+      PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
+  until False;
+end;
+
+function LineDisplaySettingsButtonCallback(
+  Edit: PEDIT_SECTION): Integer;
 var
   BackgroundHeight: Integer;
   BackgroundPixels: TBytes;
@@ -563,15 +705,18 @@ var
   EncodedSettingsText: string;
   ErrorText: string;
   FailedItemName: string;
+  FormResult: Integer;
   LineDisplayForm: TFormLyricsLineDisplaySettings;
   Obj: OBJECT_HANDLE;
   PlacementContext: TPlacementCandidateContext;
   PlacementsMatchLyrics: Boolean;
   SelectedCommon: TDisplayCommonSettings;
   SelectedLyrics: string;
+  SelectedPlacementMode: Integer;
   Updates: TFilterItemUpdates;
   WholeSongMode: Boolean;
 begin
+  Result := -1;
   try
     Obj := nil;
     if (Edit <> nil) and Assigned(Edit^.GetFocusObject) then
@@ -594,7 +739,7 @@ begin
       Edit, Obj, PlacementContext);
     if WholeSongMode then
     begin
-      BuildPlacementCandidateValues(PlacementContext,
+      BuildLanePlacementValues(PlacementContext,
         CurrentSettingsText, CandidateCaptions, CandidateLyrics,
         CandidateSettingsTexts, CandidateCommon);
       LineDisplayForm := TFormLyricsLineDisplaySettings.Create(nil);
@@ -605,35 +750,38 @@ begin
             BackgroundWidth, BackgroundHeight);
         LineDisplayForm.ConfigureCandidates(CandidateCaptions,
           CandidateLyrics, CandidateCommon,
-          PlacementContext.InitialCandidate);
-        if LineDisplayForm.ShowModal <> mrOk then
+          PlacementContext.InitialLane);
+        LineDisplayForm.ConfigurePlacementMode(
+          Ord(PlacementContext.PlacementMode));
+        FormResult := LineDisplayForm.ShowModal;
+        if (FormResult <> mrOk) and
+          (FormResult <> PLACEMENT_MODE_SWITCH_MODAL_RESULT) then
           Exit;
         CandidatePosition := LineDisplayForm.SelectedCandidateIndex;
         SelectedLyrics := LineDisplayForm.EnteredLyrics;
         SelectedCommon := LineDisplayForm.SelectedCommonSettings;
+        SelectedPlacementMode :=
+          LineDisplayForm.SelectedPlacementMode;
       finally
         LineDisplayForm.Free;
       end;
       if (CandidatePosition < 0) or
         (CandidatePosition >= Length(CandidateSettingsTexts)) then
         Exit;
-      CurrentPlacements := nil;
-      PlacementsMatchLyrics := False;
-      TryDecodeDisplaySettingsText(
-        CandidateSettingsTexts[CandidatePosition], SelectedLyrics,
-        CurrentCommon, CurrentPlacements, PlacementsMatchLyrics);
-      if not PlacementsMatchLyrics then
-        CurrentPlacements := nil;
       if not TryEncodeDisplaySettingsText(SelectedLyrics,
-        SelectedCommon, CurrentPlacements, EncodedSettingsText) then
+        SelectedCommon, nil, EncodedSettingsText) then
       begin
         ShowFontSettingsError(
-          '行別表示設定を文字列へ変換できませんでした。');
+          '共通配置設定を文字列へ変換できませんでした。');
         Exit;
       end;
-      if not TryStoreSongLinePlacement(Edit, Obj, PlacementContext,
-        CandidatePosition, EncodedSettingsText, ErrorText) then
+      if not TryStoreSongLanePlacement(Edit, Obj, PlacementContext,
+        CandidatePosition, SelectedPlacementMode,
+        EncodedSettingsText, ErrorText) then
         ShowFontSettingsError(ErrorText);
+      if (ErrorText = '') and
+        (FormResult = PLACEMENT_MODE_SWITCH_MODAL_RESULT) then
+        Result := SelectedPlacementMode;
       Exit;
     end;
 
@@ -649,10 +797,14 @@ begin
         LineDisplayForm.SetBackgroundRgba(BackgroundPixels,
           BackgroundWidth, BackgroundHeight);
       LineDisplayForm.Configure(CurrentLyrics, CurrentCommon);
-      if LineDisplayForm.ShowModal <> mrOk then
+      LineDisplayForm.ConfigurePlacementMode(PLACEMENT_MODE_LINE);
+      FormResult := LineDisplayForm.ShowModal;
+      if (FormResult <> mrOk) and
+        (FormResult <> PLACEMENT_MODE_SWITCH_MODAL_RESULT) then
         Exit;
       SelectedLyrics := LineDisplayForm.EnteredLyrics;
       SelectedCommon := LineDisplayForm.SelectedCommonSettings;
+      SelectedPlacementMode := LineDisplayForm.SelectedPlacementMode;
     finally
       LineDisplayForm.Free;
     end;
@@ -677,6 +829,8 @@ begin
     end;
     if Assigned(Edit^.SetObjectName) then
       Edit^.SetObjectName(Obj, PWideChar(SelectedLyrics));
+    if FormResult = PLACEMENT_MODE_SWITCH_MODAL_RESULT then
+      Result := SelectedPlacementMode;
   except
     on E: Exception do
       ShowFontSettingsError(
@@ -684,8 +838,8 @@ begin
   end;
 end;
 
-procedure CharacterLayoutSettingsButtonCallback(
-  Edit: PEDIT_SECTION); cdecl;
+function CharacterLayoutSettingsButtonCallback(
+  Edit: PEDIT_SECTION): Integer;
 var
   BackgroundHeight: Integer;
   BackgroundPixels: TBytes;
@@ -703,18 +857,14 @@ var
   CharacterLayoutForm: TFormLyricsCharacterLayoutSettings;
   EncodedSettingsText: string;
   ErrorText: string;
+  FormResult: Integer;
   Obj: OBJECT_HANDLE;
   PlacementContext: TPlacementCandidateContext;
   PlacementsMatchLyrics: Boolean;
+  SelectedPlacementMode: Integer;
   Utf8SettingsText: UTF8String;
 begin
-  if PlacementModeItem.Value <> PLACEMENT_MODE_FREE then
-  begin
-    MessageDlg('表示設定は「文字自由配置」で使用できます。',
-      mtInformation, [mbOK], 0);
-    Exit;
-  end;
-
+  Result := -1;
   CurrentSettingsText := '';
   if Assigned(DisplaySettingsTextItem.Value) then
     CurrentSettingsText := string(DisplaySettingsTextItem.Value);
@@ -740,10 +890,16 @@ begin
       CharacterLayoutForm.ConfigureCandidates(CandidateCaptions,
         CandidateLyrics, CandidateCommon, CandidateSettingsTexts,
         PlacementContext.InitialCandidate);
-      if CharacterLayoutForm.ShowModal <> mrOk then
+      CharacterLayoutForm.ConfigurePlacementMode(
+        Ord(PlacementContext.PlacementMode));
+      FormResult := CharacterLayoutForm.ShowModal;
+      if (FormResult <> mrOk) and
+        (FormResult <> PLACEMENT_MODE_SWITCH_MODAL_RESULT) then
         Exit;
       CandidatePosition :=
         CharacterLayoutForm.SelectedCandidateIndex;
+      SelectedPlacementMode :=
+        CharacterLayoutForm.SelectedPlacementMode;
       if not CharacterLayoutForm.TryBuildSettingsText(
         EncodedSettingsText) then
       begin
@@ -755,8 +911,12 @@ begin
       CharacterLayoutForm.Free;
     end;
     if not TryStoreSongLinePlacement(Edit, Obj, PlacementContext,
-      CandidatePosition, EncodedSettingsText, ErrorText) then
+      CandidatePosition, SelectedPlacementMode,
+      EncodedSettingsText, ErrorText) then
       ShowFontSettingsError(ErrorText);
+    if (ErrorText = '') and
+      (FormResult = PLACEMENT_MODE_SWITCH_MODAL_RESULT) then
+      Result := SelectedPlacementMode;
     Exit;
   end;
 
@@ -775,7 +935,10 @@ begin
     CharacterLayoutForm.SetCaptureStatus(BackgroundStatus);
     CharacterLayoutForm.Configure(CurrentLyrics, CurrentCommon,
       CurrentSettingsText);
-    if CharacterLayoutForm.ShowModal <> mrOk then
+    CharacterLayoutForm.ConfigurePlacementMode(PLACEMENT_MODE_FREE);
+    FormResult := CharacterLayoutForm.ShowModal;
+    if (FormResult <> mrOk) and
+      (FormResult <> PLACEMENT_MODE_SWITCH_MODAL_RESULT) then
       Exit;
     if not CharacterLayoutForm.TryBuildSettingsText(EncodedSettingsText) then
     begin
@@ -797,7 +960,9 @@ begin
   Utf8SettingsText := UTF8String(EncodedSettingsText);
   if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
     '表示設定', PAnsiChar(Utf8SettingsText)) then
-    ShowFontSettingsError('表示設定を歌詞テロップへ反映できませんでした。');
+    ShowFontSettingsError('表示設定を歌詞テロップへ反映できませんでした。')
+  else if FormResult = PLACEMENT_MODE_SWITCH_MODAL_RESULT then
+    Result := PLACEMENT_MODE_LINE;
 end;
 
 procedure MusicSyncSettingsButtonCallback(Edit: PEDIT_SECTION); cdecl;
@@ -1076,6 +1241,7 @@ procedure RenderLyricsLine(Video: PFILTER_PROC_VIDEO;
   const MusicFileName: string; Track,
   SelectedPlacementMode: Integer; const LyricsText: string;
   HasSongLine: Boolean; const SongLine: TLyricsSongLine;
+  const LanePlacementText: string;
   Buffer: PPIXEL_RGBA; RenderWidth, RenderHeight: Integer);
 var
   AnimationOffsetY: Integer;
@@ -1089,6 +1255,7 @@ var
   EffectiveSyncText: string;
   HasBoundaryProgress: Boolean;
   HasFreePlacement: Boolean;
+  HasLanePlacement: Boolean;
   HasSyncData: Boolean;
   HoldDurationSeconds: Double;
   LastStageDuration: Double;
@@ -1114,11 +1281,25 @@ begin
   CommonSettings := DefaultDisplayCommonSettings;
   PlacementItems := nil;
   PlacementsMatchLyrics := False;
+  HasLanePlacement := False;
   if Assigned(DisplaySettingsTextItem.Value) then
     TryDecodeDisplaySettingsText(string(DisplaySettingsTextItem.Value),
       LyricsText, CommonSettings, PlacementItems,
       PlacementsMatchLyrics);
-  if HasSongLine and (SongLine.PlacementText <> '') and
+  if HasSongLine and (SelectedPlacementMode = PLACEMENT_MODE_LINE) and
+    (LanePlacementText <> '') and
+    TryDecodeDisplaySettingsText(LanePlacementText, LyricsText,
+      LineCommonSettings, LinePlacementItems,
+      LinePlacementsMatchLyrics) then
+  begin
+    CommonSettings := LineCommonSettings;
+    PlacementItems := nil;
+    PlacementsMatchLyrics := False;
+    HasLanePlacement := True;
+  end
+  else if HasSongLine and
+    (SelectedPlacementMode = PLACEMENT_MODE_FREE) and
+    (SongLine.PlacementText <> '') and
     TryDecodeDisplaySettingsText(SongLine.PlacementText, LyricsText,
       LineCommonSettings, LinePlacementItems,
       LinePlacementsMatchLyrics) and LinePlacementsMatchLyrics then
@@ -1127,7 +1308,7 @@ begin
     PlacementItems := LinePlacementItems;
     PlacementsMatchLyrics := LinePlacementsMatchLyrics;
   end;
-  if HasSongLine then
+  if HasSongLine and not HasLanePlacement then
     // 3段分を中央基準で予約し、段1・2・3を上・中央・下へ固定する。
     Inc(CommonSettings.PositionY, (SongLine.DisplayLane - 2) *
       (CommonSettings.BaseFontHeight +
@@ -1336,8 +1517,7 @@ begin
     AnimationOffsetY := 0;
     AnimationOpacity := 1;
     RenderSettings := DefaultLyricsRenderSettings;
-    SelectedPlacementMode := EnsureRange(PlacementModeItem.Value,
-      PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE);
+    SelectedPlacementMode := PLACEMENT_MODE_LINE;
     RenderSettings.DisplayType := TLyricsDisplayType(
       EnsureRange(DisplayEffectItem.Value,
         Ord(Low(TLyricsDisplayType)), Ord(High(TLyricsDisplayType))));
@@ -1511,8 +1691,10 @@ var
   HasFrameState: Boolean;
   Height: Integer;
   I: Integer;
+  LanePlacementTexts: TLyricsLanePlacementTexts;
   MusicFileName: string;
   MusicOffsetSeconds: Double;
+  PlacementMode: TLyricsPlacementMode;
   ObjectStartFrame: Integer;
   ObjectStartSeconds: Double;
   SelectedPlacementMode: Integer;
@@ -1533,7 +1715,7 @@ begin
         SongDataText := string(SongDocumentItem.Value);
       if (SongDataText = '') or
         not TryGetSongLyricsDocument(SongDataText, SongLines,
-          StartLineID) then
+          StartLineID, LanePlacementTexts, PlacementMode) then
         Exit(LyricsProcVideo(Video));
 
       CaptureLastFrame(Video);
@@ -1583,8 +1765,7 @@ begin
       if Assigned(MusicFileItem.Value) then
         MusicFileName := string(MusicFileItem.Value);
       Track := Round(TrackItem.Value);
-      SelectedPlacementMode := EnsureRange(PlacementModeItem.Value,
-        PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE);
+      SelectedPlacementMode := Ord(PlacementMode);
       for I := 0 to High(ActiveIndexes) do
         if (ActiveIndexes[I] >= 0) and
           (ActiveIndexes[I] < Length(SongLines)) then
@@ -1592,7 +1773,10 @@ begin
             ObjectStartSeconds, SongStartSeconds, MusicFileName, Track,
             SelectedPlacementMode,
             SongLines[ActiveIndexes[I]].SourceText, True,
-            SongLines[ActiveIndexes[I]], Buffer, Width, Height);
+            SongLines[ActiveIndexes[I]],
+            LanePlacementTexts[EnsureRange(
+              SongLines[ActiveIndexes[I]].DisplayLane, 1, 3)],
+            Buffer, Width, Height);
       Video^.SetImageData(Buffer, Width, Height);
     except
       // Delphi例外をAviUtl2のコールバック境界より外へ漏らさない。
@@ -1616,34 +1800,33 @@ begin
     PluginItems[3] := @MusicSyncSettingsButton;
     PluginItems[4] := @PreDisplayTimeItem;
     PluginItems[5] := @HoldTimeItem;
-    PluginItems[6] := @PlacementModeItem;
-    PluginItems[7] := @DisplayEffectItem;
-    PluginItems[8] := @DisplaySettingsButton;
-    PluginItems[9] := @SerifBeforeGroup;
-    PluginItems[10] := @SerifBeforeTypeItem;
-    PluginItems[11] := @SerifBeforeDirectionItem;
-    PluginItems[12] := @SerifBeforeZoomOriginItem;
-    PluginItems[13] := @SerifBeforeValue1Item;
-    PluginItems[14] := @SerifDuringGroup;
-    PluginItems[15] := @SerifDuringEmotionItem;
-    PluginItems[16] := @SerifDuringSpeedItem;
-    PluginItems[17] := @SerifSyncGroup;
-    PluginItems[18] := @SerifSyncTypeItem;
-    PluginItems[19] := @SerifSyncFillItem;
-    PluginItems[20] := @SerifSyncAfterItem;
-    PluginItems[21] := @SerifSyncShapeItem;
-    PluginItems[22] := @SerifSyncColorItem;
-    PluginItems[23] := @SerifSyncSizeItem;
-    PluginItems[24] := @SerifSyncOffsetXItem;
-    PluginItems[25] := @SerifSyncOffsetYItem;
-    PluginItems[26] := @SerifAfterGroup;
-    PluginItems[27] := @SerifAfterTypeItem;
-    PluginItems[28] := @SerifAfterDirectionItem;
-    PluginItems[29] := @SerifAfterZoomDestinationItem;
-    PluginItems[30] := @SerifAfterValue1Item;
-    PluginItems[31] := @SongDocumentItem;
-    PluginItems[32] := @DisplaySettingsTextItem;
-    PluginItems[33] := nil;
+    PluginItems[6] := @DisplayEffectItem;
+    PluginItems[7] := @DisplaySettingsButton;
+    PluginItems[8] := @SerifBeforeGroup;
+    PluginItems[9] := @SerifBeforeTypeItem;
+    PluginItems[10] := @SerifBeforeDirectionItem;
+    PluginItems[11] := @SerifBeforeZoomOriginItem;
+    PluginItems[12] := @SerifBeforeValue1Item;
+    PluginItems[13] := @SerifDuringGroup;
+    PluginItems[14] := @SerifDuringEmotionItem;
+    PluginItems[15] := @SerifDuringSpeedItem;
+    PluginItems[16] := @SerifSyncGroup;
+    PluginItems[17] := @SerifSyncTypeItem;
+    PluginItems[18] := @SerifSyncFillItem;
+    PluginItems[19] := @SerifSyncAfterItem;
+    PluginItems[20] := @SerifSyncShapeItem;
+    PluginItems[21] := @SerifSyncColorItem;
+    PluginItems[22] := @SerifSyncSizeItem;
+    PluginItems[23] := @SerifSyncOffsetXItem;
+    PluginItems[24] := @SerifSyncOffsetYItem;
+    PluginItems[25] := @SerifAfterGroup;
+    PluginItems[26] := @SerifAfterTypeItem;
+    PluginItems[27] := @SerifAfterDirectionItem;
+    PluginItems[28] := @SerifAfterZoomDestinationItem;
+    PluginItems[29] := @SerifAfterValue1Item;
+    PluginItems[30] := @SongDocumentItem;
+    PluginItems[31] := @DisplaySettingsTextItem;
+    PluginItems[32] := nil;
     Plugin.Items := @PluginItems[0];
   end;
   Result := @Plugin;

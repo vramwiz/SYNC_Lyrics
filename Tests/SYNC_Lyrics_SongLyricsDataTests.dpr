@@ -23,6 +23,8 @@ var
   ErrorText: string;
   HugeModel: TLyricsSongModel;
   Lines: TLyricsSongLines;
+  LanePlacementTexts: TLyricsLanePlacementTexts;
+  PlacementMode: TLyricsPlacementMode;
   ActiveIndexes: TLyricsSongLineIndexes;
   ProgressUnits: Double;
   RuntimeLines: TLyricsSongLines;
@@ -49,16 +51,23 @@ begin
     Lines[0].TimingMusicOffsetSeconds := 0.5;
     Lines[0].PlacementText := 'PL1';
     Model.ReplaceLines(Lines);
+    Check(Model.TrySetLanePlacementText(1, 'LANE1') and
+      Model.TrySetLanePlacementText(2, 'LANE2') and
+      Model.TrySetLanePlacementText(3, 'LANE3'),
+      'The shared lane placement setup failed.');
+    Model.PlacementMode := lpmFree;
     Check(Model.TrySetStartLine(1), 'The start line setup failed.');
 
     Check(TryEncodeSongLyrics(Model, EncodedText, ErrorText),
       'Encoding failed: ' + ErrorText);
     Check(EncodedText.StartsWith('SLD1,' +
-      IntToStr(Model.StartLineID) + '|'),
+      IntToStr(Model.StartLineID) + ',1,'),
       'The song document header is invalid.');
     Check(not TryDecodeSongLyrics('SLS1' + Copy(EncodedText, 5,
       MaxInt), Decoded, ErrorText),
       'The obsolete whole-song format must be rejected.');
+    Check(not TryDecodeSongLyrics('SLD1,1,,,', Decoded, ErrorText),
+      'The placement-mode-free SLD1 header must be rejected.');
     Check(TryDecodeSongLyrics(EncodedText, Decoded, ErrorText),
       'Decoding failed: ' + ErrorText);
     Check(Decoded.LineCount = 2, 'The decoded line count is invalid.');
@@ -82,6 +91,12 @@ begin
       'The continuous music note offset was not preserved.');
     Check(Decoded[0].PlacementText = 'PL1',
       'The placement text was not preserved.');
+    Check((Decoded.LanePlacementTexts[1] = 'LANE1') and
+      (Decoded.LanePlacementTexts[2] = 'LANE2') and
+      (Decoded.LanePlacementTexts[3] = 'LANE3'),
+      'The shared lane placements were not preserved.');
+    Check(Decoded.PlacementMode = lpmFree,
+      'The shared placement mode was not preserved.');
     Check(Decoded.StartLineID = Model[1].LineID,
       'The object start line was not preserved.');
 
@@ -92,8 +107,11 @@ begin
     Check(TryGetSongLyricsLines(EncodedText, RuntimeLines),
       'The runtime cache did not decode valid Filter text.');
     Check(TryGetSongLyricsDocument(EncodedText, RuntimeLines,
-      StartLineID) and (StartLineID = Model[1].LineID),
-      'The runtime cache did not preserve the object start line.');
+      StartLineID, LanePlacementTexts, PlacementMode) and
+      (StartLineID = Model[1].LineID) and
+      (LanePlacementTexts[2] = 'LANE2') and
+      (PlacementMode = lpmFree),
+      'The runtime cache did not preserve the shared song settings.');
     Check(ResolveSongLyricsLineIndex(RuntimeLines, 150) = 0,
       'The persisted timed line was not resolved.');
     RuntimeLines := ApplyMusicOffsetToSongLyricsLines(
@@ -205,7 +223,7 @@ begin
       (Abs(ProgressUnits - 4) < 0.000001),
       'The synchronization end frame did not complete the line.');
     Lines := Model.CopyLines;
-    Lines[0].PlacementText := 'SL2|' + StringOfChar('X', 2048);
+    Lines[0].PlacementText := 'SL3|' + StringOfChar('X', 2048);
     Model.ReplaceLines(Lines);
     Check(TryEncodeSongLyrics(Model, EncodedText, ErrorText),
       'Long placement encoding failed: ' + ErrorText);

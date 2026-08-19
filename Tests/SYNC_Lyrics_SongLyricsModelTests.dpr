@@ -33,6 +33,8 @@ begin
     Check(Length(Model[0].RubySpans) = 1,
       'Ruby spans must remain available in the line record.');
     Check(Model[0].DisplayLane = 1, 'The default display lane must be one.');
+    Check(Model.PlacementMode = lpmLine,
+      'The default placement mode must be line placement.');
     Check(Model[0].SyncState = lssUnset,
       'New lyric lines must start with unset synchronization.');
     Check(Model[0].StartNoteIndex = 0,
@@ -46,13 +48,22 @@ begin
       'New lyric lines must use the temporary hold duration.');
     Check(Abs(Model[0].TimingMusicOffsetSeconds) < 0.000001,
       'New lyric lines must start with a zero timing music offset.');
-    Check(Model.TrySetPlacementText(0, 'SL2 placement'),
+    Check(Model.TrySetPlacementText(0, 'SL3 placement'),
       'The placement text setup failed.');
-    Check(Model[0].PlacementText = 'SL2 placement',
+    Check(Model[0].PlacementText = 'SL3 placement',
       'The placement text was not stored.');
+    Check(Model.TrySetLanePlacementText(2, 'SL3 lane placement'),
+      'The shared display lane placement setup failed.');
+    Check(Model.LanePlacementTexts[2] = 'SL3 lane placement',
+      'The shared display lane placement was not stored.');
+    Model.PlacementMode := lpmFree;
+    Check(Model.PlacementMode = lpmFree,
+      'The shared placement mode was not stored.');
+    Check(not Model.TrySetLanePlacementText(4, 'invalid'),
+      'An unsupported display lane placement must be rejected.');
     Check(not Model.TrySetPlacementText(0, 'invalid'#13#10'placement'),
       'Multiline placement text must be rejected.');
-    Check(Model[0].PlacementText = 'SL2 placement',
+    Check(Model[0].PlacementText = 'SL3 placement',
       'Rejected placement text changed the current value.');
     Check(Model.TrySetDisplayLane(0, 3),
       'A supported display lane must be accepted.');

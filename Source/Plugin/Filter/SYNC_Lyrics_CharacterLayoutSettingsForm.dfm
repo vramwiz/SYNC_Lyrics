@@ -13,6 +13,7 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   Font.Style = []
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnResize = FormResize
   Position = poScreenCenter
   TextHeight = 15
   object CandidateLabel: TLabel
@@ -35,7 +36,7 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
   object BackgroundPaintBox: TPaintBox
     Left = 12
     Top = 114
-    Width = 668
+    Width = 556
     Height = 510
     Anchors = [akLeft, akTop, akRight, akBottom]
     OnMouseDown = BackgroundPaintBoxMouseDown
@@ -44,9 +45,9 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
     OnPaint = BackgroundPaintBoxPaint
   end
   object ElementPanel: TPanel
-    Left = 692
+    Left = 580
     Top = 114
-    Width = 216
+    Width = 128
     Height = 510
     Anchors = [akTop, akRight, akBottom]
     BevelOuter = bvNone
@@ -54,25 +55,25 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
     object ElementListLabel: TLabel
       Left = 0
       Top = 0
-      Width = 216
+      Width = 128
       Height = 20
       AutoSize = False
-      Caption = #37197#32622#35201#32032
+      Caption = #27468#35422#49#25991#23383
     end
     object ElementListView: TListView
       Left = 0
       Top = 20
-      Width = 216
+      Width = 128
       Height = 490
       Anchors = [akLeft, akTop, akRight, akBottom]
       Columns = <
         item
           Caption = '#'
-          Width = 38
+          Width = 30
         end
         item
           Caption = #25991#23383
-          Width = 150
+          Width = 90
         end>
       HideSelection = False
       MultiSelect = True
@@ -82,6 +83,16 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
       ViewStyle = vsReport
       OnSelectItem = ElementListViewSelectItem
     end
+  end
+  object ColorPanel: TPanel
+    Left = 720
+    Top = 114
+    Width = 188
+    Height = 510
+    Anchors = [akTop, akRight, akBottom]
+    BevelOuter = bvNone
+    Caption = ''
+    TabOrder = 2
   end
   object CandidateCombo: TComboBox
     Left = 68
@@ -101,7 +112,24 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
     Height = 50
     Align = alBottom
     BevelOuter = bvNone
-    TabOrder = 2
+    TabOrder = 3
+    object PlacementModeLabel: TLabel
+      Left = 12
+      Top = 17
+      Width = 72
+      Height = 15
+      Caption = #37197#32622#12514#12540#12489
+      Visible = False
+    end
+    object PlacementModeCombo: TComboBox
+      Left = 92
+      Top = 12
+      Width = 180
+      Height = 23
+      Style = csDropDownList
+      TabOrder = 0
+      Visible = False
+    end
     object ButtonOK: TButton
       Left = 748
       Top = 12
@@ -111,7 +139,7 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
       Caption = 'OK'
       Default = True
       ModalResult = 1
-      TabOrder = 0
+      TabOrder = 1
     end
     object ButtonCancel: TButton
       Left = 833
@@ -122,7 +150,7 @@ object FormLyricsCharacterLayoutSettings: TFormLyricsCharacterLayoutSettings
       Cancel = True
       Caption = #12461#12515#12531#12475#12523
       ModalResult = 2
-      TabOrder = 1
+      TabOrder = 2
     end
   end
 end

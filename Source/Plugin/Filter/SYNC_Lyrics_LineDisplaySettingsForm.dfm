@@ -100,6 +100,23 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
     Align = alBottom
     BevelOuter = bvNone
     TabOrder = 4
+    object PlacementModeLabel: TLabel
+      Left = 12
+      Top = 17
+      Width = 72
+      Height = 15
+      Caption = #37197#32622#12514#12540#12489
+      Visible = False
+    end
+    object PlacementModeCombo: TComboBox
+      Left = 92
+      Top = 12
+      Width = 180
+      Height = 23
+      Style = csDropDownList
+      TabOrder = 0
+      Visible = False
+    end
     object ButtonOK: TButton
       Left = 748
       Top = 12
@@ -109,7 +126,7 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
       Caption = 'OK'
       Default = True
       ModalResult = 1
-      TabOrder = 0
+      TabOrder = 1
     end
     object ButtonCancel: TButton
       Left = 833
@@ -120,7 +137,7 @@ object FormLyricsLineDisplaySettings: TFormLyricsLineDisplaySettings
       Cancel = True
       Caption = 'Cancel'
       ModalResult = 2
-      TabOrder = 1
+      TabOrder = 2
     end
   end
 end
