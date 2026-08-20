@@ -39,6 +39,14 @@ type
     SyncOffsetX: Double;
     SyncOffsetY: Double;
     Opacity: Double;
+    LayerOffsetX: Double;
+    LayerOffsetY: Double;
+    LayerScaleX: Double;
+    LayerScaleY: Double;
+    LayerRotationDegrees: Double;
+    LayerBlurRadius: Double;
+    LayerWipeDirection: Integer;
+    LayerWipeProgress: Double;
     BaseFontName: string;
     RubyFontName: string;
     BaseBold: Boolean;
@@ -183,6 +191,14 @@ begin
   Result.SyncOffsetX := 0;
   Result.SyncOffsetY := 0;
   Result.Opacity := 1;
+  Result.LayerOffsetX := 0;
+  Result.LayerOffsetY := 0;
+  Result.LayerScaleX := 1;
+  Result.LayerScaleY := 1;
+  Result.LayerRotationDegrees := 0;
+  Result.LayerBlurRadius := 0;
+  Result.LayerWipeDirection := 0;
+  Result.LayerWipeProgress := 1;
   Result.BaseFontName := 'Yu Gothic UI';
   Result.RubyFontName := 'Yu Gothic UI';
   Result.BaseBold := True;
@@ -787,7 +803,8 @@ begin
       begin
         Destination := Buffer;
         Inc(Destination, NativeInt(Y) * Width + X);
-        BlendSyncSolidPixel(Settings, 160, Phase, Destination^);
+        BlendSyncSolidPixel(Settings, 160,
+          Phase * Settings.Opacity, Destination^);
       end;
 end;
 
@@ -837,7 +854,8 @@ begin
       begin
         Destination := Buffer;
         Inc(Destination, NativeInt(Y) * Width + X);
-        BlendSyncSolidPixel(Settings, 255, Phase, Destination^);
+        BlendSyncSolidPixel(Settings, 255,
+          Phase * Settings.Opacity, Destination^);
       end;
 end;
 
@@ -866,6 +884,9 @@ begin
     Left := Round(UnitLeft + UnitWidth * ClipStart + Settings.SyncOffsetX);
     Right := Round(UnitLeft + UnitWidth * ClipEnd + Settings.SyncOffsetX);
   end;
+  Phase := Phase * EnsureRange(Settings.Opacity, 0.0, 1.0);
+  if Phase <= 0 then
+    Exit;
   Red := Settings.SyncColor.R;
   Green := Settings.SyncColor.G;
   Blue := Settings.SyncColor.B;
@@ -1345,6 +1366,243 @@ begin
   end;
 end;
 
+function HasLyricsLayerTransform(
+  const Settings: TLyricsRenderSettings): Boolean;
+begin
+  Result := (Abs(Settings.LayerOffsetX) > 0.0001) or
+    (Abs(Settings.LayerOffsetY) > 0.0001) or
+    (Abs(Settings.LayerScaleX - 1.0) > 0.0001) or
+    (Abs(Settings.LayerScaleY - 1.0) > 0.0001) or
+    (Abs(Settings.LayerRotationDegrees) > 0.0001) or
+    (Settings.LayerBlurRadius > 0.0001) or
+    (Settings.LayerWipeProgress < 0.9999);
+end;
+
+procedure ResetLyricsLayerTransform(var Settings: TLyricsRenderSettings);
+begin
+  Settings.Opacity := 1;
+  Settings.LayerOffsetX := 0;
+  Settings.LayerOffsetY := 0;
+  Settings.LayerScaleX := 1;
+  Settings.LayerScaleY := 1;
+  Settings.LayerRotationDegrees := 0;
+  Settings.LayerBlurRadius := 0;
+  Settings.LayerWipeDirection := 0;
+  Settings.LayerWipeProgress := 1;
+end;
+
+function FindLayerBounds(Buffer: PPIXEL_RGBA; Width, Height: Integer;
+  out Bounds: TRect): Boolean;
+var
+  Pixel: PPIXEL_RGBA;
+  X: Integer;
+  Y: Integer;
+begin
+  Bounds := Rect(Width, Height, -1, -1);
+  Pixel := Buffer;
+  for Y := 0 to Height - 1 do
+    for X := 0 to Width - 1 do
+    begin
+      if Pixel^.A <> 0 then
+      begin
+        Bounds.Left := Min(Bounds.Left, X);
+        Bounds.Top := Min(Bounds.Top, Y);
+        Bounds.Right := Max(Bounds.Right, X + 1);
+        Bounds.Bottom := Max(Bounds.Bottom, Y + 1);
+      end;
+      Inc(Pixel);
+    end;
+  Result := (Bounds.Right > Bounds.Left) and
+    (Bounds.Bottom > Bounds.Top);
+end;
+
+function IsLayerWipePixelVisible(X, Y: Double; const Bounds: TRect;
+  Direction: Integer; Progress: Double): Boolean;
+var
+  Normalized: Double;
+begin
+  Progress := EnsureRange(Progress, 0.0, 1.0);
+  case Direction of
+    1:
+      begin
+        Normalized := (X - Bounds.Left) / Max(1, Bounds.Width);
+        Result := Normalized >= 1.0 - Progress;
+      end;
+    3:
+      begin
+        Normalized := (Y - Bounds.Top) / Max(1, Bounds.Height);
+        Result := Normalized >= 1.0 - Progress;
+      end;
+    4:
+      begin
+        Normalized := (Y - Bounds.Top) / Max(1, Bounds.Height);
+        Result := Normalized <= Progress;
+      end;
+  else
+    begin
+      Normalized := (X - Bounds.Left) / Max(1, Bounds.Width);
+      Result := Normalized <= Progress;
+    end;
+  end;
+end;
+
+function SampleBlurredLayerPixel(Buffer: PPIXEL_RGBA; Width,
+  Height, CenterX, CenterY, Radius: Integer): TPIXEL_RGBA;
+var
+  Count: UInt64;
+  Pixel: PPIXEL_RGBA;
+  SumA: UInt64;
+  SumB: UInt64;
+  SumG: UInt64;
+  SumR: UInt64;
+  X: Integer;
+  Y: Integer;
+begin
+  Result := Default(TPIXEL_RGBA);
+  SumA := 0;
+  SumR := 0;
+  SumG := 0;
+  SumB := 0;
+  Count := 0;
+  for Y := Max(0, CenterY - Radius) to Min(Height - 1,
+    CenterY + Radius) do
+    for X := Max(0, CenterX - Radius) to Min(Width - 1,
+      CenterX + Radius) do
+    begin
+      Pixel := Buffer;
+      Inc(Pixel, NativeInt(Y) * Width + X);
+      Inc(Count);
+      Inc(SumA, Pixel^.A);
+      Inc(SumR, UInt64(Pixel^.R) * Pixel^.A);
+      Inc(SumG, UInt64(Pixel^.G) * Pixel^.A);
+      Inc(SumB, UInt64(Pixel^.B) * Pixel^.A);
+    end;
+  if (Count = 0) or (SumA = 0) then
+    Exit;
+  Result.A := EnsureRange(Integer((SumA + Count div 2) div Count), 0, 255);
+  Result.R := EnsureRange(Integer((SumR + SumA div 2) div SumA), 0, 255);
+  Result.G := EnsureRange(Integer((SumG + SumA div 2) div SumA), 0, 255);
+  Result.B := EnsureRange(Integer((SumB + SumA div 2) div SumA), 0, 255);
+end;
+
+procedure BlendLayerPixel(const Source: TPIXEL_RGBA; Opacity: Double;
+  var Destination: TPIXEL_RGBA);
+var
+  TextPixel: TTextRenderPixel;
+begin
+  TextPixel.R := Source.R;
+  TextPixel.G := Source.G;
+  TextPixel.B := Source.B;
+  TextPixel.A := Source.A;
+  BlendStraightTextPixel(TextPixel, Opacity, Destination);
+end;
+
+procedure CompositeLyricsLayer(Destination, Source: PPIXEL_RGBA;
+  Width, Height: Integer; const Settings: TLyricsRenderSettings);
+var
+  Angle: Double;
+  BlurRadius: Integer;
+  Bounds: TRect;
+  CosAngle: Double;
+  DestinationPixel: PPIXEL_RGBA;
+  DX: Double;
+  DY: Double;
+  PivotX: Double;
+  PivotY: Double;
+  Sample: TPIXEL_RGBA;
+  SinAngle: Double;
+  SourceX: Double;
+  SourceY: Double;
+  SourceXi: Integer;
+  SourceYi: Integer;
+  X: Integer;
+  Y: Integer;
+begin
+  if (Settings.Opacity <= 0) or
+    not FindLayerBounds(Source, Width, Height, Bounds) then
+    Exit;
+  PivotX := (Bounds.Left + Bounds.Right) * 0.5;
+  PivotY := (Bounds.Top + Bounds.Bottom) * 0.5;
+  Angle := DegToRad(Settings.LayerRotationDegrees);
+  SinAngle := Sin(Angle);
+  CosAngle := Cos(Angle);
+  BlurRadius := EnsureRange(Round(Settings.LayerBlurRadius), 0, 16);
+  for Y := 0 to Height - 1 do
+    for X := 0 to Width - 1 do
+    begin
+      DX := (X + 0.5) - PivotX - Settings.LayerOffsetX;
+      DY := (Y + 0.5) - PivotY - Settings.LayerOffsetY;
+      SourceX := PivotX + (CosAngle * DX + SinAngle * DY) /
+        EnsureRange(Settings.LayerScaleX, 0.01, 100.0);
+      SourceY := PivotY + (-SinAngle * DX + CosAngle * DY) /
+        EnsureRange(Settings.LayerScaleY, 0.01, 100.0);
+      if (SourceX < Bounds.Left - BlurRadius) or
+        (SourceX >= Bounds.Right + BlurRadius) or
+        (SourceY < Bounds.Top - BlurRadius) or
+        (SourceY >= Bounds.Bottom + BlurRadius) or
+        not IsLayerWipePixelVisible(SourceX, SourceY, Bounds,
+          Settings.LayerWipeDirection, Settings.LayerWipeProgress) then
+        Continue;
+      SourceXi := Floor(SourceX);
+      SourceYi := Floor(SourceY);
+      if BlurRadius > 0 then
+        Sample := SampleBlurredLayerPixel(Source, Width, Height,
+          SourceXi, SourceYi, BlurRadius)
+      else if (SourceXi >= 0) and (SourceXi < Width) and
+        (SourceYi >= 0) and (SourceYi < Height) then
+      begin
+        Sample := PPIXEL_RGBA(PByte(Source) +
+          (NativeInt(SourceYi) * Width + SourceXi) *
+          SizeOf(TPIXEL_RGBA))^;
+      end
+      else
+        Continue;
+      if Sample.A = 0 then
+        Continue;
+      DestinationPixel := Destination;
+      Inc(DestinationPixel, NativeInt(Y) * Width + X);
+      BlendLayerPixel(Sample, Settings.Opacity, DestinationPixel^);
+    end;
+end;
+
+procedure DrawProcessedLyricsLayer(Buffer: PPIXEL_RGBA; Width,
+  Height: Integer; const Source: string; ProgressUnits: Double;
+  const Settings: TLyricsRenderSettings;
+  const Placements: TDisplayPlacementItems; FreePlacement: Boolean;
+  PositionX, PositionY: Integer);
+var
+  Layer: PPIXEL_RGBA;
+  LayerSettings: TLyricsRenderSettings;
+  PixelCount: NativeInt;
+begin
+  if not HasLyricsLayerTransform(Settings) then
+  begin
+    if FreePlacement then
+      DrawSkiaFreePlacementLyrics(Buffer, Width, Height, Source,
+        ProgressUnits, Settings, Placements, PositionX, PositionY)
+    else
+      DrawSkiaLineLyrics(Buffer, Width, Height, Source, ProgressUnits,
+        Settings, PositionX, PositionY);
+    Exit;
+  end;
+  PixelCount := NativeInt(Width) * Height;
+  GetMem(Layer, PixelCount * SizeOf(TPIXEL_RGBA));
+  try
+    FillChar(Layer^, PixelCount * SizeOf(TPIXEL_RGBA), 0);
+    LayerSettings := Settings;
+    ResetLyricsLayerTransform(LayerSettings);
+    if FreePlacement then
+      DrawSkiaFreePlacementLyrics(Layer, Width, Height, Source,
+        ProgressUnits, LayerSettings, Placements, PositionX, PositionY)
+    else
+      DrawSkiaLineLyrics(Layer, Width, Height, Source, ProgressUnits,
+        LayerSettings, PositionX, PositionY);
+    CompositeLyricsLayer(Buffer, Layer, Width, Height, Settings);
+  finally
+    FreeMem(Layer);
+  end;
+end;
+
 function RenderLocked(Video: PFILTER_PROC_VIDEO; Lyrics: LPCWSTR; ProgressUnits: Double;
   const Settings: TLyricsRenderSettings;
   const Placements: TDisplayPlacementItems; FreePlacement: Boolean;
@@ -1360,12 +1618,13 @@ begin
     try
       if (Lyrics <> nil) and (Lyrics^ <> #0) then
         if FreePlacement then
-          DrawSkiaFreePlacementLyrics(Buffer, Width, Height,
-            string(Lyrics), ProgressUnits, Settings, Placements,
+          DrawProcessedLyricsLayer(Buffer, Width, Height,
+            string(Lyrics), ProgressUnits, Settings, Placements, True,
             PositionX, PositionY)
         else
-          DrawSkiaLineLyrics(Buffer, Width, Height, string(Lyrics),
-            ProgressUnits, Settings, PositionX, PositionY);
+          DrawProcessedLyricsLayer(Buffer, Width, Height,
+            string(Lyrics), ProgressUnits, Settings, Placements, False,
+            PositionX, PositionY);
       // 空文字でも入力画像を確定し、直前フレームの歌詞を残さない。
       Video^.SetImageData(Buffer, Width, Height);
       Result := True;
@@ -1440,8 +1699,8 @@ begin
   try
     try
       if (Lyrics <> nil) and (Lyrics^ <> #0) then
-        DrawSkiaLineLyrics(Buffer, Width, Height, string(Lyrics),
-          ProgressUnits, Settings, PositionX, PositionY);
+        DrawProcessedLyricsLayer(Buffer, Width, Height, string(Lyrics),
+          ProgressUnits, Settings, nil, False, PositionX, PositionY);
       Result := True;
     except
       Result := False;
@@ -1465,8 +1724,8 @@ begin
   try
     try
       if (Lyrics <> nil) and (Lyrics^ <> #0) then
-        DrawSkiaFreePlacementLyrics(Buffer, Width, Height,
-          string(Lyrics), ProgressUnits, Settings, Placements,
+        DrawProcessedLyricsLayer(Buffer, Width, Height, string(Lyrics),
+          ProgressUnits, Settings, Placements, True,
           PositionX, PositionY);
       Result := True;
     except

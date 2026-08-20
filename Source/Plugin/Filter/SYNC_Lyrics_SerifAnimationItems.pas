@@ -32,8 +32,8 @@ var
   SerifBeforeTypeItem: TFILTER_ITEM_SELECT;
   SerifBeforeDirectionItem: TFILTER_ITEM_SELECT;
   SerifBeforeZoomOriginItem: TFILTER_ITEM_SELECT;
-  SerifBeforeValue1Item: TFILTER_ITEM_TRACK = (
-    ItemType: 'track'; Name: '前 値1'; Value: 0; S: -1000; E: 1000;
+  SerifBeforeTimeItem: TFILTER_ITEM_TRACK = (
+    ItemType: 'track'; Name: '前 時間'; Value: 0.30; S: 0.01; E: 3.00;
     Step: 0.01);
 
   SerifDuringGroup: TFILTER_ITEM_GROUP = (
@@ -56,10 +56,10 @@ var
     ItemType: 'track'; Name: '同期 サイズ'; Value: 100; S: 1; E: 1000;
     Step: 0.01);
   SerifSyncOffsetXItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track'; Name: '同期 オフセットX'; Value: 0; S: -100; E: 100;
+    ItemType: 'track'; Name: 'オフセットX'; Value: 0; S: -100; E: 100;
     Step: 1);
   SerifSyncOffsetYItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track'; Name: '同期 オフセットY'; Value: 0; S: -100; E: 100;
+    ItemType: 'track'; Name: 'オフセットY'; Value: 0; S: -100; E: 100;
     Step: 1);
 
   SerifAfterGroup: TFILTER_ITEM_GROUP = (
@@ -67,8 +67,8 @@ var
   SerifAfterTypeItem: TFILTER_ITEM_SELECT;
   SerifAfterDirectionItem: TFILTER_ITEM_SELECT;
   SerifAfterZoomDestinationItem: TFILTER_ITEM_SELECT;
-  SerifAfterValue1Item: TFILTER_ITEM_TRACK = (
-    ItemType: 'track'; Name: '後 値1'; Value: 0; S: -1000; E: 1000;
+  SerifAfterTimeItem: TFILTER_ITEM_TRACK = (
+    ItemType: 'track'; Name: '後 時間'; Value: 0.30; S: 0.01; E: 3.00;
     Step: 0.01);
 
 procedure InitializeSerifAnimationItems;

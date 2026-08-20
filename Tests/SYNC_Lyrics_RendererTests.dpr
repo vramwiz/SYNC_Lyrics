@@ -22,6 +22,8 @@ uses
     'Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas',
   SYNC_Lyrics_Animation in
     'Source\Common\Render\SYNC_Lyrics_Animation.pas',
+  SYNC_Lyrics_SerifAnimationItems in
+    'Source\Plugin\Filter\SYNC_Lyrics_SerifAnimationItems.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas';
 
 const
@@ -1104,6 +1106,17 @@ var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
   AnimationSettings: TLyricsAnimationSettings;
+  AnimationTransform: TLyricsAnimationTransform;
+  BackgroundHash: UInt64;
+  BaseLayerHash: UInt64;
+  BaseLeft: Integer;
+  BaseTop: Integer;
+  BaseRight: Integer;
+  BaseBottom: Integer;
+  TransformedLeft: Integer;
+  TransformedTop: Integer;
+  TransformedRight: Integer;
+  TransformedBottom: Integer;
   EffectState: TLyricsUnitEffectState;
   FullAlpha: Integer;
   ObjectInfo: TOBJECT_INFO;
@@ -1136,6 +1149,10 @@ begin
   AnimationSettings.StartDurationSeconds := 0.4;
   AnimationSettings.EndDurationSeconds := 0.2;
   AnimationSettings.BaseFontHeight := 100;
+  AnimationSettings.StartDirection := 0;
+  AnimationSettings.StartZoomOrigin := 0;
+  AnimationSettings.EndDirection := 0;
+  AnimationSettings.EndZoomDestination := 0;
   ResolveLyricsAnimation(AnimationSettings, 0.2, 1.0, 0.5,
     AnimationOpacity, AnimationOffsetY);
   Check(Abs(AnimationOpacity - 0.5) < 0.000001,
@@ -1147,6 +1164,79 @@ begin
     'end fade opacity mismatch');
   Check(AnimationOffsetY = 0,
     'sync bounce moved lyrics outside active progress');
+
+  AnimationSettings.SyncAnimation := lsaNone;
+  AnimationSettings.EndAnimation := leaNone;
+  AnimationSettings.StartDurationSeconds := 0.2;
+  AnimationSettings.StartAnimation := leaSlide;
+  AnimationSettings.StartDirection := 1;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check(AnimationTransform.OffsetX < 0,
+    'start slide transform mismatch');
+  AnimationSettings.StartAnimation := leaZoom;
+  AnimationSettings.StartZoomOrigin := 0;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check(AnimationTransform.ScaleX < 1,
+    'start zoom transform mismatch');
+  AnimationSettings.StartAnimation := leaPop;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check(Abs(AnimationTransform.ScaleX - 1) > 0.01,
+    'start pop transform mismatch');
+  AnimationSettings.StartAnimation := leaWipe;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check((AnimationTransform.WipeProgress > 0) and
+    (AnimationTransform.WipeProgress < 1),
+    'start wipe transform mismatch');
+  AnimationSettings.StartAnimation := leaBlur;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check(AnimationTransform.BlurRadius > 0,
+    'start blur transform mismatch');
+  AnimationSettings.StartAnimation := leaRotate;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check(Abs(AnimationTransform.RotationDegrees) > 0,
+    'start rotate transform mismatch');
+  AnimationSettings.StartAnimation := leaBounce;
+  AnimationSettings.StartDirection := 3;
+  ResolveLyricsAnimationTransform(AnimationSettings, 0.1, 1.0, 0,
+    AnimationTransform);
+  Check(AnimationTransform.OffsetY < 0,
+    'start bounce transform mismatch');
+
+  AnimationSettings.StartAnimation := leaNone;
+  AnimationSettings.EndDurationSeconds := 0.2;
+  AnimationSettings.EndAnimation := leaSlide;
+  AnimationSettings.EndDirection := 2;
+  ResolveLyricsAnimationTransform(AnimationSettings, 1.0, 0.1, 1.0,
+    AnimationTransform);
+  Check((AnimationTransform.OffsetX > 0) and
+    (AnimationTransform.Opacity > 0), 'end slide transform mismatch');
+  AnimationSettings.EndAnimation := leaZoom;
+  AnimationSettings.EndZoomDestination := 0;
+  ResolveLyricsAnimationTransform(AnimationSettings, 1.0, 0.1, 1.0,
+    AnimationTransform);
+  Check((AnimationTransform.ScaleX < 1) and
+    (AnimationTransform.ScaleY < 1), 'end zoom transform mismatch');
+  AnimationSettings.EndAnimation := leaWipe;
+  ResolveLyricsAnimationTransform(AnimationSettings, 1.0, 0.1, 1.0,
+    AnimationTransform);
+  Check((AnimationTransform.WipeProgress > 0) and
+    (AnimationTransform.WipeProgress < 1), 'end wipe transform mismatch');
+  AnimationSettings.EndAnimation := leaBlur;
+  ResolveLyricsAnimationTransform(AnimationSettings, 1.0, 0.1, 1.0,
+    AnimationTransform);
+  Check((AnimationTransform.BlurRadius > 0) and
+    (AnimationTransform.Opacity < 1), 'end blur transform mismatch');
+  AnimationSettings.EndAnimation := leaRotate;
+  ResolveLyricsAnimationTransform(AnimationSettings, 1.0, 0.1, 1.0,
+    AnimationTransform);
+  Check((Abs(AnimationTransform.RotationDegrees) > 0) and
+    (AnimationTransform.ScaleX < 1), 'end rotate transform mismatch');
 
   FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
   FillChar(Video, SizeOf(Video), 0);
@@ -1163,6 +1253,94 @@ begin
     'half-opacity render failed');
   Check((MaximumAlpha > 0) and (MaximumAlpha < FullAlpha),
     'configured opacity did not reduce rendered alpha');
+
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, 'Layer', 0, Settings, 0, 0),
+    'base layer-transform render failed');
+  BaseLayerHash := CapturedPixelHash;
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Settings.LayerOffsetX := 40;
+  Check(RenderLyrics(@Video, 'Layer', 0, Settings, 0, 0),
+    'offset layer-transform render failed');
+  FindVisibleBounds(TransformedLeft, TransformedTop, TransformedRight,
+    TransformedBottom);
+  Check(TransformedLeft > BaseLeft + 30,
+    'layer-transform offset did not move the rendered lyrics');
+  Settings := TestRenderSettings;
+  Settings.LayerScaleX := 0.8;
+  Settings.LayerScaleY := 0.8;
+  Check(RenderLyrics(@Video, 'Layer', 0, Settings, 0, 0),
+    'scale layer-transform render failed');
+  Check((CountVisiblePixels > 0) and
+    (CapturedPixelHash <> BaseLayerHash),
+    'layer-transform scale did not change the rendered lyrics');
+  Settings := TestRenderSettings;
+  Settings.LayerRotationDegrees := 8;
+  Check(RenderLyrics(@Video, 'Layer', 0, Settings, 0, 0),
+    'rotation layer-transform render failed');
+  Check((CountVisiblePixels > 0) and
+    (CapturedPixelHash <> BaseLayerHash),
+    'layer-transform rotation did not change the rendered lyrics');
+  Settings := TestRenderSettings;
+  Settings.LayerBlurRadius := 2;
+  Check(RenderLyrics(@Video, 'Layer', 0, Settings, 0, 0),
+    'blur layer-transform render failed');
+  Check((CountVisiblePixels > 0) and
+    (CapturedPixelHash <> BaseLayerHash),
+    'layer-transform blur did not change the rendered lyrics');
+  Settings := TestRenderSettings;
+  Settings.LayerWipeDirection := 2;
+  Settings.LayerWipeProgress := 0;
+  Check(RenderLyrics(@Video, 'Layer', 0, Settings, 0, 0),
+    'wipe layer-transform render failed');
+  Check(CountVisiblePixels = 0,
+    'completed end wipe left visible lyrics pixels');
+
+  // 文字単位同期の追加レイヤーも、表示後フェードの最終透明度に従う。
+  Video.GetImageData := SupplyInputImage;
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '', 0, Settings, 0, 0),
+    'background-only render failed');
+  BackgroundHash := CapturedPixelHash;
+  Settings.DisplayType := ldtUnitEmphasis;
+  Settings.ColorFillMode := lcfCharacter;
+  Settings.ColorAfterMode := lcaKeep;
+  Settings.Opacity := 0;
+  Settings.SyncKind := lskFront;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'zero-opacity character front render failed');
+  Check(CapturedPixelHash = BackgroundHash,
+    'character front remained after the end fade');
+  Settings.SyncKind := lskBacking;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'zero-opacity character backing render failed');
+  Check(CapturedPixelHash = BackgroundHash,
+    'character backing remained after the end fade');
+  Settings.SyncKind := lskUnderline;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'zero-opacity character underline render failed');
+  Check(CapturedPixelHash = BackgroundHash,
+    'character underline remained after the end fade');
+end;
+
+procedure TestAnimationTimeItems;
+begin
+  InitializeSerifAnimationItems;
+  Check((string(SerifSyncOffsetXItem.Name) = 'オフセットX') and
+    (string(SerifSyncOffsetYItem.Name) = 'オフセットY'),
+    'sync offset item names mismatch');
+  Check((string(SerifBeforeTimeItem.Name) = '前 時間') and
+    (Abs(SerifBeforeTimeItem.Value - 0.30) < 0.000001) and
+    (Abs(SerifBeforeTimeItem.S - 0.01) < 0.000001) and
+    (Abs(SerifBeforeTimeItem.E - 3.00) < 0.000001) and
+    (Abs(SerifBeforeTimeItem.Step - 0.01) < 0.000001),
+    'before animation time item mismatch');
+  Check((string(SerifAfterTimeItem.Name) = '後 時間') and
+    (Abs(SerifAfterTimeItem.Value - 0.30) < 0.000001) and
+    (Abs(SerifAfterTimeItem.S - 0.01) < 0.000001) and
+    (Abs(SerifAfterTimeItem.E - 3.00) < 0.000001) and
+    (Abs(SerifAfterTimeItem.Step - 0.01) < 0.000001),
+    'after animation time item mismatch');
 end;
 
 procedure TestRubyGapAdjustmentChangesRowDistance;
@@ -1679,6 +1857,7 @@ begin
     TestConfiguredFontStylesAreUsed;
     TestDisplayTypes;
     TestLyricsAnimations;
+    TestAnimationTimeItems;
     TestRubyGapAdjustmentChangesRowDistance;
     TestFreePlacementCoordinates;
     TestFreePlacementRubyKeepsBaseBottom;

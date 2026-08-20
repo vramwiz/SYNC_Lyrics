@@ -161,7 +161,7 @@ var
   );
   PreDisplayTimeItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track';
-    Name: '同期前表示 (秒)';
+    Name: '事前表示';
     Value: 0.5;
     S: 0;
     E: 60;
@@ -169,7 +169,7 @@ var
   );
   HoldTimeItem: TFILTER_ITEM_TRACK = (
     ItemType: 'track';
-    Name: '同期後維持 (秒)';
+    Name: '表示維持';
     Value: 0.5;
     S: 0;
     E: 60;
@@ -303,18 +303,43 @@ end;
 
 function CurrentSerifStartAnimation: TLyricsEdgeAnimation;
 begin
-  if SerifBeforeTypeItem.Value = 1 then
-    Result := leaFade
+  case SerifBeforeTypeItem.Value of
+    1: Result := leaFade;
+    2: Result := leaSlide;
+    3: Result := leaZoom;
+    4: Result := leaPop;
+    5: Result := leaWipe;
+    6: Result := leaBlur;
+    10: Result := leaRotate;
+    11: Result := leaBounce;
   else
     Result := leaNone;
+  end;
+end;
+
+function CurrentSerifStartAnimationDuration: Double;
+begin
+  Result := EnsureRange(SerifBeforeTimeItem.Value, 0.01, 3.00);
 end;
 
 function CurrentSerifEndAnimation: TLyricsEdgeAnimation;
 begin
-  if SerifAfterTypeItem.Value = 1 then
-    Result := leaFade
+  case SerifAfterTypeItem.Value of
+    1: Result := leaFade;
+    2: Result := leaSlide;
+    3: Result := leaZoom;
+    4: Result := leaWipe;
+    5: Result := leaBlur;
+    6: Result := leaRotate;
   else
     Result := leaNone;
+  end;
+end;
+
+function CurrentSerifEndAnimationDuration: Double;
+begin
+  Result := Min(EnsureRange(SerifAfterTimeItem.Value, 0.01, 3.00),
+    Max(0.01, HoldTimeItem.Value));
 end;
 
 procedure ShowFontSettingsError(const MessageText: string);
@@ -1219,11 +1244,11 @@ begin
     CurrentMusicOffsetSeconds := 0;
   CurrentMusicOffsetSeconds := EnsureRange(CurrentMusicOffsetSeconds,
     -5.0, 5.0);
-  if not TryGetObjectItemFloat(Edit, Obj, '同期前表示 (秒)',
+  if not TryGetObjectItemFloat(Edit, Obj, '事前表示',
     CurrentPreDisplaySeconds) then
     CurrentPreDisplaySeconds := 0.5;
   CurrentPreDisplaySeconds := Max(0.0, CurrentPreDisplaySeconds);
-  if not TryGetObjectItemFloat(Edit, Obj, '同期後維持 (秒)',
+  if not TryGetObjectItemFloat(Edit, Obj, '表示維持',
     CurrentHoldSeconds) then
     CurrentHoldSeconds := 0.5;
   CurrentHoldSeconds := Max(0.0, CurrentHoldSeconds);
@@ -1412,7 +1437,7 @@ begin
     Utf8PreDisplay := UTF8String(FormatFloat('0.00',
       SelectedPreDisplaySeconds, TFormatSettings.Invariant));
     if not Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-      '同期前表示 (秒)', PAnsiChar(Utf8PreDisplay)) then
+      '事前表示', PAnsiChar(Utf8PreDisplay)) then
     begin
       if SyncChanged then
       begin
@@ -1429,7 +1454,7 @@ begin
       Utf8OriginalPreDisplay := UTF8String(FormatFloat('0.00',
         CurrentPreDisplaySeconds, TFormatSettings.Invariant));
       Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-        '同期前表示 (秒)', PAnsiChar(Utf8OriginalPreDisplay));
+        '事前表示', PAnsiChar(Utf8OriginalPreDisplay));
       ShowFontSettingsError('事前表示時間を歌詞テロップへ反映できませんでした。');
     end;
   end;
@@ -1447,6 +1472,7 @@ var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
   AnimationSettings: TLyricsAnimationSettings;
+  AnimationTransform: TLyricsAnimationTransform;
   CommonSettings: TDisplayCommonSettings;
   CurrentSyncSeconds: Double;
   DisplayUnitCount: Integer;
@@ -1655,13 +1681,31 @@ begin
       AnimationSettings.SyncAnimation := CurrentSerifSyncAnimation;
       AnimationSettings.StartAnimation := CurrentSerifStartAnimation;
       AnimationSettings.EndAnimation := CurrentSerifEndAnimation;
-      AnimationSettings.StartDurationSeconds := 0.3;
-      AnimationSettings.EndDurationSeconds := 0.3;
+      AnimationSettings.StartDurationSeconds :=
+        CurrentSerifStartAnimationDuration;
+      AnimationSettings.EndDurationSeconds :=
+        CurrentSerifEndAnimationDuration;
       AnimationSettings.BaseFontHeight :=
         RenderSettings.BaseFontHeight;
-      ResolveLyricsAnimation(AnimationSettings, LocalSeconds,
-        RemainingSeconds, SyncProgress, AnimationOpacity,
-        AnimationOffsetY);
+      AnimationSettings.StartDirection := SerifBeforeDirectionItem.Value;
+      AnimationSettings.StartZoomOrigin :=
+        SerifBeforeZoomOriginItem.Value;
+      AnimationSettings.EndDirection := SerifAfterDirectionItem.Value;
+      AnimationSettings.EndZoomDestination :=
+        SerifAfterZoomDestinationItem.Value;
+      ResolveLyricsAnimationTransform(AnimationSettings, LocalSeconds,
+        RemainingSeconds, SyncProgress, AnimationTransform);
+      AnimationOpacity := AnimationTransform.Opacity;
+      AnimationOffsetY := 0;
+      RenderSettings.LayerOffsetX := AnimationTransform.OffsetX;
+      RenderSettings.LayerOffsetY := AnimationTransform.OffsetY;
+      RenderSettings.LayerScaleX := AnimationTransform.ScaleX;
+      RenderSettings.LayerScaleY := AnimationTransform.ScaleY;
+      RenderSettings.LayerRotationDegrees :=
+        AnimationTransform.RotationDegrees;
+      RenderSettings.LayerBlurRadius := AnimationTransform.BlurRadius;
+      RenderSettings.LayerWipeDirection := AnimationTransform.WipeDirection;
+      RenderSettings.LayerWipeProgress := AnimationTransform.WipeProgress;
     end;
   end;
   RenderSettings.Opacity := AnimationOpacity;
@@ -1684,6 +1728,7 @@ var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
   AnimationSettings: TLyricsAnimationSettings;
+  AnimationTransform: TLyricsAnimationTransform;
   CommonSettings: TDisplayCommonSettings;
   DisplayUnitCount: Integer;
   EffectivePreDisplaySeconds: Double;
@@ -1859,13 +1904,33 @@ begin
         AnimationSettings.SyncAnimation := CurrentSerifSyncAnimation;
         AnimationSettings.StartAnimation := CurrentSerifStartAnimation;
         AnimationSettings.EndAnimation := CurrentSerifEndAnimation;
-        AnimationSettings.StartDurationSeconds := 0.3;
-        AnimationSettings.EndDurationSeconds := 0.3;
+        AnimationSettings.StartDurationSeconds :=
+          CurrentSerifStartAnimationDuration;
+        AnimationSettings.EndDurationSeconds :=
+          CurrentSerifEndAnimationDuration;
         AnimationSettings.BaseFontHeight :=
           RenderSettings.BaseFontHeight;
-        ResolveLyricsAnimation(AnimationSettings, LocalSeconds,
-          RemainingSeconds, SyncProgress, AnimationOpacity,
-          AnimationOffsetY);
+        AnimationSettings.StartDirection := SerifBeforeDirectionItem.Value;
+        AnimationSettings.StartZoomOrigin :=
+          SerifBeforeZoomOriginItem.Value;
+        AnimationSettings.EndDirection := SerifAfterDirectionItem.Value;
+        AnimationSettings.EndZoomDestination :=
+          SerifAfterZoomDestinationItem.Value;
+        ResolveLyricsAnimationTransform(AnimationSettings, LocalSeconds,
+          RemainingSeconds, SyncProgress, AnimationTransform);
+        AnimationOpacity := AnimationTransform.Opacity;
+        AnimationOffsetY := 0;
+        RenderSettings.LayerOffsetX := AnimationTransform.OffsetX;
+        RenderSettings.LayerOffsetY := AnimationTransform.OffsetY;
+        RenderSettings.LayerScaleX := AnimationTransform.ScaleX;
+        RenderSettings.LayerScaleY := AnimationTransform.ScaleY;
+        RenderSettings.LayerRotationDegrees :=
+          AnimationTransform.RotationDegrees;
+        RenderSettings.LayerBlurRadius := AnimationTransform.BlurRadius;
+        RenderSettings.LayerWipeDirection :=
+          AnimationTransform.WipeDirection;
+        RenderSettings.LayerWipeProgress :=
+          AnimationTransform.WipeProgress;
       end;
     end;
     RenderSettings.Opacity := AnimationOpacity;
@@ -1998,32 +2063,32 @@ begin
     PluginItems[1] := @TrackItem;
     PluginItems[2] := @MusicOffsetItem;
     PluginItems[3] := @MusicSyncSettingsButton;
-    PluginItems[4] := @PreDisplayTimeItem;
-    PluginItems[5] := @HoldTimeItem;
-    PluginItems[6] := @DisplayEffectItem;
-    PluginItems[7] := @DisplaySettingsButton;
-    PluginItems[8] := @SerifBeforeGroup;
-    PluginItems[9] := @SerifBeforeTypeItem;
-    PluginItems[10] := @SerifBeforeDirectionItem;
-    PluginItems[11] := @SerifBeforeZoomOriginItem;
-    PluginItems[12] := @SerifBeforeValue1Item;
-    PluginItems[13] := @SerifDuringGroup;
-    PluginItems[14] := @SerifDuringEmotionItem;
-    PluginItems[15] := @SerifDuringSpeedItem;
-    PluginItems[16] := @SerifSyncGroup;
-    PluginItems[17] := @SerifSyncTypeItem;
-    PluginItems[18] := @SerifSyncFillItem;
-    PluginItems[19] := @SerifSyncAfterItem;
-    PluginItems[20] := @SerifSyncShapeItem;
-    PluginItems[21] := @SerifSyncColorItem;
-    PluginItems[22] := @SerifSyncSizeItem;
-    PluginItems[23] := @SerifSyncOffsetXItem;
-    PluginItems[24] := @SerifSyncOffsetYItem;
-    PluginItems[25] := @SerifAfterGroup;
+    PluginItems[4] := @DisplayEffectItem;
+    PluginItems[5] := @DisplaySettingsButton;
+    PluginItems[6] := @SerifBeforeGroup;
+    PluginItems[7] := @PreDisplayTimeItem;
+    PluginItems[8] := @SerifBeforeTypeItem;
+    PluginItems[9] := @SerifBeforeDirectionItem;
+    PluginItems[10] := @SerifBeforeZoomOriginItem;
+    PluginItems[11] := @SerifBeforeTimeItem;
+    PluginItems[12] := @SerifDuringGroup;
+    PluginItems[13] := @SerifDuringEmotionItem;
+    PluginItems[14] := @SerifDuringSpeedItem;
+    PluginItems[15] := @SerifSyncGroup;
+    PluginItems[16] := @SerifSyncTypeItem;
+    PluginItems[17] := @SerifSyncFillItem;
+    PluginItems[18] := @SerifSyncAfterItem;
+    PluginItems[19] := @SerifSyncShapeItem;
+    PluginItems[20] := @SerifSyncColorItem;
+    PluginItems[21] := @SerifSyncSizeItem;
+    PluginItems[22] := @SerifSyncOffsetXItem;
+    PluginItems[23] := @SerifSyncOffsetYItem;
+    PluginItems[24] := @SerifAfterGroup;
+    PluginItems[25] := @HoldTimeItem;
     PluginItems[26] := @SerifAfterTypeItem;
     PluginItems[27] := @SerifAfterDirectionItem;
     PluginItems[28] := @SerifAfterZoomDestinationItem;
-    PluginItems[29] := @SerifAfterValue1Item;
+    PluginItems[29] := @SerifAfterTimeItem;
     PluginItems[30] := @SongDocumentItem;
     PluginItems[31] := @DisplaySettingsTextItem;
     PluginItems[32] := nil;
