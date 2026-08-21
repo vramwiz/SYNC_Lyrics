@@ -37,6 +37,7 @@ var
   CommonSettings: TArray<TDisplayCommonSettings>;
   CharacterCommonSettings: TArray<TDisplayCommonSettings>;
   CharacterLyrics: TArray<string>;
+  InitialCharacterPlacement: TDisplayPlacementItem;
   CharacterPlacementBefore: TDisplayPlacementItem;
   CharacterPlacement1Before: TDisplayPlacementItem;
   CharacterSettingsTexts: TArray<string>;
@@ -89,10 +90,12 @@ begin
           raise Exception.Create('default font sizes were not reduced');
         if Form.Font.Height <> -MulDiv(12, Form.CurrentPPI, 96) then
           raise Exception.Create('form font DPI scaling mismatch');
-        if Form.ClientWidth <> MulDiv(920, Form.CurrentPPI, 96) then
+        if Form.ClientWidth <> MulDiv(990, Form.CurrentPPI, 96) then
           raise Exception.Create('form width DPI scaling mismatch');
-        if Form.ClientHeight <> MulDiv(682, Form.CurrentPPI, 96) then
+        if Form.ClientHeight <> MulDiv(650, Form.CurrentPPI, 96) then
           raise Exception.Create('form height DPI scaling mismatch');
+        if Form.Position <> poScreenCenter then
+          raise Exception.Create('form initial position mismatch');
         if Form.CandidateCombo.ItemHeight <>
           MulDiv(16, Form.CandidateCombo.CurrentPPI, 96) then
           raise Exception.Create('candidate combo item height DPI mismatch');
@@ -118,7 +121,9 @@ begin
           (CharacterPage.BaseFontCombo.ItemHeight <>
           MulDiv(16, CharacterPage.BaseFontCombo.CurrentPPI, 96)) or
           (CharacterPage.RubyFontCombo.ItemHeight <>
-          MulDiv(16, CharacterPage.RubyFontCombo.CurrentPPI, 96)) then
+          MulDiv(16, CharacterPage.RubyFontCombo.CurrentPPI, 96)) or
+          (CharacterPage.ElementCombo.ItemHeight <>
+          MulDiv(16, CharacterPage.ElementCombo.CurrentPPI, 96)) then
           raise Exception.Create('font combo item height DPI mismatch');
         SetLength(BackgroundPixels, 640 * 360 * 4);
         FillChar(BackgroundPixels[0], Length(BackgroundPixels), $40);
@@ -151,12 +156,19 @@ begin
           raise Exception.Create('character test settings encode failed');
         CharacterPage.ConfigureCandidates(CharacterLyrics,
           CharacterCommonSettings, CharacterSettingsTexts, 0);
+        InitialCharacterPlacement := CharacterPage.ElementPlacement(0);
+        Form.CaptureInitialState;
+        if (Form.ModeToolbar.ItemCount <> 5) or
+          (Form.ModeToolbar.Items[0].Glyph <> tbgClose) or
+          (Form.ModeToolbar.Items[1].Glyph <> tbgRestore) then
+          raise Exception.Create('close and restore toolbar mismatch');
         if (CharacterPage.SelectedLyrics <> CharacterLyrics[0]) or
           (CharacterPage.ElementCount <> 2) or
-          (CharacterPage.ElementList.Items[1].SubItems[0] <>
-            #91#27468#35422#93#40#12358#12383#41) then
+          (CharacterPage.ElementCombo.Items[1] <>
+            #50#58#32#91#27468#35422#93#40#12358#12383#41) then
           raise Exception.Create('character display units were not loaded');
-        CharacterPage.ElementList.Items[1].Selected := True;
+        CharacterPage.ElementCombo.ItemIndex := 1;
+        CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
         CharacterPage.CandidateChanged(1);
         if (CharacterPage.SelectedLyrics <> CharacterLyrics[1]) or
           (CharacterPage.ElementCount <> 2) then
@@ -177,7 +189,7 @@ begin
           [], Bounds.Left + 1,
           (Bounds.Top + Bounds.Bottom) div 2);
         if (CharacterPage.SelectedElementIndex <> 0) or
-          not CharacterPage.ElementList.Items[0].Selected then
+          (CharacterPage.ElementCombo.ItemIndex <> 0) then
           raise Exception.CreateFmt(
             'character preview selection mismatch: selected=%d, bounds=%d,%d,%d,%d',
             [CharacterPage.SelectedElementIndex, Bounds.Left, Bounds.Top,
@@ -201,8 +213,7 @@ begin
           [ssShift], Bounds.Right - 1,
           (Bounds.Top + Bounds.Bottom) div 2);
         if (CharacterPage.SelectedElementCount <> 2) or
-          not CharacterPage.ElementList.Items[0].Selected or
-          not CharacterPage.ElementList.Items[1].Selected then
+          (CharacterPage.ElementCombo.ItemIndex <> 1) then
           raise Exception.Create('character multi-selection mismatch');
         CharacterPlacementBefore := CharacterPage.ElementPlacement(0);
         CharacterPlacement1Before := CharacterPage.ElementPlacement(1);
@@ -239,10 +250,11 @@ begin
           [], Bounds.Right + 4, Bounds.Bottom + 4);
         if CharacterPage.SelectedElementCount <> 2 then
           raise Exception.Create('character rectangle selection mismatch');
-        CharacterPage.ElementList.Items[0].Selected := False;
+        CharacterPage.ElementCombo.ItemIndex := 1;
+        CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
         if (CharacterPage.SelectedElementCount <> 1) or
-          not CharacterPage.ElementList.Items[1].Selected then
-          raise Exception.Create('character list selection sync mismatch');
+          (CharacterPage.ElementCombo.ItemIndex <> 1) then
+          raise Exception.Create('character combo selection sync mismatch');
         Bounds := CharacterPage.PreviewElementBounds(1);
         CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
           [], (Bounds.Left + Bounds.Right) div 2,
@@ -307,7 +319,8 @@ begin
         if (CharacterPage.ViewPan.X = ViewPanBefore.X) and
           (CharacterPage.ViewPan.Y = ViewPanBefore.Y) then
           raise Exception.Create('character preview pan mismatch');
-        CharacterPage.ElementList.Items[1].Selected := True;
+        CharacterPage.ElementCombo.ItemIndex := 1;
+        CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
         CharacterPlacementBefore := CharacterPage.ElementPlacement(1);
         CharacterPage.ActionToolbar.Items[2].Execute;
         if (CharacterPage.ElementPlacement(1).ScaleX =
@@ -619,7 +632,27 @@ begin
         Form.SetMode(DISPLAY_SETTINGS_MODE_FREE);
         if Form.SelectedCandidateIndex <> 1 then
           raise Exception.Create('free candidate selection was not retained');
+        Form.RestoreInitialState;
+        if (Form.CurrentMode <> DISPLAY_SETTINGS_MODE_LINE) or
+          (Form.SelectedCandidateIndex <> 1) or
+          (LinePage.SelectedCommonSettings.BaseFontName <> 'Arial') then
+          raise Exception.Create('line initial state was not restored');
+        Form.SetMode(DISPLAY_SETTINGS_MODE_FREE);
+        if (Form.SelectedCandidateIndex <> 0) or
+          (CharacterPage.ElementPlacement(0).X <>
+          InitialCharacterPlacement.X) or
+          (CharacterPage.ElementPlacement(0).Y <>
+          InitialCharacterPlacement.Y) or
+          (CharacterPage.ElementPlacement(0).ScaleX <>
+          InitialCharacterPlacement.ScaleX) or
+          (CharacterPage.ElementPlacement(0).ScaleY <>
+          InitialCharacterPlacement.ScaleY) then
+          raise Exception.Create('free initial state was not restored');
         Form.SetMode(DISPLAY_SETTINGS_MODE_LINE);
+        Form.ModeToolbar.Items[0].Execute;
+        if Form.ModalResult <> mrOk then
+          raise Exception.Create('close toolbar did not accept edits');
+        Form.ModalResult := mrNone;
         Application.ProcessMessages;
         if ExceptionHandler.Failed then
           raise Exception.Create('form construction raised an exception');
@@ -645,14 +678,14 @@ begin
           SameText(ParamStr(1), '--snapshot') then
         begin
           SnapshotPath := ParamStr(2);
+          if (ParamCount > 2) and SameText(ParamStr(3), 'free') then
+            Form.SetMode(DISPLAY_SETTINGS_MODE_FREE);
           Form.Show;
           Application.ProcessMessages;
           if ExceptionHandler.Failed then
             raise Exception.Create('display raised an exception');
-          Bitmap := TBitmap.Create;
+          Bitmap := Form.GetFormImage;
           try
-            Bitmap.SetSize(Form.Width, Form.Height);
-            Form.PaintTo(Bitmap.Canvas.Handle, 0, 0);
             Bitmap.SaveToFile(SnapshotPath);
           finally
             Bitmap.Free;

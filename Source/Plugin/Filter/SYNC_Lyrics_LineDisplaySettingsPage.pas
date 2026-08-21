@@ -60,6 +60,9 @@ type
     FActionToolbar: TSyncLyricsToolbarButtons;
     FColorPanel: TDisplaySettingsColorPanel;
     FFormattingToolbar: TSyncLyricsToolbarButtons;
+    FInitialCandidate: Integer;
+    FInitialCandidateCommon: TArray<TDisplayCommonSettings>;
+    FInitialCandidateLyrics: TArray<string>;
     FLayoutReady: Boolean;
     FOutlineButton: TSyncLyricsToolbarButton;
     FPreview: TPaintBox;
@@ -124,6 +127,7 @@ type
     destructor Destroy; override;
     procedure AdjustPreviewZoom(WheelDelta: Integer;
       const ClientPoint: TPoint);
+    procedure CaptureInitialState; override;
     procedure CandidateChanged(Index: Integer); override;
     function CandidateCommonSettings: TArray<TDisplayCommonSettings>;
     function CandidateLyrics: TArray<string>;
@@ -140,6 +144,7 @@ type
     function HasSkiaPreviewRenderer: Boolean;
     function RubyPreviewRect(Index: Integer): TRect;
     function RubyPreviewRectCount: Integer;
+    procedure RestoreInitialState; override;
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
     property BaseFontCombo: TComboBox read FBaseFontCombo;
@@ -292,6 +297,14 @@ begin
   UpdateControls;
 end;
 
+procedure TFrameLyricsLineDisplaySettingsPage.CaptureInitialState;
+begin
+  StoreCurrentCandidate;
+  FInitialCandidate := FCurrentCandidate;
+  FInitialCandidateLyrics := Copy(FCandidateLyrics);
+  FInitialCandidateCommon := Copy(FCandidateCommon);
+end;
+
 function TFrameLyricsLineDisplaySettingsPage.CandidateCommonSettings:
   TArray<TDisplayCommonSettings>;
 begin
@@ -318,6 +331,23 @@ begin
     Exit;
   CandidateChanged(EnsureRange(InitialIndex, 0,
     Min(High(FCandidateLyrics), High(FCandidateCommon))));
+end;
+
+procedure TFrameLyricsLineDisplaySettingsPage.RestoreInitialState;
+begin
+  FCandidateLyrics := Copy(FInitialCandidateLyrics);
+  FCandidateCommon := Copy(FInitialCandidateCommon);
+  FCurrentCandidate := -1;
+  if (FInitialCandidate >= 0) and
+    (FInitialCandidate < Length(FCandidateLyrics)) and
+    (FInitialCandidate < Length(FCandidateCommon)) then
+    CandidateChanged(FInitialCandidate)
+  else
+  begin
+    FCurrentLyrics := '';
+    FCurrentCommon := DefaultDisplayCommonSettings;
+    UpdateControls;
+  end;
 end;
 
 procedure TFrameLyricsLineDisplaySettingsPage.ComboDrawItem(

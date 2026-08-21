@@ -21,9 +21,11 @@ type
     function ModeGlyph: TSyncLyricsToolbarGlyph; virtual; abstract;
     function ModeID: Integer; virtual; abstract;
     function ModeName: string; virtual; abstract;
+    procedure CaptureInitialState; virtual;
     procedure CandidateChanged(Index: Integer); virtual;
     procedure PageActivated; virtual;
     procedure PageDeactivated; virtual;
+    procedure RestoreInitialState; virtual;
   end;
 
 implementation
@@ -44,11 +46,19 @@ procedure TFrameDisplaySettingsModePage.CandidateChanged(Index: Integer);
 begin
 end;
 
+procedure TFrameDisplaySettingsModePage.CaptureInitialState;
+begin
+end;
+
 procedure TFrameDisplaySettingsModePage.PageActivated;
 begin
 end;
 
 procedure TFrameDisplaySettingsModePage.PageDeactivated;
+begin
+end;
+
+procedure TFrameDisplaySettingsModePage.RestoreInitialState;
 begin
 end;
 

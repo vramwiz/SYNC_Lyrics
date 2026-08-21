@@ -22,6 +22,7 @@ uses
   System.Math,
   System.SysUtils,
   System.UITypes,
+  PluginFilterTable,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_DisplaySettingsForm,
   SYNC_Lyrics_CharacterLayoutSettingsForm,
@@ -64,57 +65,18 @@ var
     Name: '歌詞';
     Value: ''
   );
-  SongDocumentItem: TFILTER_ITEM_STRING = (
-    ItemType: 'string';
-    Name: '歌詞データ';
-    Value: ''
-  );
-  MusicFileItem: TFILTER_ITEM_FILE = (
-    ItemType: 'file';
-    Name: '音楽ファイル';
-    Value: '';
-    FileFilter:
-      '同期ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz;*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma)'#0 +
-      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz;*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma'#0 +
-      '楽譜ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz)'#0 +
-      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz'#0 +
-      '音声ファイル (*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma)'#0 +
-      '*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma'#0 +
-      'すべてのファイル (*.*)'#0'*.*'#0#0
-  );
-  TrackItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: 'トラック (-1=全て)';
-    Value: -1;
-    S: -1;
-    E: 255;
-    Step: 1
-  );
-  MusicOffsetItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: '音楽オフセット (秒)';
-    Value: 0;
-    S: -5;
-    E: 5;
-    Step: 0.01
-  );
+  SongDocumentItem: TFILTER_ITEM_STRING;
+  MusicFileItem: TFILTER_ITEM_FILE;
+  TrackItem: TFILTER_ITEM_TRACK;
+  MusicOffsetItem: TFILTER_ITEM_TRACK;
   DisplayEffectList: array[0..3] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: '通常カラオケ'; Value: 0),
     (Name: '文字単位強調'; Value: 1),
     (Name: '1文字ずつ出現'; Value: 2),
     (Name: nil; Value: 0)
   );
-  DisplayEffectItem: TFILTER_ITEM_SELECT = (
-    ItemType: 'select';
-    Name: '同期演出';
-    Value: 0;
-    List: @DisplayEffectList[0]
-  );
-  DisplaySettingsButton: TFILTER_ITEM_BUTTON = (
-    ItemType: 'button';
-    Name: '表示設定';
-    Callback: DisplaySettingsButtonCallback
-  );
+  DisplayEffectItem: TFILTER_ITEM_SELECT;
+  DisplaySettingsButton: TFILTER_ITEM_BUTTON;
   SyncAnimationList: array[0..2] of TFILTER_ITEM_SELECT_ITEM = (
     (Name: 'なし'; Value: 0),
     (Name: 'バウンド'; Value: 1),
@@ -159,47 +121,16 @@ var
     E: 10;
     Step: 0.01
   );
-  PreDisplayTimeItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: '事前表示';
-    Value: 0.5;
-    S: 0;
-    E: 60;
-    Step: 0.01
-  );
-  HoldTimeItem: TFILTER_ITEM_TRACK = (
-    ItemType: 'track';
-    Name: '表示維持';
-    Value: 0.5;
-    S: 0;
-    E: 60;
-    Step: 0.01
-  );
-  MusicSyncSettingsButton: TFILTER_ITEM_BUTTON = (
-    ItemType: 'button';
-    Name: '曲同期設定';
-    Callback: MusicSyncSettingsButtonCallback
-  );
+  PreDisplayTimeItem: TFILTER_ITEM_TRACK;
+  HoldTimeItem: TFILTER_ITEM_TRACK;
+  MusicSyncSettingsButton: TFILTER_ITEM_BUTTON;
   SyncDataItem: TFILTER_ITEM_STRING = (
     ItemType: 'string';
     Name: '同期データ';
     Value: DEFAULT_MUSIC_SYNC_TEXT
   );
-  DisplaySettingsTextItem: TFILTER_ITEM_STRING = (
-    ItemType: 'string';
-    Name: '表示設定';
-    Value: ''
-  );
-  PluginItems: array[0..32] of Pointer;
-  Plugin: TFILTER_PLUGIN_TABLE = (
-    Flag: FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER;
-    Name: 'SYNC_歌詞テロップ_Filter';
-    Label_: 'SYNC';
-    Information: '音楽データに同期する歌詞テロップフィルター';
-    Items: nil;
-    Func_Proc_Video: LyricsProcVideoMulti;
-    Func_Proc_Audio: nil
-  );
+  DisplaySettingsTextItem: TFILTER_ITEM_STRING;
+  PluginTableInitialized: Boolean;
 
 const
   FILTER_EFFECT_NAME = 'SYNC_歌詞テロップ_Filter';
@@ -689,19 +620,25 @@ begin
     ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
 end;
 
-function TryStoreSongLinePlacements(Edit: PEDIT_SECTION;
+function TryStoreDisplaySettings(Edit: PEDIT_SECTION;
   Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
-  PlacementMode: Integer; const SettingsTexts: TArray<string>;
-  out ErrorText: string): Boolean;
+  PlacementMode: Integer; const LaneSettingsTexts,
+  LineSettingsTexts: TArray<string>; out ErrorText: string): Boolean;
 var
   CandidatePosition: Integer;
   EncodedSongText: string;
+  LanePosition: Integer;
   Model: TLyricsSongModel;
   Utf8SongText: UTF8String;
 begin
   Result := False;
   ErrorText := '';
-  if Length(SettingsTexts) <> Length(Context.CandidateIndexes) then
+  if Length(LaneSettingsTexts) <> 3 then
+  begin
+    ErrorText := '共通配置1～3の設定を取得できませんでした。';
+    Exit;
+  end;
+  if Length(LineSettingsTexts) <> Length(Context.CandidateIndexes) then
   begin
     ErrorText := '自由配置の編集内容を取得できませんでした。';
     Exit;
@@ -714,62 +651,19 @@ begin
       Model.TrySetStartLineID(Context.StartLineID);
     Model.PlacementMode := TLyricsPlacementMode(EnsureRange(
       PlacementMode, PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
-    for CandidatePosition := 0 to High(SettingsTexts) do
-      if not Model.TrySetPlacementText(
-        Context.CandidateIndexes[CandidatePosition],
-        SettingsTexts[CandidatePosition]) then
-      begin
-        ErrorText := '自由配置設定を歌詞データへ反映できませんでした。';
-        Exit;
-      end;
-    if not TryEncodeSongLyrics(Model, EncodedSongText, ErrorText) then
-      Exit;
-  finally
-    Model.Free;
-  end;
-  if (Edit = nil) or not Assigned(Edit^.SetObjectItemValue) or
-    (Obj = nil) then
-  begin
-    ErrorText := '配置を反映する対象オブジェクトを取得できませんでした。';
-    Exit;
-  end;
-  Utf8SongText := UTF8String(EncodedSongText);
-  Result := Edit^.SetObjectItemValue(Obj, FILTER_EFFECT_NAME,
-    '歌詞データ', PAnsiChar(Utf8SongText));
-  if not Result then
-    ErrorText := '歌詞データを歌詞テロップへ反映できませんでした。';
-end;
-
-function TryStoreSongLanePlacements(Edit: PEDIT_SECTION;
-  Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
-  PlacementMode: Integer; const SettingsTexts: TArray<string>;
-  out ErrorText: string): Boolean;
-var
-  EncodedSongText: string;
-  LanePosition: Integer;
-  Model: TLyricsSongModel;
-  Utf8SongText: UTF8String;
-begin
-  Result := False;
-  ErrorText := '';
-  if Length(SettingsTexts) <> 3 then
-  begin
-    ErrorText := '共通配置1～3の設定を取得できませんでした。';
-    Exit;
-  end;
-  Model := TLyricsSongModel.Create;
-  try
-    Model.ReplaceLines(Context.Lines);
-    Model.ReplaceLanePlacementTexts(Context.LanePlacementTexts);
-    if Context.StartLineID > 0 then
-      Model.TrySetStartLineID(Context.StartLineID);
-    Model.PlacementMode := TLyricsPlacementMode(EnsureRange(
-      PlacementMode, PLACEMENT_MODE_LINE, PLACEMENT_MODE_FREE));
-    for LanePosition := 0 to 2 do
+    for LanePosition := 0 to High(LaneSettingsTexts) do
       if not Model.TrySetLanePlacementText(LanePosition + 1,
-        SettingsTexts[LanePosition]) then
+        LaneSettingsTexts[LanePosition]) then
       begin
         ErrorText := '共通配置設定を歌詞データへ反映できませんでした。';
+        Exit;
+      end;
+    for CandidatePosition := 0 to High(LineSettingsTexts) do
+      if not Model.TrySetPlacementText(
+        Context.CandidateIndexes[CandidatePosition],
+        LineSettingsTexts[CandidatePosition]) then
+      begin
+        ErrorText := '自由配置設定を歌詞データへ反映できませんでした。';
         Exit;
       end;
     if not TryEncodeSongLyrics(Model, EncodedSongText, ErrorText) then
@@ -804,9 +698,10 @@ var
   CurrentSettingsText: string;
   DisplaySettingsForm: TFormLyricsDisplaySettings;
   ErrorText: string;
-  FormResult: Integer;
   I: Integer;
+  LaneSettingsTexts: TArray<string>;
   LinePage: TFrameLyricsLineDisplaySettingsPage;
+  LineSettingsTexts: TArray<string>;
   Obj: OBJECT_HANDLE;
   PlacementContext: TPlacementCandidateContext;
   PlacementMode: TLyricsPlacementMode;
@@ -861,9 +756,9 @@ begin
           PlacementContext.InitialCandidate);
       end;
       DisplaySettingsForm.SetMode(Ord(PlacementMode));
-      FormResult := DisplaySettingsForm.ShowModal;
-      if WholeSongMode and (FormResult = mrOk) and
-        (DisplaySettingsForm.CurrentMode = Ord(lpmLine)) then
+      DisplaySettingsForm.CaptureInitialState;
+      DisplaySettingsForm.ShowModal;
+      if WholeSongMode then
       begin
         CandidateLyrics := LinePage.CandidateLyrics;
         CandidateCommon := LinePage.CandidateCommonSettings;
@@ -874,31 +769,25 @@ begin
             '共通配置1～3の編集内容を取得できませんでした。');
           Exit;
         end;
-        SetLength(CandidateSettingsTexts, 3);
+        SetLength(LaneSettingsTexts, 3);
         for I := 0 to 2 do
           if not TryEncodeDisplaySettingsText(CandidateLyrics[I],
-            CandidateCommon[I], nil, CandidateSettingsTexts[I]) then
+            CandidateCommon[I], nil, LaneSettingsTexts[I]) then
           begin
             ShowFontSettingsError(
               '共通配置設定を文字列へ変換できませんでした。');
             Exit;
           end;
-        if not TryStoreSongLanePlacements(Edit, Obj, PlacementContext,
-          Ord(lpmLine), CandidateSettingsTexts, ErrorText) then
-          ShowFontSettingsError(ErrorText);
-      end;
-      if WholeSongMode and (FormResult = mrOk) and
-        (DisplaySettingsForm.CurrentMode = Ord(lpmFree)) then
-      begin
         if not CharacterPage.TryBuildCandidateSettingsTexts(
-          CandidateSettingsTexts) then
+          LineSettingsTexts) then
         begin
           ShowFontSettingsError(
             '自由配置設定を文字列へ変換できませんでした。');
           Exit;
         end;
-        if not TryStoreSongLinePlacements(Edit, Obj, PlacementContext,
-          Ord(lpmFree), CandidateSettingsTexts, ErrorText) then
+        if not TryStoreDisplaySettings(Edit, Obj, PlacementContext,
+          DisplaySettingsForm.CurrentMode, LaneSettingsTexts,
+          LineSettingsTexts, ErrorText) then
           ShowFontSettingsError(ErrorText);
       end;
     finally
@@ -2055,46 +1944,57 @@ end;
 
 function GetLyricsFilterTable: PFILTER_PLUGIN_TABLE;
 begin
-  if Plugin.Items = nil then
+  if not PluginTableInitialized then
   begin
-    // AviUtl2はnil終端された項目ポインター配列を参照する。
+    SetupPluginTable(FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER,
+      'SYNC_歌詞テロップ_Filter', 'SYNC',
+      '音楽データに同期する歌詞テロップフィルター',
+      LyricsProcVideoMulti, nil);
+    AddFile(MusicFileItem, '音楽ファイル', '',
+      '同期ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz;*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma)'#0 +
+      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz;*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma'#0 +
+      '楽譜ファイル (*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz)'#0 +
+      '*.mid;*.midi;*.ust;*.vsq;*.vsqx;*.musicxml;*.mxl;*.xml;*.mscx;*.mscz'#0 +
+      '音声ファイル (*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma)'#0 +
+      '*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wma'#0 +
+      'すべてのファイル (*.*)'#0'*.*'#0#0);
+    AddTrack(TrackItem, 'トラック (-1=全て)', -1, -1, 255, 1);
+    AddTrack(MusicOffsetItem, '音楽オフセット (秒)', 0, -5, 5, 0.01);
+    AddButton(MusicSyncSettingsButton, '曲同期設定',
+      MusicSyncSettingsButtonCallback);
+    AddSelect(DisplayEffectItem, '同期演出', 0, @DisplayEffectList[0]);
+    AddButton(DisplaySettingsButton, '表示設定',
+      DisplaySettingsButtonCallback);
     InitializeSerifAnimationItems;
-    PluginItems[0] := @MusicFileItem;
-    PluginItems[1] := @TrackItem;
-    PluginItems[2] := @MusicOffsetItem;
-    PluginItems[3] := @MusicSyncSettingsButton;
-    PluginItems[4] := @DisplayEffectItem;
-    PluginItems[5] := @DisplaySettingsButton;
-    PluginItems[6] := @SerifBeforeGroup;
-    PluginItems[7] := @PreDisplayTimeItem;
-    PluginItems[8] := @SerifBeforeTypeItem;
-    PluginItems[9] := @SerifBeforeDirectionItem;
-    PluginItems[10] := @SerifBeforeZoomOriginItem;
-    PluginItems[11] := @SerifBeforeTimeItem;
-    PluginItems[12] := @SerifDuringGroup;
-    PluginItems[13] := @SerifDuringEmotionItem;
-    PluginItems[14] := @SerifDuringSpeedItem;
-    PluginItems[15] := @SerifSyncGroup;
-    PluginItems[16] := @SerifSyncTypeItem;
-    PluginItems[17] := @SerifSyncFillItem;
-    PluginItems[18] := @SerifSyncAfterItem;
-    PluginItems[19] := @SerifSyncShapeItem;
-    PluginItems[20] := @SerifSyncColorItem;
-    PluginItems[21] := @SerifSyncSizeItem;
-    PluginItems[22] := @SerifSyncOffsetXItem;
-    PluginItems[23] := @SerifSyncOffsetYItem;
-    PluginItems[24] := @SerifAfterGroup;
-    PluginItems[25] := @HoldTimeItem;
-    PluginItems[26] := @SerifAfterTypeItem;
-    PluginItems[27] := @SerifAfterDirectionItem;
-    PluginItems[28] := @SerifAfterZoomDestinationItem;
-    PluginItems[29] := @SerifAfterTimeItem;
-    PluginItems[30] := @SongDocumentItem;
-    PluginItems[31] := @DisplaySettingsTextItem;
-    PluginItems[32] := nil;
-    Plugin.Items := @PluginItems[0];
+    AddFilterItem(SerifBeforeGroup);
+    AddTrack(PreDisplayTimeItem, '事前表示', 0.5, 0, 60, 0.01);
+    AddFilterItem(SerifBeforeTypeItem);
+    AddFilterItem(SerifBeforeDirectionItem);
+    AddFilterItem(SerifBeforeZoomOriginItem);
+    AddFilterItem(SerifBeforeTimeItem);
+    AddFilterItem(SerifDuringGroup);
+    AddFilterItem(SerifDuringEmotionItem);
+    AddFilterItem(SerifDuringSpeedItem);
+    AddFilterItem(SerifSyncGroup);
+    AddFilterItem(SerifSyncTypeItem);
+    AddFilterItem(SerifSyncFillItem);
+    AddFilterItem(SerifSyncAfterItem);
+    AddFilterItem(SerifSyncShapeItem);
+    AddFilterItem(SerifSyncColorItem);
+    AddFilterItem(SerifSyncSizeItem);
+    AddFilterItem(SerifSyncOffsetXItem);
+    AddFilterItem(SerifSyncOffsetYItem);
+    AddFilterItem(SerifAfterGroup);
+    AddTrack(HoldTimeItem, '表示維持', 0.5, 0, 60, 0.01);
+    AddFilterItem(SerifAfterTypeItem);
+    AddFilterItem(SerifAfterDirectionItem);
+    AddFilterItem(SerifAfterZoomDestinationItem);
+    AddFilterItem(SerifAfterTimeItem);
+    AddString(SongDocumentItem, '歌詞データ', '');
+    AddString(DisplaySettingsTextItem, '表示設定', '');
+    PluginTableInitialized := True;
   end;
-  Result := @Plugin;
+  Result := GetPluginTable;
 end;
 
 procedure InitializeLyricsFilter;

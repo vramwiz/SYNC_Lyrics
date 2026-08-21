@@ -9,7 +9,6 @@ uses
   System.SysUtils,
   System.Types,
   System.UITypes,
-  Vcl.ComCtrls,
   Vcl.Controls,
   Vcl.ExtCtrls,
   Vcl.Forms,
@@ -38,15 +37,20 @@ type
     FBaseFontCombo: TComboBox;
     FBaseFontLabel: TLabel;
     FColorPanel: TDisplaySettingsColorPanel;
-    FElementList: TListView;
-    FElementListLabel: TLabel;
-    FElementPanel: TPanel;
+    FElementCombo: TComboBox;
+    FElementLabel: TLabel;
     FFormattingToolbar: TSyncLyricsToolbarButtons;
     FCandidateCommon: TArray<TDisplayCommonSettings>;
     FCandidateLyrics: TArray<string>;
     FCandidatePlacements: TDisplayPlacementItemArray;
     FCandidateSelected: TBooleanArrayArray;
     FCandidateSelections: TArray<Integer>;
+    FInitialCandidate: Integer;
+    FInitialCandidateCommon: TArray<TDisplayCommonSettings>;
+    FInitialCandidateLyrics: TArray<string>;
+    FInitialCandidatePlacements: TDisplayPlacementItemArray;
+    FInitialCandidateSelected: TBooleanArrayArray;
+    FInitialCandidateSelections: TArray<Integer>;
     FCurrentCandidate: Integer;
     FCurrentCommon: TDisplayCommonSettings;
     FCurrentLyrics: string;
@@ -67,7 +71,7 @@ type
     FSelectionMode: TCharacterLayoutSelectionMode;
     FSelectionStart: TPoint;
     FUnits: TLyricsDisplayUnits;
-    FUpdatingElementList: Boolean;
+    FUpdatingElementCombo: Boolean;
     FUpdatingControls: Boolean;
     FLayoutReady: Boolean;
     FPreview: TPaintBox;
@@ -93,10 +97,9 @@ type
       TCharacterLayoutDragMode;
     function HitTestResizeHandle(X, Y: Integer):
       TCharacterLayoutDragMode;
-    procedure ElementListSelectItem(Sender: TObject; Item: TListItem;
-      Selected: Boolean);
+    procedure ElementComboChange(Sender: TObject);
     procedure LoadCandidate(Index: Integer);
-    procedure PopulateElementList;
+    procedure PopulateElementCombo;
     function PreviewScale: Double;
     function PreviewDestinationRect: TRect;
     procedure PreviewMouseDown(Sender: TObject; Button: TMouseButton;
@@ -114,7 +117,7 @@ type
     function SelectionSupportsRubyMode: Boolean;
     procedure StoreCurrentCandidate;
     procedure UpdateSelectedControls;
-    procedure UpdateElementListSelection;
+    procedure UpdateElementComboSelection;
   protected
     procedure Resize; override;
   public
@@ -122,6 +125,7 @@ type
     destructor Destroy; override;
     procedure AdjustPreviewZoom(WheelDelta: Integer;
       const ClientPoint: TPoint);
+    procedure CaptureInitialState; override;
     procedure CandidateChanged(Index: Integer); override;
     procedure ConfigureCandidates(const Lyrics: TArray<string>;
       const CommonSettings: TArray<TDisplayCommonSettings>;
@@ -144,14 +148,14 @@ type
     function ViewPan: TPointF;
     function ViewZoom: Double;
     function SelectedLyrics: string;
+    procedure RestoreInitialState; override;
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
     property ColorPanel: TDisplaySettingsColorPanel read FColorPanel;
     property BaseFontCombo: TComboBox read FBaseFontCombo;
     property RubyFontCombo: TComboBox read FRubyFontCombo;
     property ActionToolbar: TSyncLyricsToolbarButtons read FActionToolbar;
-    property ElementList: TListView read FElementList;
-    property ElementPanel: TPanel read FElementPanel;
+    property ElementCombo: TComboBox read FElementCombo;
     property FormattingToolbar: TSyncLyricsToolbarButtons
       read FFormattingToolbar;
     property Preview: TPaintBox read FPreview;
@@ -244,36 +248,20 @@ begin
   FPreview.OnMouseUp := PreviewMouseUp;
   TCharacterDisplayPageControlAccess(FPreview).OnMouseWheel :=
     PreviewMouseWheel;
-  FElementPanel := TPanel.Create(Self);
-  FElementPanel.Parent := Self;
-  FElementPanel.BevelOuter := bvNone;
-  FElementPanel.Caption := '';
-  ApplySyncLyricsDarkPanel(FElementPanel);
-  FElementListLabel := TLabel.Create(Self);
-  FElementListLabel.Parent := FElementPanel;
-  FElementListLabel.Caption := #27468#35422#49#25991#23383;
-  FElementListLabel.Font.Assign(Font);
-  FElementList := TListView.Create(Self);
-  FElementList.Parent := FElementPanel;
-  FElementList.ViewStyle := vsReport;
-  FElementList.ReadOnly := True;
-  FElementList.RowSelect := True;
-  FElementList.MultiSelect := True;
-  FElementList.HideSelection := False;
-  FElementList.Columns.Add.Caption := '#';
-  FElementList.Columns[0].Width := MulDiv(30, CurrentPPI, 96);
-  FElementList.Columns.Add.Caption := #25991#23383;
-  FElementList.Columns[1].Width := MulDiv(86, CurrentPPI, 96);
-  FElementList.OnSelectItem := ElementListSelectItem;
-  FElementList.Color := SYNC_LYRICS_DARK_CONTROL_COLOR;
-  FElementList.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
-  FElementList.StyleElements := FElementList.StyleElements - [seClient];
+  FElementLabel := TLabel.Create(Self);
+  FElementLabel.Parent := Self;
+  FElementLabel.Caption := #36984#25246#25991#23383;
+  FElementLabel.Font.Assign(Font);
+  FElementCombo := TComboBox.Create(Self);
+  FElementCombo.Parent := Self;
+  FElementCombo.OnChange := ElementComboChange;
   FColorPanel := TDisplaySettingsColorPanel.Create(Self);
   FColorPanel.Parent := Self;
   FColorPanel.OnChange := ColorPanelChange;
   FColorPanel.OnTargetChange := ColorTargetChange;
   ApplySyncLyricsDarkComboBox(FBaseFontCombo, ComboDrawItem);
   ApplySyncLyricsDarkComboBox(FRubyFontCombo, ComboDrawItem);
+  ApplySyncLyricsDarkComboBox(FElementCombo, ComboDrawItem);
   FCurrentCandidate := -1;
   FSelectionMode := clsmTransform;
   FViewZoom := 1;
@@ -682,6 +670,23 @@ begin
   LoadCandidate(Index);
 end;
 
+procedure TFrameLyricsCharacterDisplaySettingsPage.CaptureInitialState;
+var
+  I: Integer;
+begin
+  StoreCurrentCandidate;
+  FInitialCandidate := FCurrentCandidate;
+  FInitialCandidateLyrics := Copy(FCandidateLyrics);
+  FInitialCandidateCommon := Copy(FCandidateCommon);
+  FInitialCandidateSelections := Copy(FCandidateSelections);
+  SetLength(FInitialCandidatePlacements, Length(FCandidatePlacements));
+  for I := 0 to High(FCandidatePlacements) do
+    FInitialCandidatePlacements[I] := Copy(FCandidatePlacements[I]);
+  SetLength(FInitialCandidateSelected, Length(FCandidateSelected));
+  for I := 0 to High(FCandidateSelected) do
+    FInitialCandidateSelected[I] := Copy(FCandidateSelected[I]);
+end;
+
 procedure TFrameLyricsCharacterDisplaySettingsPage.ConfigureCandidates(
   const Lyrics: TArray<string>;
   const CommonSettings: TArray<TDisplayCommonSettings>;
@@ -739,30 +744,16 @@ begin
     Result := FRubySpans[RubyIndex].RubyText;
 end;
 
-procedure TFrameLyricsCharacterDisplaySettingsPage.ElementListSelectItem(
-  Sender: TObject; Item: TListItem; Selected: Boolean);
-var
-  I: Integer;
+procedure TFrameLyricsCharacterDisplaySettingsPage.ElementComboChange(
+  Sender: TObject);
 begin
-  if FUpdatingElementList then
+  if FUpdatingElementCombo then
     Exit;
   if (FCurrentCandidate < 0) or
     (FCurrentCandidate >= Length(FCandidateSelections)) then
     Exit;
   FSelectionMode := clsmTransform;
-  FCandidateSelections[FCurrentCandidate] := -1;
-  SetLength(FSelected, FElementList.Items.Count);
-  for I := 0 to FElementList.Items.Count - 1 do
-  begin
-    FSelected[I] := FElementList.Items[I].Selected;
-    if FSelected[I] then
-    begin
-      FCandidateSelections[FCurrentCandidate] := I;
-    end;
-  end;
-  FCandidateSelected[FCurrentCandidate] := Copy(FSelected);
-  UpdateSelectedControls;
-  FPreview.Invalidate;
+  SelectElement(FElementCombo.ItemIndex);
 end;
 
 function TFrameLyricsCharacterDisplaySettingsPage.ElementCount: Integer;
@@ -903,47 +894,45 @@ begin
   DesiredSelection := -1;
   if (Index >= 0) and (Index < Length(FCandidateSelections)) then
     DesiredSelection := FCandidateSelections[Index];
-  PopulateElementList;
+  PopulateElementCombo;
   if (DesiredSelection >= 0) and
-    (DesiredSelection < FElementList.Items.Count) then
+    (DesiredSelection < FElementCombo.Items.Count) then
   begin
-    FUpdatingElementList := True;
+    FUpdatingElementCombo := True;
     try
-      for I := 0 to FElementList.Items.Count - 1 do
-        FElementList.Items[I].Selected := FSelected[I];
+      FElementCombo.ItemIndex := DesiredSelection;
     finally
-      FUpdatingElementList := False;
+      FUpdatingElementCombo := False;
     end;
   end;
   UpdateSelectedControls;
   FPreview.Invalidate;
 end;
 
-procedure TFrameLyricsCharacterDisplaySettingsPage.PopulateElementList;
+procedure TFrameLyricsCharacterDisplaySettingsPage.PopulateElementCombo;
 var
   BaseText: string;
   I: Integer;
-  Item: TListItem;
   RubyText: string;
 begin
-  FUpdatingElementList := True;
-  FElementList.Items.BeginUpdate;
+  FUpdatingElementCombo := True;
+  FElementCombo.Items.BeginUpdate;
   try
-    FElementList.Items.Clear;
+    FElementCombo.Items.Clear;
     for I := 0 to High(FUnits) do
     begin
       BaseText := DisplayUnitBaseText(I);
       RubyText := DisplayUnitRubyText(I);
-      Item := FElementList.Items.Add;
-      Item.Caption := IntToStr(I + 1);
       if RubyText <> '' then
-        Item.SubItems.Add(Format('[%s](%s)', [BaseText, RubyText]))
+        FElementCombo.Items.Add(Format('%d: [%s](%s)',
+          [I + 1, BaseText, RubyText]))
       else
-        Item.SubItems.Add(BaseText);
+        FElementCombo.Items.Add(Format('%d: %s', [I + 1, BaseText]));
     end;
+    FElementCombo.ItemIndex := -1;
   finally
-    FElementList.Items.EndUpdate;
-    FUpdatingElementList := False;
+    FElementCombo.Items.EndUpdate;
+    FUpdatingElementCombo := False;
   end;
 end;
 
@@ -1271,7 +1260,7 @@ begin
     FSelectingRectangle := False;
     FSelectionMode := clsmTransform;
     FCandidateSelected[FCurrentCandidate] := Copy(FSelected);
-    UpdateElementListSelection;
+    UpdateElementComboSelection;
     UpdateSelectedControls;
     FPreview.Invalidate;
     Exit;
@@ -1369,15 +1358,36 @@ begin
     end;
 end;
 
+procedure TFrameLyricsCharacterDisplaySettingsPage.RestoreInitialState;
+var
+  I: Integer;
+begin
+  FCandidateLyrics := Copy(FInitialCandidateLyrics);
+  FCandidateCommon := Copy(FInitialCandidateCommon);
+  FCandidateSelections := Copy(FInitialCandidateSelections);
+  SetLength(FCandidatePlacements, Length(FInitialCandidatePlacements));
+  for I := 0 to High(FInitialCandidatePlacements) do
+    FCandidatePlacements[I] := Copy(FInitialCandidatePlacements[I]);
+  SetLength(FCandidateSelected, Length(FInitialCandidateSelected));
+  for I := 0 to High(FInitialCandidateSelected) do
+    FCandidateSelected[I] := Copy(FInitialCandidateSelected[I]);
+  FCurrentCandidate := -1;
+  if (FInitialCandidate >= 0) and
+    (FInitialCandidate < Length(FCandidateLyrics)) then
+    LoadCandidate(FInitialCandidate)
+  else
+    LoadCandidate(-1);
+end;
+
 procedure TFrameLyricsCharacterDisplaySettingsPage.SelectElement(
   Index: Integer; Toggle: Boolean);
 var
   I: Integer;
 begin
-  if (Index < 0) or (Index >= FElementList.Items.Count) then
+  if (Index < 0) or (Index >= Length(FUnits)) then
     Index := -1;
-  if Length(FSelected) <> FElementList.Items.Count then
-    SetLength(FSelected, FElementList.Items.Count);
+  if Length(FSelected) <> Length(FUnits) then
+    SetLength(FSelected, Length(FUnits));
   if Toggle then
   begin
     if Index >= 0 then
@@ -1403,15 +1413,11 @@ begin
     FCandidateSelections[FCurrentCandidate] := Index;
     FCandidateSelected[FCurrentCandidate] := Copy(FSelected);
   end;
-  FUpdatingElementList := True;
+  FUpdatingElementCombo := True;
   try
-    for I := 0 to FElementList.Items.Count - 1 do
-    begin
-      FElementList.Items[I].Selected := FSelected[I];
-      FElementList.Items[I].Focused := I = Index;
-    end;
+    FElementCombo.ItemIndex := Index;
   finally
-    FUpdatingElementList := False;
+    FUpdatingElementCombo := False;
   end;
   UpdateSelectedControls;
   FPreview.Invalidate;
@@ -1451,17 +1457,13 @@ begin
   end;
 end;
 
-procedure TFrameLyricsCharacterDisplaySettingsPage.UpdateElementListSelection;
-var
-  I: Integer;
+procedure TFrameLyricsCharacterDisplaySettingsPage.UpdateElementComboSelection;
 begin
-  FUpdatingElementList := True;
+  FUpdatingElementCombo := True;
   try
-    for I := 0 to FElementList.Items.Count - 1 do
-      FElementList.Items[I].Selected :=
-        (I < Length(FSelected)) and FSelected[I];
+    FElementCombo.ItemIndex := SelectedElementIndex;
   finally
-    FUpdatingElementList := False;
+    FUpdatingElementCombo := False;
   end;
 end;
 
@@ -1956,23 +1958,22 @@ begin
     MulDiv(16, CurrentPPI, 96), MulDiv(2, CurrentPPI, 96),
     Max(1, ClientWidth - FRubyFontCombo.Left - FRubyFontCombo.Width -
       Margin - MulDiv(16, CurrentPPI, 96)), Extent);
+  FElementLabel.SetBounds(Margin, Extent + MulDiv(11, CurrentPPI, 96),
+    MulDiv(64, CurrentPPI, 96), MulDiv(20, CurrentPPI, 96));
+  FElementCombo.SetBounds(FElementLabel.Left + FElementLabel.Width,
+    Extent + MulDiv(6, CurrentPPI, 96), MulDiv(180, CurrentPPI, 96),
+    MulDiv(24, CurrentPPI, 96));
   FActionToolbar.ButtonExtent := Extent;
-  FActionToolbar.SetBounds(Margin, Extent + MulDiv(6, CurrentPPI, 96),
-    Max(1, ClientWidth - Margin * 2), Extent);
+  FActionToolbar.SetBounds(FElementCombo.Left + FElementCombo.Width + Gap,
+    Extent + MulDiv(4, CurrentPPI, 96),
+    Max(1, ClientWidth - FElementCombo.Left - FElementCombo.Width -
+      Gap - Margin), Extent);
   TopValue := Extent * 2 + MulDiv(14, CurrentPPI, 96);
   FColorPanel.SetBounds(ClientWidth - Margin - MulDiv(188, CurrentPPI, 96),
     TopValue, MulDiv(188, CurrentPPI, 96),
     Max(1, ClientHeight - TopValue - Margin));
-  FElementPanel.SetBounds(FColorPanel.Left - Gap -
-    MulDiv(128, CurrentPPI, 96), TopValue, MulDiv(128, CurrentPPI, 96),
-    FColorPanel.Height);
-  FElementListLabel.SetBounds(0, 0, FElementPanel.ClientWidth,
-    MulDiv(20, CurrentPPI, 96));
-  FElementList.SetBounds(0, FElementListLabel.Height,
-    FElementPanel.ClientWidth,
-    FElementPanel.ClientHeight - FElementListLabel.Height);
   FPreview.SetBounds(Margin, TopValue,
-    Max(1, FElementPanel.Left - Gap - Margin), FElementPanel.Height);
+    Max(1, FColorPanel.Left - Gap - Margin), FColorPanel.Height);
 end;
 
 end.

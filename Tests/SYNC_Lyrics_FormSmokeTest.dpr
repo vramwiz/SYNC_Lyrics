@@ -5,6 +5,7 @@ program SYNC_Lyrics_FormSmokeTest;
 uses
   System.Classes,
   System.SysUtils,
+  System.Types,
   System.UITypes,
   Winapi.Windows,
   Vcl.Controls,
@@ -52,7 +53,6 @@ var
   LyricsToolbar: TSyncLyricsToolbarButtons;
   LegacyDisplayFontHeight: Integer;
   LegacyDisplayFontName: string;
-  LegacyDisplayWidth: Integer;
   LineDisplayToolbar: TSyncLyricsToolbarButtons;
   TopToolbar: TSyncLyricsToolbarButtons;
   ToolbarExtent: Integer;
@@ -103,7 +103,6 @@ begin
     LineDisplayForm := TFormLyricsLineDisplaySettings.Create(nil);
     LegacyDisplayFontHeight := LineDisplayForm.Font.Height;
     LegacyDisplayFontName := LineDisplayForm.Font.Name;
-    LegacyDisplayWidth := LineDisplayForm.ClientWidth;
     try
       if LineDisplayForm.Color <> SYNC_LYRICS_DARK_BACKGROUND_COLOR then
         raise Exception.Create('The placement editor did not use the dark background.');
@@ -266,9 +265,15 @@ begin
       if DisplaySettingsForm.Font.Height <> LegacyDisplayFontHeight then
         raise Exception.Create(
           'The common display form did not match the legacy DPI font size.');
-      if DisplaySettingsForm.ClientWidth <> LegacyDisplayWidth then
+      if DisplaySettingsForm.ClientWidth <>
+        MulDiv(990, DisplaySettingsForm.CurrentPPI, 96) then
         raise Exception.Create(
-          'The common display form did not match the legacy DPI width.');
+          'The common display form did not use the compact DPI width.');
+      if (DisplaySettingsForm.ClientHeight <>
+        MulDiv(650, DisplaySettingsForm.CurrentPPI, 96)) or
+        (DisplaySettingsForm.Position <> poScreenCenter) then
+        raise Exception.Create(
+          'The common display form size or position was incorrect.');
       if (DisplaySettingsForm.Color <>
         SYNC_LYRICS_DARK_BACKGROUND_COLOR) or
         (DisplaySettingsForm.ModePageCount <> 2) or
@@ -305,12 +310,21 @@ begin
         (DisplaySettingsForm.SelectedCandidateIndex <> 1) then
         raise Exception.Create(
           'The shared host did not switch candidate sets with the mode.');
+      DisplaySettingsForm.CaptureInitialState;
+      if (DisplaySettingsForm.ModeToolbar.ItemCount <> 5) or
+        (DisplaySettingsForm.ModeToolbar.Items[0].Glyph <> tbgClose) or
+        (DisplaySettingsForm.ModeToolbar.Items[1].Glyph <> tbgRestore) then
+        raise Exception.Create(
+          'The shared host did not expose close and restore icons.');
       with TFrameLyricsCharacterDisplaySettingsPage(
         DisplaySettingsForm.CurrentPage) do
         if (ColorPanel.Width < 180) or
-          (ElementPanel.Width >= ColorPanel.Width) or
-          (ElementPanel.Left + ElementPanel.Width >= ColorPanel.Left) or
-          (ElementList.Items.Count = 0) then
+          (Preview.Left + Preview.Width >= ColorPanel.Left) or
+          (Preview.Width <= ColorPanel.Width * 3) or
+          (ElementCombo.Top >= Preview.Top) or
+          (ElementCombo.Items.Count = 0) or
+          (ElementCombo.Style <> csOwnerDrawFixed) or
+          not Assigned(ElementCombo.OnDrawItem) then
           raise Exception.Create(
             'The new free-mode page layout was not constructed.');
       DisplaySettingsForm.SetMode(DISPLAY_SETTINGS_MODE_LINE);
@@ -329,6 +343,10 @@ begin
       EditorForm.SetCurrentObjectFrame(45);
       EditorForm.HandleNeeded;
       EditorForm.Show;
+      if (EditorForm.LineListBox = nil) or
+        (EditorForm.LineListBox.Parent <> EditorForm.LineListHostPanel) then
+        raise Exception.Create(
+          'The runtime lyric list was not created in its designer-safe host.');
       InputFrame := EditorForm.FindComponent(
         'FrameLyricsInitialInput') as TFrameLyricsInitialInput;
       if InputFrame = nil then
@@ -379,7 +397,9 @@ begin
       if (EditorForm.FindComponent('LineListHeaderLabel') <> nil) or
         (EditorForm.FindComponent('LineHintLabel') <> nil) or
         (EditorForm.FindComponent('SummaryLabel') <> nil) or
-        (EditorForm.LineListBox.Height <= 418) then
+        (EditorForm.LineListBox.Height <= 0) or
+        (EditorForm.LineListBox.Height <>
+          EditorForm.LineListHostPanel.ClientHeight) then
         raise Exception.Create(
           'Removing the lyric labels did not expand the line list vertically.');
       if EditorForm.LineListBox.ItemIndex <> 0 then
@@ -405,7 +425,8 @@ begin
         (LyricsToolbar.Items[2].Glyph <> tbgEdit) then
         raise Exception.Create(
           'The lyric-line toolbar did not use add, delete, and edit glyphs.');
-      if LyricsToolbar.Top >= EditorForm.LineListBox.Top then
+      if LyricsToolbar.ClientToScreen(Point(0, 0)).Y >=
+        EditorForm.LineListBox.ClientToScreen(Point(0, 0)).Y then
         raise Exception.Create(
           'The lyric-line toolbar was not placed above the line list.');
       if not LyricsToolbar.Items[0].Enabled or

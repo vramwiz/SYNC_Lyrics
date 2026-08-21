@@ -62,7 +62,6 @@ type
     procedure ButtonResetAllClick(Sender: TObject);
     procedure ButtonAlignHorizontalClick(Sender: TObject);
     procedure ButtonDistributeHorizontalClick(Sender: TObject);
-    procedure ButtonFontClick(Sender: TObject);
     procedure ButtonBeforeColorClick(Sender: TObject);
     procedure ButtonAfterColorClick(Sender: TObject);
   private
@@ -218,7 +217,6 @@ uses
   System.Math,
   ColorPickerDialog,
   SYNC_Lyrics_CharacterLayoutDrawing,
-  SYNC_Lyrics_FontSettingsForm,
   SYNC_Lyrics_DarkTheme,
   TextRendererSkiaRuntime;
 
@@ -226,7 +224,6 @@ uses
 
 const
   TOOLBAR_COMMON_SETTINGS = 0;
-  TOOLBAR_FONT = 1;
   TOOLBAR_BOLD = 2;
   TOOLBAR_ITALIC = 3;
   TOOLBAR_UNDERLINE = 4;
@@ -301,8 +298,6 @@ begin
   FToolbar.AddSeparator;
   FToolbar.AddDialogButton('行共通設定', tbgOutline,
     TOOLBAR_COMMON_SETTINGS);
-  FToolbar.AddSeparator;
-  FToolbar.AddDialogButton('フォント設定', tbgFont, TOOLBAR_FONT);
   FToolbar.AddSeparator;
   FToolbarBold := FToolbar.AddToggleButton('太字', tbgBold,
     TOOLBAR_BOLD);
@@ -742,7 +737,6 @@ begin
   if FToolbar = nil then
     Exit;
   Count := SelectionCount;
-  SetEnabled(TOOLBAR_FONT, Count > 0);
   SetEnabled(TOOLBAR_BOLD, Count > 0);
   SetEnabled(TOOLBAR_ITALIC, Count > 0);
   SetEnabled(TOOLBAR_UNDERLINE, Count > 0);
@@ -822,8 +816,6 @@ begin
       end;
     TOOLBAR_COMMON_SETTINGS:
       EditCommonSettings;
-    TOOLBAR_FONT:
-      ButtonFontClick(Button);
     TOOLBAR_BOLD:
       ApplyStyleBit(1, Button.CheckState = tbcsChecked);
     TOOLBAR_ITALIC:
@@ -2630,57 +2622,6 @@ begin
       FPlacements[SelectedIndices[I]].X +
       CursorX - Bounds.Left;
     CursorX := CursorX + SelectedWidths[I] + Gap;
-  end;
-  UpdateSelectedSettings;
-  BackgroundPaintBox.Invalidate;
-end;
-
-procedure TFormLyricsCharacterLayoutSettings.ButtonFontClick(
-  Sender: TObject);
-var
-  FontForm: TFormLyricsFontSettings;
-  I: Integer;
-begin
-  if SelectionCount = 0 then
-    Exit;
-  FontForm := TFormLyricsFontSettings.Create(Self);
-  try
-    FontForm.SelectedBaseFontName :=
-      DisplayUnitBaseFontName(FSelectedIndex);
-    FontForm.SelectedRubyFontName :=
-      DisplayUnitRubyFontName(FSelectedIndex);
-    FontForm.SelectedBaseFontStyle := FontStyleByteToSet(
-      DisplayUnitBaseFontStyle(FSelectedIndex));
-    FontForm.SelectedRubyFontStyle := FontStyleByteToSet(
-      DisplayUnitRubyFontStyle(FSelectedIndex));
-    if FontForm.ShowModal <> mrOk then
-      Exit;
-    for I := 0 to High(FSelected) do
-      if FSelected[I] then
-      begin
-        if SameText(FontForm.SelectedBaseFontName,
-          FBaseFontName) then
-          FPlacements[I].BaseFontName := ''
-        else
-          FPlacements[I].BaseFontName :=
-            FontForm.SelectedBaseFontName;
-        if SameText(FontForm.SelectedRubyFontName,
-          FRubyFontName) then
-          FPlacements[I].RubyFontName := ''
-        else
-          FPlacements[I].RubyFontName :=
-            FontForm.SelectedRubyFontName;
-        FPlacements[I].BaseFontStyle := FontStyleSetToByte(
-          FontForm.SelectedBaseFontStyle);
-        FPlacements[I].HasBaseFontStyle :=
-          FPlacements[I].BaseFontStyle <> FBaseFontStyle;
-        FPlacements[I].RubyFontStyle := FontStyleSetToByte(
-          FontForm.SelectedRubyFontStyle);
-        FPlacements[I].HasRubyFontStyle :=
-          FPlacements[I].RubyFontStyle <> FRubyFontStyle;
-      end;
-  finally
-    FontForm.Free;
   end;
   UpdateSelectedSettings;
   BackgroundPaintBox.Invalidate;

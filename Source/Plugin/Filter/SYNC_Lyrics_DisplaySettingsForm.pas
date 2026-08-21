@@ -18,18 +18,17 @@ type
   TDisplaySettingsModePageEntry = record
     CandidateCaptions: TArray<string>;
     CandidateIndex: Integer;
+    InitialCandidateIndex: Integer;
     ModeID: Integer;
     Page: TFrameDisplaySettingsModePage;
   end;
 
   TFormLyricsDisplaySettings = class(TForm)
   private
-    FButtonCancel: TButton;
-    FButtonOK: TButton;
     FCandidateCombo: TComboBox;
     FCandidateLabel: TLabel;
     FCurrentMode: Integer;
-    FFooterPanel: TPanel;
+    FInitialMode: Integer;
     FModePages: TArray<TDisplaySettingsModePageEntry>;
     FModeToolbar: TSyncLyricsToolbarButtons;
     FPageHost: TPanel;
@@ -40,6 +39,7 @@ type
       Rect: TRect; State: TOwnerDrawState);
     function FindModePage(ModeID: Integer): TFrameDisplaySettingsModePage;
     function FindModePageIndex(ModeID: Integer): Integer;
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure ModeButtonExecute(Sender: TObject;
       Button: TSyncLyricsToolbarButton);
     procedure UpdateModeButtons;
@@ -48,9 +48,11 @@ type
     procedure Resize; override;
   public
     constructor Create(AOwner: TComponent); override;
+    procedure CaptureInitialState;
     procedure ConfigureModeCandidates(ModeID: Integer;
       const Captions: TArray<string>; InitialIndex: Integer);
     procedure RegisterModePage(Page: TFrameDisplaySettingsModePage);
+    procedure RestoreInitialState;
     procedure SetMode(ModeID: Integer);
     function CurrentPage: TFrameDisplaySettingsModePage;
     function PageForMode(ModeID: Integer): TFrameDisplaySettingsModePage;
@@ -71,6 +73,10 @@ uses
   SYNC_Lyrics_DarkTheme,
   SYNC_Lyrics_LineDisplaySettingsPage;
 
+const
+  DISPLAY_SETTINGS_COMMAND_CLOSE = -1;
+  DISPLAY_SETTINGS_COMMAND_RESTORE = -2;
+
 constructor TFormLyricsDisplaySettings.Create(AOwner: TComponent);
 var
   CharacterPage: TFrameLyricsCharacterDisplaySettingsPage;
@@ -81,11 +87,12 @@ begin
   Caption := #27468#35422#34920#31034#35373#23450;
   BorderStyle := bsSizeable;
   Position := poScreenCenter;
+  OnCloseQuery := FormCloseQuery;
   Font.Name := 'Segoe UI';
   Font.PixelsPerInch := CurrentPPI;
   Font.Height := -MulDiv(12, CurrentPPI, 96);
-  ClientWidth := MulDiv(920, CurrentPPI, 96);
-  ClientHeight := MulDiv(682, CurrentPPI, 96);
+  ClientWidth := MulDiv(990, CurrentPPI, 96);
+  ClientHeight := MulDiv(650, CurrentPPI, 96);
   Constraints.MinWidth := MulDiv(760, CurrentPPI, 96);
   Constraints.MinHeight := MulDiv(560, CurrentPPI, 96);
   DoubleBuffered := True;
@@ -102,6 +109,11 @@ begin
   FModeToolbar.ParentBackground := False;
   FModeToolbar.SeparatorExtent := MulDiv(4, CurrentPPI, 96);
   FModeToolbar.OnButtonExecute := ModeButtonExecute;
+  FModeToolbar.AddCommandButton(#38281#12376#12427, tbgClose,
+    DISPLAY_SETTINGS_COMMAND_CLOSE);
+  FModeToolbar.AddCommandButton(#38283#12356#12383#26178#28857#12408#25147#12377,
+    tbgRestore, DISPLAY_SETTINGS_COMMAND_RESTORE);
+  FModeToolbar.AddSeparator;
   FCandidateLabel := TLabel.Create(Self);
   FCandidateLabel.Parent := FTopPanel;
   FCandidateLabel.Caption := #32232#38598#23550#35937;
@@ -110,24 +122,6 @@ begin
   FCandidateCombo.Parent := FTopPanel;
   FCandidateCombo.OnChange := CandidateComboChange;
   ApplySyncLyricsDarkComboBox(FCandidateCombo, ComboDrawItem);
-
-  FFooterPanel := TPanel.Create(Self);
-  FFooterPanel.Parent := Self;
-  FFooterPanel.BevelOuter := bvNone;
-  FFooterPanel.Caption := '';
-  ApplySyncLyricsDarkPanel(FFooterPanel);
-  FButtonOK := TButton.Create(Self);
-  FButtonOK.Parent := FFooterPanel;
-  FButtonOK.Caption := 'OK';
-  FButtonOK.Default := True;
-  FButtonOK.ModalResult := mrOk;
-  ApplySyncLyricsDarkButton(FButtonOK);
-  FButtonCancel := TButton.Create(Self);
-  FButtonCancel.Parent := FFooterPanel;
-  FButtonCancel.Caption := #12461#12515#12531#12475#12523;
-  FButtonCancel.Cancel := True;
-  FButtonCancel.ModalResult := mrCancel;
-  ApplySyncLyricsDarkButton(FButtonCancel);
 
   FPageHost := TPanel.Create(Self);
   FPageHost.Parent := Self;
@@ -161,6 +155,19 @@ begin
     Exit;
   FModePages[Index].CandidateIndex := FCandidateCombo.ItemIndex;
   FModePages[Index].Page.CandidateChanged(FCandidateCombo.ItemIndex);
+end;
+
+procedure TFormLyricsDisplaySettings.CaptureInitialState;
+var
+  I: Integer;
+begin
+  FInitialMode := FCurrentMode;
+  for I := 0 to High(FModePages) do
+  begin
+    FModePages[I].InitialCandidateIndex :=
+      FModePages[I].CandidateIndex;
+    FModePages[I].Page.CaptureInitialState;
+  end;
 end;
 
 procedure TFormLyricsDisplaySettings.ComboDrawItem(Control: TWinControl;
@@ -222,10 +229,24 @@ begin
       Exit(I);
 end;
 
+procedure TFormLyricsDisplaySettings.FormCloseQuery(Sender: TObject;
+  var CanClose: Boolean);
+begin
+  ModalResult := mrOk;
+  CanClose := True;
+end;
+
 procedure TFormLyricsDisplaySettings.ModeButtonExecute(Sender: TObject;
   Button: TSyncLyricsToolbarButton);
 begin
-  SetMode(Button.Tag);
+  case Button.Tag of
+    DISPLAY_SETTINGS_COMMAND_CLOSE:
+      ModalResult := mrOk;
+    DISPLAY_SETTINGS_COMMAND_RESTORE:
+      RestoreInitialState;
+  else
+    SetMode(Button.Tag);
+  end;
 end;
 
 function TFormLyricsDisplaySettings.ModePageCount: Integer;
@@ -255,17 +276,34 @@ begin
   FModePages[Index].ModeID := Page.ModeID;
   FModePages[Index].Page := Page;
   FModePages[Index].CandidateIndex := -1;
+  FModePages[Index].InitialCandidateIndex := -1;
   FModeToolbar.AddToggleButton(Page.ModeName, Page.ModeGlyph, Page.ModeID);
   Page.Parent := FPageHost;
   Page.Align := alClient;
   Page.Visible := False;
 end;
 
+procedure TFormLyricsDisplaySettings.RestoreInitialState;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FModePages) do
+  begin
+    FModePages[I].CandidateIndex :=
+      FModePages[I].InitialCandidateIndex;
+    FModePages[I].Page.RestoreInitialState;
+  end;
+  if FCurrentMode <> FInitialMode then
+    SetMode(FInitialMode)
+  else
+  begin
+    UpdateCandidateCombo;
+    UpdateModeButtons;
+  end;
+end;
+
 procedure TFormLyricsDisplaySettings.Resize;
 var
-  ButtonHeight: Integer;
-  ButtonWidth: Integer;
-  FooterHeight: Integer;
   Margin: Integer;
   TopHeight: Integer;
 begin
@@ -274,16 +312,13 @@ begin
     Exit;
   Margin := MulDiv(12, CurrentPPI, 96);
   TopHeight := MulDiv(48, CurrentPPI, 96);
-  FooterHeight := MulDiv(50, CurrentPPI, 96);
   FTopPanel.SetBounds(0, 0, ClientWidth, TopHeight);
-  FFooterPanel.SetBounds(0, ClientHeight - FooterHeight,
-    ClientWidth, FooterHeight);
   FPageHost.SetBounds(0, TopHeight, ClientWidth,
-    Max(1, FFooterPanel.Top - TopHeight));
+    Max(1, ClientHeight - TopHeight));
   FModeToolbar.ButtonExtent := MulDiv(30, CurrentPPI, 96);
   FModeToolbar.SetBounds(Margin, MulDiv(8, CurrentPPI, 96),
     Max(MulDiv(30, CurrentPPI, 96),
-      Length(FModePages) * MulDiv(34, CurrentPPI, 96)),
+      FModeToolbar.ItemCount * MulDiv(34, CurrentPPI, 96)),
     MulDiv(30, CurrentPPI, 96));
   FCandidateLabel.SetBounds(FModeToolbar.Left + FModeToolbar.Width +
     MulDiv(16, CurrentPPI, 96), MulDiv(16, CurrentPPI, 96),
@@ -293,12 +328,6 @@ begin
     Max(MulDiv(220, CurrentPPI, 96), ClientWidth -
       FCandidateLabel.Left - MulDiv(76, CurrentPPI, 96)),
     MulDiv(24, CurrentPPI, 96));
-  ButtonWidth := MulDiv(84, CurrentPPI, 96);
-  ButtonHeight := MulDiv(28, CurrentPPI, 96);
-  FButtonCancel.SetBounds(ClientWidth - Margin - ButtonWidth,
-    MulDiv(11, CurrentPPI, 96), ButtonWidth, ButtonHeight);
-  FButtonOK.SetBounds(FButtonCancel.Left - MulDiv(10, CurrentPPI, 96) -
-    ButtonWidth, FButtonCancel.Top, ButtonWidth, ButtonHeight);
 end;
 
 procedure TFormLyricsDisplaySettings.SetMode(ModeID: Integer);

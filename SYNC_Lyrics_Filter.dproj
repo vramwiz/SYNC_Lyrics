@@ -100,6 +100,7 @@
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas"/>
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkia.pas"/>
         <DCCReference Include="Source\Lib\SerifSyncAnimation\PluginFilterSerifDrawSyncHighlight.pas"/>
+        <DCCReference Include="Source\Lib\FilterTable\PluginFilterTable.pas"/>
         <DCCReference Include="Source\Lib\AviUtl2FilterTypes.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ListBoxEdit.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ToolbarButtons.pas"/>
@@ -172,9 +173,6 @@
         </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas">
             <Form>FormLyricsLineDisplaySettings</Form>
-        </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FontSettingsForm.pas">
-            <Form>FormLyricsFontSettings</Form>
         </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas"/>

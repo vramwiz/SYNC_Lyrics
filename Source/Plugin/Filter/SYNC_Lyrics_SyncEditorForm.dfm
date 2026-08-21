@@ -3,7 +3,7 @@ object FormLyricsSyncEditor: TFormLyricsSyncEditor
   Top = 0
   BorderStyle = bsDialog
   Caption = #27468#35422#21516#26399#32232#38598
-  ClientHeight = 620
+  ClientHeight = 484
   ClientWidth = 900
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -18,21 +18,23 @@ object FormLyricsSyncEditor: TFormLyricsSyncEditor
   TextHeight = 15
   object ContentPanel: TPanel
     Left = 0
-    Top = 0
+    Top = 52
     Width = 900
-    Height = 568
+    Height = 432
     Align = alClient
     BevelOuter = bvNone
     TabOrder = 0
+    ExplicitHeight = 568
     object LineListPanel: TPanel
       Left = 0
       Top = 0
       Width = 320
-      Height = 568
+      Height = 432
       Align = alLeft
       BevelOuter = bvNone
       BorderWidth = 12
-      TabOrder = 0
+      TabOrder = 1
+      ExplicitHeight = 568
       object LineToolbarPanel: TPanel
         Left = 12
         Top = 12
@@ -59,29 +61,26 @@ object FormLyricsSyncEditor: TFormLyricsSyncEditor
           Caption = #29694#22312#20301#32622': '#21462#24471#19981#21487
         end
       end
-      object LineListBox: TSyncLyricsListBoxEdit
+      object LineListHostPanel: TPanel
         Left = 12
         Top = 80
         Width = 296
-        Height = 476
+        Height = 340
         Align = alClient
-        ItemHeight = 28
-        Style = lbOwnerDrawFixed
+        BevelOuter = bvNone
         TabOrder = 2
-        OnClick = LineListBoxClick
-        OnDblClick = LineListBoxDblClick
-        OnDrawItem = LineListBoxDrawItem
-        OnKeyDown = LineListBoxKeyDown
+        ExplicitHeight = 476
       end
     end
     object PlaceholderPanel: TPanel
-      Left = 0
+      Left = 320
       Top = 0
-      Width = 900
-      Height = 568
+      Width = 580
+      Height = 432
       Align = alClient
       BevelOuter = bvNone
       TabOrder = 0
+      ExplicitHeight = 568
       object PlaceholderLabel: TLabel
         Left = 32
         Top = 32

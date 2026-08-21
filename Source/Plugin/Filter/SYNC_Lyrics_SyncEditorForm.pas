@@ -26,7 +26,7 @@ type
     ContentPanel: TPanel;
     CurrentFrameLabel: TLabel;
     FrameCommandPanel: TPanel;
-    LineListBox: TSyncLyricsListBoxEdit;
+    LineListHostPanel: TPanel;
     LineListPanel: TPanel;
     LineToolbarPanel: TPanel;
     PlaceholderLabel: TLabel;
@@ -56,6 +56,7 @@ type
     FInputFrame: TFrameLyricsInitialInput;
     FInitialInputLyrics: string;
     FInitialSongDataText: string;
+    FLineListBox: TSyncLyricsListBoxEdit;
     FLyricsToolbar: TSyncLyricsToolbarButtons;
     FLyricsToolbarAdd: TSyncLyricsToolbarButton;
     FLyricsToolbarDelete: TSyncLyricsToolbarButton;
@@ -80,6 +81,7 @@ type
     FNewLineEditIndex: Integer;
     FSongDataText: string;
     FSongModel: TLyricsSongModel;
+    procedure CreateLineListBox;
     procedure CreateLyricsToolbar;
     procedure CreateTopToolbar;
     procedure EnsureMusicSyncFrame;
@@ -120,6 +122,7 @@ type
     function SongDataText: string;
     function TryLoadSongData(const DataText: string;
       out ErrorText: string): Boolean;
+    property LineListBox: TSyncLyricsListBoxEdit read FLineListBox;
   end;
 
 implementation
@@ -148,6 +151,26 @@ const
 function TFormLyricsSyncEditor.ConfirmedLyrics: string;
 begin
   Result := FConfirmedLyrics;
+end;
+
+procedure TFormLyricsSyncEditor.CreateLineListBox;
+begin
+  FLineListBox := TSyncLyricsListBoxEdit.Create(Self);
+  FLineListBox.Name := 'LineListBox';
+  FLineListBox.Parent := LineListHostPanel;
+  FLineListBox.SetBounds(0, 0, LineListHostPanel.ClientWidth,
+    LineListHostPanel.ClientHeight);
+  FLineListBox.Align := alClient;
+  FLineListBox.ItemHeight := MulDiv(28, CurrentPPI, 96);
+  FLineListBox.Style := lbOwnerDrawFixed;
+  FLineListBox.TabOrder := 0;
+  FLineListBox.OnClick := LineListBoxClick;
+  FLineListBox.OnDblClick := LineListBoxDblClick;
+  FLineListBox.OnDrawItem := LineListBoxDrawItem;
+  FLineListBox.OnKeyDown := LineListBoxKeyDown;
+  FLineListBox.OnApplyEdit := LineListBoxApplyEdit;
+  FLineListBox.OnCancelEdit := LineListBoxCancelEdit;
+  FLineListBox.OnGetEditText := LineListBoxGetEditText;
 end;
 
 procedure TFormLyricsSyncEditor.AddLineButtonClick(Sender: TObject);
@@ -426,6 +449,7 @@ end;
 
 procedure TFormLyricsSyncEditor.FormCreate(Sender: TObject);
 begin
+  CreateLineListBox;
   ApplySyncLyricsDarkForm(Self);
   ApplySyncLyricsDarkPanel(ContentPanel);
   ApplySyncLyricsDarkPanel(LineListPanel);
@@ -453,9 +477,6 @@ begin
   FSongDataText := '';
   FAnchorAvailable := False;
   FSongModel := TLyricsSongModel.Create;
-  LineListBox.OnApplyEdit := LineListBoxApplyEdit;
-  LineListBox.OnCancelEdit := LineListBoxCancelEdit;
-  LineListBox.OnGetEditText := LineListBoxGetEditText;
   FInputFrame := TFrameLyricsInitialInput.Create(Self);
   FInputFrame.Parent := ContentPanel;
   FInputFrame.ApplyDarkTheme;
