@@ -22,6 +22,7 @@ uses
   SYNC_Lyrics_SongLyricsData in '..\Source\Common\Lyrics\SYNC_Lyrics_SongLyricsData.pas',
   SYNC_Lyrics_SongLyricsModel in '..\Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
   SYNC_Lyrics_InitialLyricsFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas',
+  SYNC_Lyrics_ManualSyncSettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas',
   SYNC_Lyrics_MusicSyncSettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas',
   SYNC_Lyrics_MusicSyncEditorFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas',
   SYNC_Lyrics_LineDisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas',
@@ -49,6 +50,7 @@ var
   LineDisplayForm: TFormLyricsLineDisplaySettings;
   MusicSyncFrame: TFrameLyricsMusicSyncEditor;
   MusicSyncForm: TFormLyricsMusicSyncSettings;
+  ManualSyncForm: TFormLyricsManualSyncSettings;
   PreviewPixels: TBytes;
   LyricsToolbar: TSyncLyricsToolbarButtons;
   LegacyDisplayFontHeight: Integer;
@@ -363,19 +365,20 @@ begin
         raise Exception.Create('The initial lyrics input was not dark.');
       TopToolbar := FindChildControlByClass(EditorForm.BottomPanel,
         TSyncLyricsToolbarButtons) as TSyncLyricsToolbarButtons;
-      if (TopToolbar = nil) or (TopToolbar.ItemCount <> 5) or
+      if (TopToolbar = nil) or (TopToolbar.ItemCount <> 6) or
         (TopToolbar.Items[0].Glyph <> tbgClose) or
         (TopToolbar.Items[1].Glyph <> tbgRestore) or
         (TopToolbar.Items[2].Glyph <> tbgNext) or
         (TopToolbar.Items[3].Glyph <> tbgConfirm) or
-        (TopToolbar.Items[4].Glyph <> tbgResetAll) then
+        (TopToolbar.Items[4].Glyph <> tbgResetAll) or
+        (TopToolbar.Items[5].Glyph <> tbgLyrics) then
         raise Exception.Create(
           'The top actions did not use the common icon toolbar.');
       ToolbarExtent := MulDiv(28, EditorForm.CurrentPPI, 96);
       if (TopToolbar.ButtonExtent <> ToolbarExtent) or
         (TopToolbar.Left <> MulDiv(12, EditorForm.CurrentPPI, 96)) or
         (TopToolbar.Top <> MulDiv(12, EditorForm.CurrentPPI, 96)) or
-        (TopToolbar.Width <> ToolbarExtent * 5) or
+        (TopToolbar.Width <> ToolbarExtent * 6) or
         (TopToolbar.Height <> ToolbarExtent) or
         (TopToolbar.Items[0].Width <> ToolbarExtent) or
         (TopToolbar.Items[0].Height <> ToolbarExtent) then
@@ -466,6 +469,22 @@ begin
         'FrameLyricsMusicSyncEditor') as TFrameLyricsMusicSyncEditor;
       if MusicSyncFrame = nil then
         raise Exception.Create('The music synchronization frame was not created.');
+      MusicSyncFrame.LoadLine(ExpandFileName(
+        'Tests\Fixtures\sync_test_120bpm_30s.wav'), -1,
+        0.5, 'test', SerializeManualSyncText([0.0, 1.0,
+        2.0, 3.0, 4.0]));
+      ManualSyncForm := FindOwnedComponentByClass(MusicSyncFrame,
+        TFormLyricsManualSyncSettings) as TFormLyricsManualSyncSettings;
+      if (ManualSyncForm = nil) or not ManualSyncForm.Visible or
+        (ManualSyncForm.WaveformPaintBox.Width >= 852) or
+        (ManualSyncForm.WaveformPaintBox.Width <= 0) then
+        raise Exception.Create(
+          'The WAV source did not switch to the embedded waveform editor.');
+      MusicSyncFrame.LoadLine(ExpandFileName(
+        'Tests\Fixtures\sync_test_120bpm_30s.mid'), -1,
+        0.5,
+        '['#26143#31354']('#12411#12375#12382#12425')'#12434#35211#19978#12370#12390,
+        DEFAULT_MUSIC_SYNC_TEXT);
       MusicSyncForm := MusicSyncFrame.FindComponent(
         'FormLyricsMusicSyncSettings') as TFormLyricsMusicSyncSettings;
       if MusicSyncForm = nil then
@@ -511,6 +530,19 @@ begin
       TopToolbar.Items[3].Execute;
       if TopToolbar.Items[3].CheckState <> tbcsChecked then
         raise Exception.Create('The selected lyric line was not confirmed.');
+      TopToolbar.Items[5].Execute;
+      if not InputFrame.Visible or TopToolbar.Items[5].Visible or
+        not InputFrame.LyricsMemo.Visible or
+        (InputFrame.LyricsMemo.Height <= InputFrame.ClientHeight div 3) or
+        (InputFrame.LyricsMemo.Width <= InputFrame.ClientWidth div 2) or
+        (InputFrame.LyricsMemo.Text <> EditorForm.ConfirmedLyrics) then
+        raise Exception.Create(
+          'The whole-lyrics icon did not return to the lyrics input page.');
+      TopToolbar.Items[2].Execute;
+      if InputFrame.Visible or not TopToolbar.Items[5].Visible or
+        (TopToolbar.Items[3].CheckState <> tbcsChecked) then
+        raise Exception.Create(
+          'Returning from unchanged whole lyrics did not preserve synchronization.');
       Key := Ord('2');
       EditorForm.LineListBoxKeyDown(EditorForm.LineListBox, Key, []);
       if EditorForm.LineListBox.ItemIndex <> 1 then

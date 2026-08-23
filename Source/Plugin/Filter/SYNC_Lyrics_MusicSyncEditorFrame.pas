@@ -8,16 +8,21 @@ uses
   System.Classes,
   Vcl.Controls,
   Vcl.Forms,
+  SYNC_Lyrics_ManualSyncSettingsForm,
   SYNC_Lyrics_MusicSyncSettingsForm;
 
 type
   TFrameLyricsMusicSyncEditor = class(TFrame)
   private
     FEditorForm: TFormLyricsMusicSyncSettings;
+    FManualEditorForm: TFormLyricsManualSyncSettings;
     FLoadedPreDisplaySeconds: Double;
     FLoadedSyncText: string;
     FOnSyncChanged: TNotifyEvent;
+    FPreDisplaySeconds: Double;
+    FUseManualEditor: Boolean;
     procedure EditorSyncChanged(Sender: TObject);
+    function CurrentSyncText: string;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -54,7 +59,10 @@ type
 implementation
 
 uses
-  System.Math;
+  System.Math,
+  System.SysUtils,
+  SYNC_Lyrics_AudioProbe,
+  SYNC_Lyrics_SyncSourceKind;
 
 {$R *.dfm}
 
@@ -72,16 +80,26 @@ begin
   FEditorForm.Parent := Self;
   FEditorForm.Align := alClient;
   FEditorForm.Show;
+  FManualEditorForm := TFormLyricsManualSyncSettings.Create(Self);
+  FManualEditorForm.OnSyncChanged := EditorSyncChanged;
+  FManualEditorForm.ConfigureEmbedded;
+  FManualEditorForm.Parent := Self;
+  FManualEditorForm.Align := alClient;
+  FManualEditorForm.Hide;
 end;
 
 procedure TFrameLyricsMusicSyncEditor.ResetSync;
 begin
-  FEditorForm.ResetSyncButton.Click;
+  if FUseManualEditor then
+    FManualEditorForm.ResetSync
+  else
+    FEditorForm.ResetSyncButton.Click;
 end;
 
 procedure TFrameLyricsMusicSyncEditor.ApplyDarkTheme;
 begin
   FEditorForm.ApplyDarkTheme;
+  FManualEditorForm.ApplyDarkTheme;
 end;
 
 procedure TFrameLyricsMusicSyncEditor.EditorSyncChanged(Sender: TObject);
@@ -92,12 +110,13 @@ end;
 
 procedure TFrameLyricsMusicSyncEditor.AcceptChanges;
 begin
-  FLoadedPreDisplaySeconds := FEditorForm.PreDisplaySeconds;
-  FLoadedSyncText := FEditorForm.SyncText;
+  FLoadedPreDisplaySeconds := PreDisplaySeconds;
+  FLoadedSyncText := CurrentSyncText;
 end;
 
 destructor TFrameLyricsMusicSyncEditor.Destroy;
 begin
+  FManualEditorForm.Free;
   FEditorForm.Free;
   inherited Destroy;
 end;
@@ -105,27 +124,61 @@ end;
 procedure TFrameLyricsMusicSyncEditor.LoadLine(const MusicFileName: string;
   Track: Integer; PreDisplaySeconds: Double; const LyricsText,
   SyncText: string);
+var
+  AudioInfo: TSyncAudioFileInfo;
+  ErrorMessage: string;
 begin
-  FEditorForm.LoadSettings(MusicFileName, Track, PreDisplaySeconds,
-    LyricsText, SyncText);
-  AcceptChanges;
+  FPreDisplaySeconds := Max(0.0, PreDisplaySeconds);
+  FUseManualEditor := (Trim(MusicFileName) <> '') and
+    not IsMusicScoreFileName(MusicFileName);
+  if FUseManualEditor then
+  begin
+    FEditorForm.Hide;
+    FManualEditorForm.Show;
+    FManualEditorForm.BringToFront;
+    if not TryProbeSyncAudioFile(MusicFileName, AudioInfo,
+      ErrorMessage) then
+    begin
+      AudioInfo := Default(TSyncAudioFileInfo);
+      AudioInfo.DurationSeconds := 0.001;
+      AudioInfo.StreamIndex := -1;
+    end;
+    FManualEditorForm.LoadSettings(MusicFileName, AudioInfo,
+      LyricsText, SyncText);
+  end
+  else
+  begin
+    FManualEditorForm.Hide;
+    FEditorForm.Show;
+    FEditorForm.BringToFront;
+    FEditorForm.LoadSettings(MusicFileName, Track, PreDisplaySeconds,
+      LyricsText, SyncText);
+  end;
+  FLoadedPreDisplaySeconds := FPreDisplaySeconds;
+  FLoadedSyncText := SyncText;
 end;
 
 function TFrameLyricsMusicSyncEditor.HasChanges: Boolean;
 begin
-  Result := (Abs(FEditorForm.PreDisplaySeconds -
+  Result := (Abs(PreDisplaySeconds -
     FLoadedPreDisplaySeconds) >= 0.005) or
-    (FEditorForm.SyncText <> FLoadedSyncText);
+    (CurrentSyncText <> FLoadedSyncText);
 end;
 
 function TFrameLyricsMusicSyncEditor.LyricsText: string;
 begin
-  Result := FEditorForm.LyricsText;
+  if FUseManualEditor then
+    Result := FManualEditorForm.LyricsText
+  else
+    Result := FEditorForm.LyricsText;
 end;
 
 function TFrameLyricsMusicSyncEditor.PreDisplaySeconds: Double;
 begin
-  Result := FEditorForm.PreDisplaySeconds;
+  if FUseManualEditor then
+    Result := FPreDisplaySeconds
+  else
+    Result := FEditorForm.PreDisplaySeconds;
 end;
 
 procedure TFrameLyricsMusicSyncEditor.SetAnchor(Frame, Rate, Scale: Integer);
@@ -171,7 +224,18 @@ end;
 
 function TFrameLyricsMusicSyncEditor.SyncText: string;
 begin
-  Result := FEditorForm.SyncText;
+  Result := CurrentSyncText;
+end;
+
+function TFrameLyricsMusicSyncEditor.CurrentSyncText: string;
+begin
+  if FUseManualEditor then
+  begin
+    if not FManualEditorForm.TryGetSyncText(Result) then
+      Result := FLoadedSyncText;
+  end
+  else
+    Result := FEditorForm.SyncText;
 end;
 
 end.

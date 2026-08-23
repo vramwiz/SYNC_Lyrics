@@ -168,8 +168,45 @@ begin
       'A confirmed following line must retain its music note position.');
     Check(Model.TrySetSyncState(1, lssProvisional),
       'The second line confirmation could not be released.');
-    Check(Model[1].StartNoteIndex = 3,
-      'An edited line must keep its fixed music note position.');
+    Check(Model[1].StartNoteIndex = 4,
+      'A released line must follow the preceding adjusted note count.');
+    Check(Model[2].StartNoteIndex = 6,
+      'Unconfirmed following lines must be adjusted sequentially.');
+
+    Model.SetLyricsText('ab');
+    Check(Model.TrySetSync(0, 0.5,
+      SerializeManualSyncText([1.0, 1.5, 2.0])),
+      'The manual synchronization boundaries were not accepted.');
+    Model.RecalculateManualFrameRanges(0.25, 0.5, 0.75,
+      30, 1);
+    Check(Model[0].SyncStartFrame = 37,
+      'The audio offset was not applied to the manual synchronization start.');
+    Check(Model[0].SyncEndFrame = 67,
+      'The manual synchronization end frame was not calculated.');
+    Check(Model[0].DisplayStartFrame = 22,
+      'The manual pre-display range was not calculated.');
+    Check(Model[0].DisplayEndFrame = 89,
+      'The manual hold range was not calculated.');
+
+    Model.SetLyricsText('first' + sLineBreak + 'second' +
+      sLineBreak + 'third');
+    Check(Model.TryConfirmSync(0, 0.5,
+      SerializeMusicSyncText([0, 0, 0, 0, 0])),
+      'The preserved line synchronization setup failed.');
+    Check(Model.TrySetPlacementText(0, 'SL3 preserved'),
+      'The preserved line placement setup failed.');
+    Model.UpdateLyricsTextPreservingMatches('inserted' + sLineBreak +
+      'first' + sLineBreak + 'changed' + sLineBreak + 'third');
+    Check((Model.LineCount = 4) and (Model[1].LineID = 1),
+      'An unchanged line did not preserve its stable identity.');
+    Check((Model[1].SyncState = lssConfirmed) and
+      (Model[1].PlacementText = 'SL3 preserved'),
+      'An unchanged line did not preserve synchronization and placement.');
+    Check((Model[0].SyncState = lssUnset) and
+      (Model[2].SyncState = lssUnset),
+      'Inserted or changed lines did not start without synchronization.');
+    Check(Model[3].LineID = 3,
+      'A following unchanged line did not preserve its stable identity.');
   finally
     Model.Free;
   end;

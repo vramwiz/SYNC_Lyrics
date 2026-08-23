@@ -1423,7 +1423,8 @@ begin
     PlacementItems := LinePlacementItems;
     PlacementsMatchLyrics := LinePlacementsMatchLyrics;
   end;
-  if HasSongLine and not HasLanePlacement then
+  if HasSongLine and (SelectedPlacementMode = PLACEMENT_MODE_LINE) and
+    not HasLanePlacement then
     // 3段分を中央基準で予約し、段1・2・3を上・中央・下へ固定する。
     Inc(CommonSettings.PositionY, (SongLine.DisplayLane - 2) *
       (CommonSettings.BaseFontHeight +

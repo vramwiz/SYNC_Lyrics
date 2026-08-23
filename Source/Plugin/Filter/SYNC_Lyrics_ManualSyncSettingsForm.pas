@@ -41,6 +41,8 @@ type
     procedure StopButtonClick(Sender: TObject);
     procedure PlaybackTimerTimer(Sender: TObject);
     procedure RateComboBoxChange(Sender: TObject);
+    procedure RateComboBoxDrawItem(Control: TWinControl; Index: Integer;
+      Rect: TRect; State: TOwnerDrawState);
     procedure AdjustModeButtonClick(Sender: TObject);
     procedure TimingModeButtonClick(Sender: TObject);
     procedure RearmButtonClick(Sender: TObject);
@@ -74,6 +76,9 @@ type
     FViewStartSeconds: Double;
     FWaveform: TSyncAudioWaveform;
     FWaveformMessage: string;
+    FEmbeddedMode: Boolean;
+    FLoading: Boolean;
+    FOnSyncChanged: TNotifyEvent;
     function SelectedPlaybackRate: Double;
     function ScaleWaveformMetric(Value: Integer): Integer;
     procedure BuildLyricsLabels;
@@ -85,12 +90,22 @@ type
     procedure SetPlaybackPosition(Value: Double);
     procedure StartPlayback;
     procedure StopPlayback;
+    procedure NotifySyncChanged;
+    procedure UpdateEmbeddedLayout;
     procedure UpdateWaveformCursor(X, Y: Integer);
+  protected
+    procedure Resize; override;
   public
+    procedure ApplyDarkTheme;
+    procedure ConfigureEmbedded;
     procedure LoadSettings(const FileName: string;
       const AudioInfo: TSyncAudioFileInfo; const Lyrics, SyncText: string);
+    procedure ResetSync;
     function LyricsText: string;
     function SyncText: string;
+    function TryGetSyncText(out Value: string): Boolean;
+    property OnSyncChanged: TNotifyEvent read FOnSyncChanged
+      write FOnSyncChanged;
   end;
 
 implementation
@@ -99,6 +114,7 @@ uses
   System.Math,
   System.SysUtils,
   System.UITypes,
+  SYNC_Lyrics_DarkTheme,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_TimeRuler,
   Vcl.Dialogs,
@@ -133,7 +149,70 @@ begin
   FInputMode := 0;
   FViewStartSeconds := 0;
   RateComboBox.ItemIndex := 0;
+  ApplyDarkTheme;
   RefreshModeDisplay;
+end;
+
+procedure TFormLyricsManualSyncSettings.ApplyDarkTheme;
+begin
+  ApplySyncLyricsDarkForm(Self);
+  ApplySyncLyricsDarkButton(StopButton);
+  ApplySyncLyricsDarkButton(PlayButton);
+  ApplySyncLyricsDarkComboBox(RateComboBox, RateComboBoxDrawItem);
+  LoopCheckBox.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  ApplySyncLyricsDarkButton(AdjustModeButton);
+  ApplySyncLyricsDarkButton(TimingModeButton);
+  ApplySyncLyricsDarkButton(RearmButton);
+  ApplySyncLyricsDarkMemo(LyricsMemo);
+  ApplySyncLyricsDarkButton(ApplyButton);
+  ApplySyncLyricsDarkButton(CancelButton);
+end;
+
+procedure TFormLyricsManualSyncSettings.RateComboBoxDrawItem(
+  Control: TWinControl; Index: Integer; Rect: TRect;
+  State: TOwnerDrawState);
+begin
+  DrawSyncLyricsDarkComboBoxItem(RateComboBox, Index, Rect,
+    State, CurrentPPI);
+end;
+
+procedure TFormLyricsManualSyncSettings.ConfigureEmbedded;
+begin
+  FEmbeddedMode := True;
+  BorderStyle := bsNone;
+  LyricsCaptionLabel.Visible := False;
+  LyricsMemo.Visible := False;
+  ApplyButton.Visible := False;
+  CancelButton.Visible := False;
+  UpdateEmbeddedLayout;
+end;
+
+procedure TFormLyricsManualSyncSettings.UpdateEmbeddedLayout;
+var
+  Margin: Integer;
+  StatusHeight: Integer;
+  TopPosition: Integer;
+begin
+  if not FEmbeddedMode then
+    Exit;
+  Margin := ScaleWaveformMetric(12);
+  StatusHeight := ScaleWaveformMetric(24);
+  TopPosition := ScaleWaveformMetric(82);
+  FileValueLabel.SetBounds(Margin, ScaleWaveformMetric(10),
+    Max(1, ClientWidth - Margin * 2), ScaleWaveformMetric(20));
+  PlaybackPositionLabel.Left := Max(Margin,
+    ClientWidth - Margin - PlaybackPositionLabel.Width);
+  WaveformPaintBox.SetBounds(Margin, TopPosition,
+    Max(1, ClientWidth - Margin * 2),
+    Max(1, ClientHeight - TopPosition - StatusHeight - Margin));
+  StatusLabel.SetBounds(Margin, ClientHeight - StatusHeight,
+    Max(1, ClientWidth - Margin * 2), StatusHeight);
+end;
+
+procedure TFormLyricsManualSyncSettings.Resize;
+begin
+  inherited Resize;
+  UpdateEmbeddedLayout;
 end;
 
 procedure TFormLyricsManualSyncSettings.FormDestroy(Sender: TObject);
@@ -147,9 +226,14 @@ procedure TFormLyricsManualSyncSettings.LoadSettings(
   const FileName: string; const AudioInfo: TSyncAudioFileInfo;
   const Lyrics, SyncText: string);
 var
+  ReloadWaveform: Boolean;
   WaveformError: string;
 begin
+  FLoading := True;
+  try
   StopPlayback;
+  ReloadWaveform := not SameText(FAudioFileName, FileName) or
+    (Length(FWaveform) = 0);
   FAudioFileName := FileName;
   FAudioDurationSeconds := AudioInfo.DurationSeconds;
   FDisplaySeconds := Min(INITIAL_DISPLAY_SECONDS,
@@ -164,24 +248,34 @@ begin
   BuildLyricsLabels;
   FEditModel.Initialize(Length(FLyricsLabels),
     FAudioDurationSeconds, SyncText, FDisplaySeconds);
-  FWaveformMessage := '';
-  Screen.Cursor := crHourGlass;
-  try
-    if LoadSyncAudioWaveform(FileName, 4096,
-      FWaveform, WaveformError) then
-      StatusLabel.Caption :=
-        '波形を読み込みました。速度を選び、再生で音声を確認できます。'
-    else
-    begin
-      SetLength(FWaveform, 0);
-      FWaveformMessage := '波形を読み込めません: ' + WaveformError;
-      StatusLabel.Caption := FWaveformMessage;
+  if FEditModel.BoundaryCount > 0 then
+    FViewStartSeconds := EnsureRange(
+      FEditModel.BoundarySeconds(0) - FDisplaySeconds * 0.1,
+      0.0, Max(0.0, FAudioDurationSeconds - FDisplaySeconds));
+  if ReloadWaveform then
+  begin
+    FWaveformMessage := '';
+    Screen.Cursor := crHourGlass;
+    try
+      if LoadSyncAudioWaveform(FileName, 4096,
+        FWaveform, WaveformError) then
+        StatusLabel.Caption :=
+          '波形を読み込みました。速度を選び、再生で音声を確認できます。'
+      else
+      begin
+        SetLength(FWaveform, 0);
+        FWaveformMessage := '波形を読み込めません: ' + WaveformError;
+        StatusLabel.Caption := FWaveformMessage;
+      end;
+    finally
+      Screen.Cursor := crDefault;
     end;
-  finally
-    Screen.Cursor := crDefault;
   end;
   WaveformPaintBox.Invalidate;
   RefreshSyncStatus;
+  finally
+    FLoading := False;
+  end;
 end;
 
 procedure TFormLyricsManualSyncSettings.BuildLyricsLabels;
@@ -212,6 +306,34 @@ end;
 function TFormLyricsManualSyncSettings.SyncText: string;
 begin
   Result := FEditModel.SerializeSyncText;
+end;
+
+function TFormLyricsManualSyncSettings.TryGetSyncText(
+  out Value: string): Boolean;
+begin
+  Result := (FEditModel <> nil) and FEditModel.Complete;
+  if Result then
+    Value := FEditModel.SerializeSyncText
+  else
+    Value := '';
+end;
+
+procedure TFormLyricsManualSyncSettings.NotifySyncChanged;
+begin
+  if not FLoading and Assigned(FOnSyncChanged) then
+    FOnSyncChanged(Self);
+end;
+
+procedure TFormLyricsManualSyncSettings.ResetSync;
+begin
+  StopPlayback;
+  FEditModel.Initialize(Length(FLyricsLabels),
+    FAudioDurationSeconds, '', FDisplaySeconds);
+  FInputMode := 0;
+  RefreshModeDisplay;
+  RefreshSyncStatus;
+  WaveformPaintBox.Invalidate;
+  NotifySyncChanged;
 end;
 
 function TFormLyricsManualSyncSettings.PlotRect: TRect;
@@ -370,6 +492,7 @@ begin
   WaveformPaintBox.Invalidate;
   if FEditModel <> nil then
     RefreshSyncStatus;
+  NotifySyncChanged;
 end;
 
 procedure TFormLyricsManualSyncSettings.ApplyButtonClick(Sender: TObject);
@@ -415,6 +538,7 @@ begin
     begin
       RefreshSyncStatus;
       WaveformPaintBox.Invalidate;
+      NotifySyncChanged;
     end
     else
       MessageBeep(MB_ICONWARNING);
@@ -484,7 +608,8 @@ begin
   end;
   if FDraggingBoundary >= 0 then
   begin
-    FEditModel.MoveBoundary(FDraggingBoundary, XToSeconds(X));
+    if FEditModel.MoveBoundary(FDraggingBoundary, XToSeconds(X)) then
+      NotifySyncChanged;
     WaveformPaintBox.Cursor := crHSplit;
     WaveformPaintBox.Invalidate;
     Exit;

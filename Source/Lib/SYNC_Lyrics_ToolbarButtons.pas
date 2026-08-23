@@ -58,7 +58,8 @@ type
     tbgNext,
     tbgConfirm,
     tbgLinePlacement,
-    tbgFreePlacement
+    tbgFreePlacement,
+    tbgLyrics
   );
 
   TSyncLyricsToolbarButton = class;
@@ -620,6 +621,18 @@ begin
         Canvas.LineTo(MidX - 2, MidY + 6);
         Canvas.LineTo(MidX + 9, MidY - 7);
         Canvas.Pen.Width := 1;
+      end;
+    tbgLyrics:
+      begin
+        Canvas.Brush.Style := bsClear;
+        Canvas.Rectangle(MidX - 8, MidY - 10,
+          MidX + 8, MidY + 10);
+        Canvas.MoveTo(MidX - 4, MidY - 5);
+        Canvas.LineTo(MidX + 5, MidY - 5);
+        Canvas.MoveTo(MidX - 4, MidY);
+        Canvas.LineTo(MidX + 5, MidY);
+        Canvas.MoveTo(MidX - 4, MidY + 5);
+        Canvas.LineTo(MidX + 2, MidY + 5);
       end;
     tbgLinePlacement:
       begin

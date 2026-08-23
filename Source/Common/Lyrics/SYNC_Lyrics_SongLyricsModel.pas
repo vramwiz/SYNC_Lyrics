@@ -52,6 +52,8 @@ type
     procedure Clear;
     // Replaces the whole working set; blank source lines are omitted.
     procedure SetLyricsText(const LyricsText: string);
+    // Keeps unchanged lines and their synchronization/placement data.
+    procedure UpdateLyricsTextPreservingMatches(const LyricsText: string);
     // Rebuilds the editable whole-song text in current display order.
     function LyricsText: string;
     // Persistence uses copies so decoding cannot partially mutate the working model.
@@ -85,6 +87,10 @@ type
     // Rebuilds object-local display ranges from the shared music-note sequence.
     procedure RecalculateMusicFrameRanges(const MusicFileName: string;
       Track: Integer; SequenceStartSeconds, MusicOffsetSeconds,
+      DefaultPreDisplaySeconds, DefaultHoldSeconds: Double;
+      Rate, Scale: Integer);
+    // Rebuilds object-local display ranges from absolute audio boundaries.
+    procedure RecalculateManualFrameRanges(MusicOffsetSeconds,
       DefaultPreDisplaySeconds, DefaultHoldSeconds: Double;
       Rate, Scale: Integer);
     property LineCount: Integer read GetLineCount;
@@ -244,6 +250,52 @@ begin
   end;
 end;
 
+procedure TLyricsSongModel.RecalculateManualFrameRanges(
+  MusicOffsetSeconds, DefaultPreDisplaySeconds,
+  DefaultHoldSeconds: Double; Rate, Scale: Integer);
+var
+  Data: TSyncTextData;
+  DisplayStartSeconds: Double;
+  I: Integer;
+  SyncEndSeconds: Double;
+  SyncStartSeconds: Double;
+begin
+  if (Rate <= 0) or (Scale <= 0) then
+    Exit;
+  for I := 0 to High(FLines) do
+  begin
+    if not TryParseSyncText(FLines[I].SyncText, Data) or
+      (Data.Mode <> smManual) or
+      (Length(Data.ManualBoundaries) < 2) then
+    begin
+      FLines[I].DisplayStartFrame := -1;
+      FLines[I].DisplayEndFrame := -1;
+      FLines[I].SyncStartFrame := -1;
+      FLines[I].SyncEndFrame := -1;
+      Continue;
+    end;
+    SyncStartSeconds := MusicSecondsToObjectSeconds(
+      Data.ManualBoundaries[0], MusicOffsetSeconds);
+    SyncEndSeconds := MusicSecondsToObjectSeconds(
+      Data.ManualBoundaries[High(Data.ManualBoundaries)],
+      MusicOffsetSeconds);
+    FLines[I].PreDisplaySeconds := Max(0, DefaultPreDisplaySeconds);
+    FLines[I].HoldSeconds := Max(0, DefaultHoldSeconds);
+    DisplayStartSeconds := Max(0,
+      SyncStartSeconds - FLines[I].PreDisplaySeconds);
+    FLines[I].SyncStartFrame := Max(0,
+      Floor(SyncStartSeconds * Rate / Scale));
+    FLines[I].SyncEndFrame := Max(FLines[I].SyncStartFrame,
+      Ceil(SyncEndSeconds * Rate / Scale) - 1);
+    FLines[I].DisplayStartFrame := Floor(
+      DisplayStartSeconds * Rate / Scale);
+    FLines[I].DisplayEndFrame := Max(FLines[I].DisplayStartFrame,
+      Ceil((SyncEndSeconds + FLines[I].HoldSeconds) *
+        Rate / Scale) - 1);
+    FLines[I].TimingMusicOffsetSeconds := MusicOffsetSeconds;
+  end;
+end;
+
 function TLyricsSongModel.LyricsText: string;
 var
   I: Integer;
@@ -270,7 +322,7 @@ begin
       FLines[I].SyncText,
       CountLyricsDisplayUnits(FLines[I].SourceText));
     if (FLines[I].StartNoteIndex < 0) or
-      (FLines[I].SyncState = lssUnset) then
+      (FLines[I].SyncState <> lssConfirmed) then
       FLines[I].StartNoteIndex := NextNoteIndex;
     NextNoteIndex := FLines[I].StartNoteIndex + ConsumedNoteCount;
   end;
@@ -326,6 +378,61 @@ begin
   end;
   if Length(FLines) > 0 then
     FStartLineID := FLines[0].LineID;
+  RecalculateNoteOffsets;
+end;
+
+procedure TLyricsSongModel.UpdateLyricsTextPreservingMatches(
+  const LyricsText: string);
+var
+  I: Integer;
+  MatchIndex: Integer;
+  NewIndex: Integer;
+  NewLines: TLyricsSongLines;
+  OldLines: TLyricsSongLines;
+  OldSearchIndex: Integer;
+  SourceLines: TStringList;
+  StartLineFound: Boolean;
+begin
+  OldLines := Copy(FLines);
+  SetLength(NewLines, 0);
+  OldSearchIndex := 0;
+  SourceLines := TStringList.Create;
+  try
+    SourceLines.Text := LyricsText;
+    for I := 0 to SourceLines.Count - 1 do
+    begin
+      if Trim(SourceLines[I]) = '' then
+        Continue;
+      MatchIndex := OldSearchIndex;
+      while (MatchIndex < Length(OldLines)) and
+        (OldLines[MatchIndex].SourceText <> SourceLines[I]) do
+        Inc(MatchIndex);
+      NewIndex := Length(NewLines);
+      SetLength(NewLines, NewIndex + 1);
+      if MatchIndex < Length(OldLines) then
+      begin
+        NewLines[NewIndex] := OldLines[MatchIndex];
+        OldSearchIndex := MatchIndex + 1;
+      end
+      else
+        InitializeLine(NewLines[NewIndex], SourceLines[I]);
+    end;
+  finally
+    SourceLines.Free;
+  end;
+  FLines := NewLines;
+  StartLineFound := False;
+  for I := 0 to High(FLines) do
+    if FLines[I].LineID = FStartLineID then
+    begin
+      StartLineFound := True;
+      Break;
+    end;
+  if not StartLineFound then
+    if Length(FLines) > 0 then
+      FStartLineID := FLines[0].LineID
+    else
+      FStartLineID := 0;
   RecalculateNoteOffsets;
 end;
 

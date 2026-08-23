@@ -24,9 +24,13 @@ type
     procedure ConfirmButtonClick(Sender: TObject);
   private
     FOnLyricsConfirmed: TLyricsConfirmedEvent;
+    procedure UpdateInputLayout;
+  protected
+    procedure Resize; override;
   public
     procedure ApplyDarkTheme;
     procedure LoadDebugLyrics;
+    procedure RefreshInputLayout;
     function LyricsText: string;
     property OnLyricsConfirmed: TLyricsConfirmedEvent
       read FOnLyricsConfirmed write FOnLyricsConfirmed;
@@ -35,10 +39,63 @@ type
 implementation
 
 uses
+  System.Math,
   System.SysUtils,
-  SYNC_Lyrics_DarkTheme;
+  SYNC_Lyrics_DarkTheme,
+  Winapi.Windows;
 
 {$R *.dfm}
+
+procedure TFrameLyricsInitialInput.UpdateInputLayout;
+var
+  BottomMargin: Integer;
+  ButtonHeight: Integer;
+  ButtonWidth: Integer;
+  Margin: Integer;
+  MemoTop: Integer;
+  StatusHeight: Integer;
+begin
+  if (HeaderLabel = nil) or (InstructionsLabel = nil) or
+    (LyricsMemo = nil) or (StatusLabel = nil) or
+    (ConfirmButton = nil) then
+    Exit;
+  Margin := MulDiv(24, Max(1, CurrentPPI), 96);
+  MemoTop := MulDiv(108, Max(1, CurrentPPI), 96);
+  StatusHeight := MulDiv(18, Max(1, CurrentPPI), 96);
+  BottomMargin := MulDiv(18, Max(1, CurrentPPI), 96);
+  ButtonWidth := MulDiv(104, Max(1, CurrentPPI), 96);
+  ButtonHeight := MulDiv(30, Max(1, CurrentPPI), 96);
+  HeaderLabel.SetBounds(Margin, Margin,
+    Max(1, ClientWidth - Margin * 2),
+    MulDiv(25, Max(1, CurrentPPI), 96));
+  InstructionsLabel.SetBounds(Margin,
+    MulDiv(59, Max(1, CurrentPPI), 96),
+    Max(1, ClientWidth - Margin * 2),
+    MulDiv(38, Max(1, CurrentPPI), 96));
+  ConfirmButton.SetBounds(ClientWidth - Margin - ButtonWidth,
+    ClientHeight - BottomMargin - ButtonHeight,
+    ButtonWidth, ButtonHeight);
+  StatusLabel.SetBounds(Margin,
+    ClientHeight - BottomMargin - StatusHeight,
+    Max(1, ConfirmButton.Left - Margin * 2), StatusHeight);
+  LyricsMemo.SetBounds(Margin, MemoTop,
+    Max(1, ClientWidth - Margin * 2),
+    Max(1, ConfirmButton.Top - MulDiv(12,
+      Max(1, CurrentPPI), 96) - MemoTop));
+end;
+
+procedure TFrameLyricsInitialInput.Resize;
+begin
+  inherited Resize;
+  UpdateInputLayout;
+end;
+
+procedure TFrameLyricsInitialInput.RefreshInputLayout;
+begin
+  UpdateInputLayout;
+  LyricsMemo.Visible := True;
+  LyricsMemo.BringToFront;
+end;
 
 procedure TFrameLyricsInitialInput.ApplyDarkTheme;
 begin
@@ -47,6 +104,7 @@ begin
   ApplySyncLyricsDarkButton(ConfirmButton);
   HeaderLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
   InstructionsLabel.Font.Color := SYNC_LYRICS_DARK_TEXT_COLOR;
+  RefreshInputLayout;
 end;
 
 procedure TFrameLyricsInitialInput.ConfirmButtonClick(Sender: TObject);
