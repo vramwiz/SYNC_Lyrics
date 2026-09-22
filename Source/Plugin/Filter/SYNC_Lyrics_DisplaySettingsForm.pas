@@ -92,9 +92,9 @@ begin
   Font.PixelsPerInch := CurrentPPI;
   Font.Height := -MulDiv(12, CurrentPPI, 96);
   ClientWidth := MulDiv(990, CurrentPPI, 96);
-  ClientHeight := MulDiv(650, CurrentPPI, 96);
+  ClientHeight := MulDiv(548, CurrentPPI, 96);
   Constraints.MinWidth := MulDiv(760, CurrentPPI, 96);
-  Constraints.MinHeight := MulDiv(560, CurrentPPI, 96);
+  Constraints.MinHeight := MulDiv(520, CurrentPPI, 96);
   DoubleBuffered := True;
   ApplySyncLyricsDarkForm(Self);
 

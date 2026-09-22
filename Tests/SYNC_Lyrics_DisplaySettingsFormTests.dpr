@@ -96,7 +96,7 @@ begin
           raise Exception.Create('form font DPI scaling mismatch');
         if Form.ClientWidth <> MulDiv(990, Form.CurrentPPI, 96) then
           raise Exception.Create('form width DPI scaling mismatch');
-        if Form.ClientHeight <> MulDiv(650, Form.CurrentPPI, 96) then
+        if Form.ClientHeight <> MulDiv(548, Form.CurrentPPI, 96) then
           raise Exception.Create('form height DPI scaling mismatch');
         if Form.Position <> poScreenCenter then
           raise Exception.Create('form initial position mismatch');
@@ -111,7 +111,10 @@ begin
         CommonSettings[0] := DefaultDisplayCommonSettings;
         CommonSettings[1] := DefaultDisplayCommonSettings;
         CommonSettings[1].BaseFontName := 'Arial';
+        CommonSettings[1].PositionY := 120;
         CommonSettings[2] := DefaultDisplayCommonSettings;
+        CommonSettings[2].PositionX := 45;
+        CommonSettings[2].PositionY := 240;
         LinePage := TFrameLyricsLineDisplaySettingsPage(
           Form.PageForMode(DISPLAY_SETTINGS_MODE_LINE));
         if not LinePage.HasSkiaPreviewRenderer then
@@ -136,11 +139,28 @@ begin
         if not LinePage.HasBackgroundImage or
           not CharacterPage.HasBackgroundImage then
           raise Exception.Create('preview background was not loaded');
+        Form.SetMode(DISPLAY_SETTINGS_MODE_FREE);
+        if (Abs(LinePage.Preview.ClientWidth /
+          LinePage.Preview.ClientHeight - 16 / 9) > 0.1) or
+          (Abs(CharacterPage.Preview.ClientWidth /
+          CharacterPage.Preview.ClientHeight - 16 / 9) > 0.1) then
+          raise Exception.CreateFmt(
+            'preview aspect ratio leaves excess margins: line=%dx%d free=%dx%d',
+            [LinePage.Preview.ClientWidth, LinePage.Preview.ClientHeight,
+             CharacterPage.Preview.ClientWidth,
+             CharacterPage.Preview.ClientHeight]);
+        Form.SetMode(DISPLAY_SETTINGS_MODE_LINE);
         LinePage.ConfigureCandidates(['first', '[second](ruby)', 'third'],
           CommonSettings, 1);
         if (LinePage.SelectedLyrics <> '[second](ruby)') or
           (LinePage.SelectedCommonSettings.BaseFontName <> 'Arial') then
           raise Exception.Create('line candidate settings were not loaded');
+        LinePage.CandidateChanged(2);
+        if (LinePage.SelectedCommonSettings.BaseFontName <> 'Arial') or
+          (LinePage.SelectedCommonSettings.PositionX <> 45) or
+          (LinePage.SelectedCommonSettings.PositionY <> 240) then
+          raise Exception.Create('line shared style or lane position mismatch');
+        LinePage.CandidateChanged(1);
         Form.ConfigureModeCandidates(DISPLAY_SETTINGS_MODE_FREE,
           ['character 1', 'character 2'], 0);
         SetLength(CharacterCommonSettings, 2);
@@ -705,9 +725,13 @@ begin
           CommonSettings, 1);
         EditedCandidateCommon := LinePage.CandidateCommonSettings;
         if (Length(EditedCandidateCommon) <> 3) or
-          (EditedCandidateCommon[1].OutlineWidth =
-          EditedCandidateCommon[0].OutlineWidth) then
-          raise Exception.Create('all line candidate edits were not exposed');
+          (EditedCandidateCommon[1].OutlineWidth <>
+          EditedCandidateCommon[0].OutlineWidth) or
+          (EditedCandidateCommon[1].OutlineWidth <>
+          EditedCandidateCommon[2].OutlineWidth) or
+          (EditedCandidateCommon[0].PositionY =
+          EditedCandidateCommon[2].PositionY) then
+          raise Exception.Create('shared line style or independent positions mismatch');
         Form.SetMode(DISPLAY_SETTINGS_MODE_FREE);
         if Form.CurrentMode <> DISPLAY_SETTINGS_MODE_FREE then
           raise Exception.Create('free mode switch failed');

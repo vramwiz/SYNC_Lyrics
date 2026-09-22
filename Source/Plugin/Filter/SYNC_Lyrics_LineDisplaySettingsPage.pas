@@ -305,6 +305,11 @@ procedure TFrameLyricsLineDisplaySettingsPage.ConfigureCandidates(
   const Lyrics: TArray<string>;
   const CommonSettings: TArray<TDisplayCommonSettings>;
   InitialIndex: Integer);
+var
+  I: Integer;
+  PositionX: Integer;
+  PositionY: Integer;
+  SharedSettings: TDisplayCommonSettings;
 begin
   FCandidateLyrics := Copy(Lyrics);
   FCandidateCommon := Copy(CommonSettings);
@@ -312,8 +317,20 @@ begin
   if (Length(FCandidateLyrics) = 0) or
     (Length(FCandidateCommon) = 0) then
     Exit;
-  CandidateChanged(EnsureRange(InitialIndex, 0,
-    Min(High(FCandidateLyrics), High(FCandidateCommon))));
+  InitialIndex := EnsureRange(InitialIndex, 0,
+    Min(High(FCandidateLyrics), High(FCandidateCommon)));
+  // Existing songs can have different lane styles; the selected lane supplies
+  // the shared style while every lane keeps its saved position.
+  SharedSettings := FCandidateCommon[InitialIndex];
+  for I := 0 to High(FCandidateCommon) do
+  begin
+    PositionX := FCandidateCommon[I].PositionX;
+    PositionY := FCandidateCommon[I].PositionY;
+    FCandidateCommon[I] := SharedSettings;
+    FCandidateCommon[I].PositionX := PositionX;
+    FCandidateCommon[I].PositionY := PositionY;
+  end;
+  CandidateChanged(InitialIndex);
 end;
 
 procedure TFrameLyricsLineDisplaySettingsPage.RestoreInitialState;
@@ -1525,10 +1542,26 @@ begin
 end;
 
 procedure TFrameLyricsLineDisplaySettingsPage.StoreCurrentCandidate;
+var
+  I: Integer;
+  PositionX: Integer;
+  PositionY: Integer;
 begin
   if (FCurrentCandidate >= 0) and
     (FCurrentCandidate < Length(FCandidateCommon)) then
-    FCandidateCommon[FCurrentCandidate] := FCurrentCommon;
+  begin
+    for I := 0 to High(FCandidateCommon) do
+    begin
+      PositionX := FCandidateCommon[I].PositionX;
+      PositionY := FCandidateCommon[I].PositionY;
+      FCandidateCommon[I] := FCurrentCommon;
+      if I <> FCurrentCandidate then
+      begin
+        FCandidateCommon[I].PositionX := PositionX;
+        FCandidateCommon[I].PositionY := PositionY;
+      end;
+    end;
+  end;
 end;
 
 procedure TFrameLyricsLineDisplaySettingsPage.UpdateControls;
