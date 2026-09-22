@@ -50,6 +50,7 @@
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
         <GenDll>true</GenDll>
+        <DCC_Define>SKIA_DEFERRED_INIT;$(DCC_Define)</DCC_Define>
         <SanitizedProjectName>SYNC_Lyrics_Filter</SanitizedProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
@@ -67,7 +68,7 @@
         <Manifest_File>(なし)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
         <DCC_ExeOutput>C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics</DCC_ExeOutput>
-        <PreBuildEvent><![CDATA[if not exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics" mkdir "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics"]]></PreBuildEvent>
+        <PreBuildEvent><![CDATA[powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildProjectDirectory)\Scripts\PrepareSkiaUnit.ps1" -BdsRoot "$(BDS)" -ProjectRoot "$(MSBuildProjectDirectory)"&&if not exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics" mkdir "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics"]]></PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"&&copy /Y "$(BDS)\bin64\sk4d.dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new"&&move /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll"]]></PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
@@ -84,7 +85,7 @@
         <Manifest_File>(なし)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
         <DCC_ExeOutput>C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics</DCC_ExeOutput>
-        <PreBuildEvent><![CDATA[if not exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics" mkdir "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics"]]></PreBuildEvent>
+        <PreBuildEvent><![CDATA[powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildProjectDirectory)\Scripts\PrepareSkiaUnit.ps1" -BdsRoot "$(BDS)" -ProjectRoot "$(MSBuildProjectDirectory)"&&if not exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics" mkdir "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics"]]></PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"&&copy /Y "$(BDS)\bin64\sk4d.dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new"&&move /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm"]]></PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
@@ -229,7 +230,7 @@
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
     <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
-        <PreBuildEvent>if not exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot; mkdir &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot;</PreBuildEvent>
+        <PreBuildEvent>powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Scripts\PrepareSkiaUnit.ps1&quot; -BdsRoot &quot;$(BDS)&quot; -ProjectRoot &quot;$(MSBuildProjectDirectory)&quot;&amp;&amp;if not exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot; mkdir &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -237,7 +238,7 @@
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win64'">
-        <PreBuildEvent>if not exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot; mkdir &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot;</PreBuildEvent>
+        <PreBuildEvent>powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Scripts\PrepareSkiaUnit.ps1&quot; -BdsRoot &quot;$(BDS)&quot; -ProjectRoot &quot;$(MSBuildProjectDirectory)&quot;&amp;&amp;if not exist &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot; mkdir &quot;C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>

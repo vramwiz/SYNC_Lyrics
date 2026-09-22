@@ -33,7 +33,8 @@ function ApplyDisplayDurationsToSongLyricsLines(const Lines: TLyricsSongLines;
   Rate, Scale: Integer): TLyricsSongLines;
 // Moves the selected line's current display start to object-local frame zero.
 function AlignSongLyricsLinesToStartLine(const Lines: TLyricsSongLines;
-  StartLineID: Int64; out SongStartFrame: Int64): TLyricsSongLines;
+  StartLineID, PreDisplayFrames: Int64;
+  out SongStartFrame: Int64): TLyricsSongLines;
 // Returns every line whose raw display range contains the frame. If none
 // contains it, the single line nearest to its synchronization range is used.
 function ResolveSongLyricsPlacementCandidateIndexes(
@@ -124,7 +125,8 @@ begin
 end;
 
 function AlignSongLyricsLinesToStartLine(const Lines: TLyricsSongLines;
-  StartLineID: Int64; out SongStartFrame: Int64): TLyricsSongLines;
+  StartLineID, PreDisplayFrames: Int64;
+  out SongStartFrame: Int64): TLyricsSongLines;
 var
   I: Integer;
   StartLineIndex: Integer;
@@ -140,11 +142,17 @@ begin
     end;
   if (StartLineIndex < 0) and (Length(Result) > 0) then
     StartLineIndex := 0;
-  if (StartLineIndex < 0) or
-    (Result[StartLineIndex].DisplayStartFrame < 0) then
+  if StartLineIndex < 0 then
     Exit;
 
-  SongStartFrame := Result[StartLineIndex].DisplayStartFrame;
+  // 選択行の最初の音をオブジェクト先頭から事前表示分後へ置く。
+  if Result[StartLineIndex].SyncStartFrame >= 0 then
+    SongStartFrame := Result[StartLineIndex].SyncStartFrame -
+      Max(0, PreDisplayFrames)
+  else if Result[StartLineIndex].DisplayStartFrame >= 0 then
+    SongStartFrame := Result[StartLineIndex].DisplayStartFrame
+  else
+    Exit;
   for I := 0 to High(Result) do
   begin
     if Result[I].DisplayStartFrame >= 0 then
@@ -155,6 +163,9 @@ begin
       Dec(Result[I].SyncStartFrame, SongStartFrame);
     if Result[I].SyncEndFrame >= 0 then
       Dec(Result[I].SyncEndFrame, SongStartFrame);
+    if Result[I].SyncStartFrame >= 0 then
+      Result[I].DisplayStartFrame := Max(0,
+        Result[I].SyncStartFrame - Max(0, PreDisplayFrames));
   end;
 end;
 

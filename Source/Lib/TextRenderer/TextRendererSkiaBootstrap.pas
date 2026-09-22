@@ -1,8 +1,11 @@
 unit TextRendererSkiaBootstrap;
 
-// System.Skiaの外部関数解決より前に、プラグイン同梱のsk4d.dllを読み込む。
+// プラグインと同じフォルダーにあるSkiaランタイムのパスを返す。
 
 interface
+
+// DLLロード後の公開初期化関数から渡す、同梱sk4d.dllの絶対パスを返す。
+function BundledSkiaRuntimeFileName: string;
 
 implementation
 
@@ -10,10 +13,7 @@ uses
   System.SysUtils,
   Winapi.Windows;
 
-var
-  BootstrapLibraryHandle: HMODULE;
-
-function ModuleDirectory: string;
+function BundledSkiaRuntimeFileName: string;
 var
   Buffer: array[0..32767] of Char;
   PathLength: DWORD;
@@ -24,25 +24,7 @@ begin
   if PathLength >= DWORD(Length(Buffer)) then
     raise EPathTooLongException.Create('The plugin path is too long');
   SetString(Result, Buffer, PathLength);
-  Result := ExtractFilePath(Result);
+  Result := ExtractFilePath(Result) + 'sk4d.dll';
 end;
-
-procedure LoadBundledSkiaRuntime;
-var
-  LibraryFileName: string;
-begin
-  LibraryFileName := ModuleDirectory + 'sk4d.dll';
-  BootstrapLibraryHandle := LoadLibrary(PChar(LibraryFileName));
-  if BootstrapLibraryHandle = 0 then
-    raise EOSError.CreateFmt('Cannot load Skia runtime: %s (error %d)',
-      [LibraryFileName, GetLastError]);
-end;
-
-initialization
-  LoadBundledSkiaRuntime;
-
-finalization
-  if BootstrapLibraryHandle <> 0 then
-    FreeLibrary(BootstrapLibraryHandle);
 
 end.

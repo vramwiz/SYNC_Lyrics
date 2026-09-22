@@ -18,7 +18,6 @@ type
 implementation
 
 uses
-  TextRendererSkiaBootstrap,
   System.Skia,
   System.SysUtils,
   Winapi.Windows;
@@ -31,6 +30,9 @@ var
 
 class procedure TTextRendererSkiaRuntime.Acquire(const ALibraryFileName: string);
 var
+  {$IFDEF SKIA_DEFERRED_INIT}
+  ApiInitialized: Boolean;
+  {$ENDIF}
   ExpandedFileName: string;
 begin
   ExpandedFileName := ExpandFileName(ALibraryFileName);
@@ -50,11 +52,23 @@ begin
     if RuntimeLibraryHandle = 0 then
       raise EOSError.CreateFmt('Cannot load Skia runtime: %s (error %d)',
         [ExpandedFileName, GetLastError]);
+    {$IFDEF SKIA_DEFERRED_INIT}
+    ApiInitialized := False;
+    {$ENDIF}
     try
+      {$IFDEF SKIA_DEFERRED_INIT}
+      // The plugin defers System.Skia class constructors until this host callback.
+      InitializeDeferredSkia;
+      ApiInitialized := True;
+      {$ENDIF}
       TSkGraphics.Init;
       RuntimeFileName := ExpandedFileName;
       RuntimeReferenceCount := 1;
     except
+      {$IFDEF SKIA_DEFERRED_INIT}
+      if ApiInitialized then
+        FinalizeDeferredSkia;
+      {$ENDIF}
       FreeLibrary(RuntimeLibraryHandle);
       RuntimeLibraryHandle := 0;
       raise;
@@ -84,10 +98,21 @@ begin
     if RuntimeReferenceCount > 0 then
       Exit;
 
-    TSkGraphics.PurgeAllCaches;
-    FreeLibrary(RuntimeLibraryHandle);
-    RuntimeLibraryHandle := 0;
-    RuntimeFileName := '';
+    try
+      TSkGraphics.PurgeAllCaches;
+    finally
+      {$IFDEF SKIA_DEFERRED_INIT}
+      try
+        FinalizeDeferredSkia;
+      finally
+      {$ENDIF}
+        FreeLibrary(RuntimeLibraryHandle);
+        RuntimeLibraryHandle := 0;
+        RuntimeFileName := '';
+      {$IFDEF SKIA_DEFERRED_INIT}
+      end;
+      {$ENDIF}
+    end;
   finally
     LeaveCriticalSection(RuntimeLock);
   end;
@@ -97,8 +122,6 @@ initialization
   InitializeCriticalSection(RuntimeLock);
 
 finalization
-  while RuntimeReferenceCount > 0 do
-    TTextRendererSkiaRuntime.Release;
   DeleteCriticalSection(RuntimeLock);
 
 end.

@@ -6,7 +6,8 @@ interface
 
 uses
   AviUtl2FilterTypes,
-  SYNC_Lyrics_DisplaySettingsData;
+  SYNC_Lyrics_DisplaySettingsData,
+  SYNC_Lyrics_ResolvedDisplayUnits;
 
 type
   TLyricsDisplayType = (
@@ -87,6 +88,11 @@ procedure InitializeLyricsRenderer;
 // 新規歌詞表示に使用する既定の描画設定を返す。
 function DefaultLyricsRenderSettings: TLyricsRenderSettings;
 
+// Returns the visual progress of one unit; silent marks switch at a note boundary.
+function ResolveLyricsDisplayUnitProgress(
+  const Units: TResolvedLyricsDisplayUnits; UnitIndex: Integer;
+  ProgressUnits: Double): Double;
+
 // AviUtl2へ渡す歌詞画像の寸法を取得する。
 function TryGetLyricsRenderSize(Video: PFILTER_PROC_VIDEO;
   out Width, Height: Integer): Boolean;
@@ -132,7 +138,7 @@ uses
   PluginFilterSerifDrawSyncHighlight,
   SYNC_Lyrics_Animation,
   SYNC_Lyrics_LyricParser,
-  SYNC_Lyrics_ResolvedDisplayUnits,
+  TextRendererSkiaBootstrap,
   TextRenderer,
   TextRendererSkia,
   TextRendererSkiaRuntime,
@@ -335,13 +341,29 @@ begin
   end;
 end;
 
-function GetDisplayUnitProgress(const Units: TResolvedLyricsDisplayUnits;
+function ResolveLyricsDisplayUnitProgress(const Units: TResolvedLyricsDisplayUnits;
   UnitIndex: Integer; ProgressUnits: Double): Double;
+var
+  I: Integer;
+  IsLeading: Boolean;
 begin
   if (UnitIndex < 0) or (UnitIndex >= Length(Units)) then
     Exit(0);
   if Units[UnitIndex].SyncUnitIndex < 0 then
     Exit(0);
+  if not Units[UnitIndex].ConsumesNote then
+  begin
+    IsLeading := True;
+    for I := 0 to UnitIndex - 1 do
+      if Units[I].ConsumesNote then
+      begin
+        IsLeading := False;
+        Break;
+      end;
+    if IsLeading then
+      Exit(Ord(ProgressUnits > 0));
+    Exit(Ord(ProgressUnits >= Units[UnitIndex].SyncUnitIndex + 1));
+  end;
   Result := EnsureRange(ProgressUnits -
     Units[UnitIndex].SyncUnitIndex, 0.0, 1.0);
 end;
@@ -469,20 +491,6 @@ type
     BaselineY: Single;
   end;
   TPreparedLyricsParts = TArray<TPreparedLyricsPart>;
-
-function RendererModuleDirectory: string;
-var
-  Buffer: array[0..32767] of Char;
-  PathLength: DWORD;
-begin
-  PathLength := GetModuleFileName(HInstance, Buffer, Length(Buffer));
-  if PathLength = 0 then
-    RaiseLastOSError;
-  if PathLength >= DWORD(Length(Buffer)) then
-    raise EPathTooLongException.Create('The renderer module path is too long');
-  SetString(Result, Buffer, PathLength);
-  Result := ExtractFilePath(Result);
-end;
 
 function LyricsColorToAlphaColor(Color: Cardinal; Opacity: Byte): TAlphaColor;
 begin
@@ -1144,15 +1152,19 @@ begin
     Effect := UnitDisplayEffectFromType(Settings.DisplayType);
     for UnitIndex := 0 to High(ResolvedUnits) do
     begin
-      UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
+      UnitProgress := ResolveLyricsDisplayUnitProgress(ResolvedUnits, UnitIndex,
         ProgressUnits);
       ResolveLyricsUnitEffect(Effect, UnitProgress, State);
-      ApplySerifSyncTransform(ResolvedUnits[UnitIndex].SyncUnitIndex,
-        CurrentSyncIndex, CurrentSyncProgress,
-        ResolvedUnits[UnitIndex].Base.Style.FontHeight, Settings, State);
-      SyncPhase := ResolveSerifSyncPhase(
-        ResolvedUnits[UnitIndex].SyncUnitIndex, CurrentSyncIndex,
-        CurrentSyncProgress, Settings);
+      SyncPhase := 0;
+      if ResolvedUnits[UnitIndex].ConsumesNote then
+      begin
+        ApplySerifSyncTransform(ResolvedUnits[UnitIndex].SyncUnitIndex,
+          CurrentSyncIndex, CurrentSyncProgress,
+          ResolvedUnits[UnitIndex].Base.Style.FontHeight, Settings, State);
+        SyncPhase := ResolveSerifSyncPhase(
+          ResolvedUnits[UnitIndex].SyncUnitIndex, CurrentSyncIndex,
+          CurrentSyncProgress, Settings);
+      end;
       GlowOpacity := 0;
       if Settings.SyncKind = lskGlow then
         GlowOpacity := SyncPhase *
@@ -1160,9 +1172,12 @@ begin
       AfterClipStart := 0;
       AfterClipEnd := State.AfterProgress;
       if Settings.DisplayType = ldtKaraoke then
-        ResolveKaraokeColorClip(UnitProgress, ProgressUnits,
-          ResolvedUnits[UnitIndex].SyncUnitIndex, SyncUnitCount, Settings,
-          AfterClipStart, AfterClipEnd);
+        if ResolvedUnits[UnitIndex].ConsumesNote then
+          ResolveKaraokeColorClip(UnitProgress, ProgressUnits,
+            ResolvedUnits[UnitIndex].SyncUnitIndex, SyncUnitCount, Settings,
+            AfterClipStart, AfterClipEnd)
+        else
+          AfterClipEnd := ResolveKaraokeColorProgress(UnitProgress, Settings);
       BaseLeft := (Width - TotalBaseWidth) * 0.5 + PositionX +
         BaseUnitLefts[UnitIndex];
       BaseBaselineX := BaseLeft - PreparedBase[UnitIndex].AdvanceLeft;
@@ -1286,15 +1301,19 @@ begin
       if ResolvedUnits[UnitIndex].HasRuby then
         PrepareLyricsPart(ResolvedUnits[UnitIndex].Ruby, Settings,
           PreparedRuby);
-      UnitProgress := GetDisplayUnitProgress(ResolvedUnits, UnitIndex,
+      UnitProgress := ResolveLyricsDisplayUnitProgress(ResolvedUnits, UnitIndex,
         ProgressUnits);
       ResolveLyricsUnitEffect(Effect, UnitProgress, State);
-      ApplySerifSyncTransform(ResolvedUnits[UnitIndex].SyncUnitIndex,
-        CurrentSyncIndex, CurrentSyncProgress,
-        ResolvedUnits[UnitIndex].Base.Style.FontHeight, Settings, State);
-      SyncPhase := ResolveSerifSyncPhase(
-        ResolvedUnits[UnitIndex].SyncUnitIndex, CurrentSyncIndex,
-        CurrentSyncProgress, Settings);
+      SyncPhase := 0;
+      if ResolvedUnits[UnitIndex].ConsumesNote then
+      begin
+        ApplySerifSyncTransform(ResolvedUnits[UnitIndex].SyncUnitIndex,
+          CurrentSyncIndex, CurrentSyncProgress,
+          ResolvedUnits[UnitIndex].Base.Style.FontHeight, Settings, State);
+        SyncPhase := ResolveSerifSyncPhase(
+          ResolvedUnits[UnitIndex].SyncUnitIndex, CurrentSyncIndex,
+          CurrentSyncProgress, Settings);
+      end;
       GlowOpacity := 0;
       if Settings.SyncKind = lskGlow then
         GlowOpacity := SyncPhase *
@@ -1302,9 +1321,12 @@ begin
       AfterClipStart := 0;
       AfterClipEnd := State.AfterProgress;
       if Settings.DisplayType = ldtKaraoke then
-        ResolveKaraokeColorClip(UnitProgress, ProgressUnits,
-          ResolvedUnits[UnitIndex].SyncUnitIndex, SyncUnitCount, Settings,
-          AfterClipStart, AfterClipEnd);
+        if ResolvedUnits[UnitIndex].ConsumesNote then
+          ResolveKaraokeColorClip(UnitProgress, ProgressUnits,
+            ResolvedUnits[UnitIndex].SyncUnitIndex, SyncUnitCount, Settings,
+            AfterClipStart, AfterClipEnd)
+        else
+          AfterClipEnd := ResolveKaraokeColorProgress(UnitProgress, Settings);
       PivotX := Width * 0.5 + ResolvedUnits[UnitIndex].X + PositionX;
       PivotY := Height * 0.5 + ResolvedUnits[UnitIndex].Y + PositionY;
       PlacementScaleX := ResolvedUnits[UnitIndex].ScaleX;
@@ -1737,13 +1759,10 @@ begin
 end;
 
 procedure InitializeLyricsRenderer;
-var
-  LibraryFileName: string;
 begin
   if RendererInitialized then
     Exit;
-  LibraryFileName := RendererModuleDirectory + 'sk4d.dll';
-  TTextRendererSkiaRuntime.Acquire(LibraryFileName);
+  TTextRendererSkiaRuntime.Acquire(BundledSkiaRuntimeFileName);
   RendererSkiaAcquired := True;
   try
     SkiaRenderer := TSkiaTextRenderer.Create;

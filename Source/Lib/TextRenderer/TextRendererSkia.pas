@@ -5,7 +5,6 @@ unit TextRendererSkia;
 interface
 
 uses
-  TextRendererSkiaBootstrap,
   System.Skia,
   TextRenderer,
   TextRendererTypes;

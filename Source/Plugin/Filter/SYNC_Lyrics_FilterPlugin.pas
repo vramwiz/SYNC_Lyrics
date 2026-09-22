@@ -362,6 +362,7 @@ var
   Anchor: TMusicSyncAnchor;
   CurrentFrame: Int64;
   ObjectLayerFrame: TOBJECT_LAYER_FRAME;
+  PreDisplayFrames: Int64;
   SongStartFrame: Int64;
   StartLineID: Int64;
 begin
@@ -386,6 +387,7 @@ begin
 
   AdjustedLines := Copy(Context.Lines);
   CurrentFrame := 0;
+  PreDisplayFrames := 0;
   if (Edit <> nil) and Assigned(Edit^.GetObjectLayerFrame) and
     (Obj <> nil) then
   begin
@@ -394,6 +396,9 @@ begin
       ObjectLayerFrame.StartFrame, ObjectLayerFrame.EndFrame, Anchor) then
     begin
       CurrentFrame := Anchor.CurrentFrame;
+      if (Anchor.Rate > 0) and (Anchor.Scale > 0) then
+        PreDisplayFrames := Round(Max(0.0, PreDisplayTimeItem.Value) *
+          Anchor.Rate / Anchor.Scale);
       AdjustedLines := ApplyMusicOffsetToSongLyricsLines(AdjustedLines,
         EnsureRange(MusicOffsetItem.Value, -5.0, 5.0),
         Anchor.Rate, Anchor.Scale);
@@ -403,7 +408,7 @@ begin
     end;
   end;
   AdjustedLines := AlignSongLyricsLinesToStartLine(AdjustedLines,
-    StartLineID, SongStartFrame);
+    StartLineID, PreDisplayFrames, SongStartFrame);
   Context.CandidateIndexes :=
     ResolveSongLyricsPlacementCandidateIndexes(AdjustedLines, CurrentFrame);
   Context.InitialCandidate := ResolveSongLyricsPlacementInitialCandidate(
@@ -1852,6 +1857,7 @@ var
   PlacementMode: TLyricsPlacementMode;
   ObjectStartFrame: Integer;
   ObjectStartSeconds: Double;
+  PreDisplayFrames: Int64;
   SelectedPlacementMode: Integer;
   SongDataText: string;
   SongLines: TLyricsSongLines;
@@ -1880,9 +1886,13 @@ begin
       GetMem(Buffer, PixelCount * SizeOf(TPIXEL_RGBA));
       InitializeLyricsRenderBuffer(Video, Buffer, PixelCount);
       HasFrameState := TryGetLyricsFrameState(Video, FrameState);
+      PreDisplayFrames := 0;
       MusicOffsetSeconds := EnsureRange(MusicOffsetItem.Value, -5.0, 5.0);
       if HasFrameState then
       begin
+        if (FrameState.Rate > 0) and (FrameState.Scale > 0) then
+          PreDisplayFrames := Round(Max(0.0, PreDisplayTimeItem.Value) *
+            FrameState.Rate / FrameState.Scale);
         SongLines := ApplyMusicOffsetToSongLyricsLines(SongLines,
           MusicOffsetSeconds, FrameState.Rate, FrameState.Scale);
         SongLines := ApplyDisplayDurationsToSongLyricsLines(SongLines,
@@ -1891,7 +1901,7 @@ begin
           FrameState.Rate, FrameState.Scale);
       end;
       SongLines := AlignSongLyricsLinesToStartLine(SongLines,
-        StartLineID, SongStartFrame);
+        StartLineID, PreDisplayFrames, SongStartFrame);
       SongStartSeconds := 0;
       if HasFrameState then
         SongStartSeconds := SongStartFrame *
@@ -2000,20 +2010,37 @@ end;
 
 procedure InitializeLyricsFilter;
 begin
-  InitializeLastFrameCapture;
-  InitializeSongLyricsRuntime;
-  InitializeMusicSyncAnchor;
-  InitializeMusicSync;
-  InitializeLyricsRenderer;
+  try
+    InitializeLastFrameCapture;
+    InitializeSongLyricsRuntime;
+    InitializeMusicSyncAnchor;
+    InitializeMusicSync;
+    InitializeLyricsRenderer;
+  except
+    FinalizeLyricsFilter;
+    raise;
+  end;
 end;
 
 procedure FinalizeLyricsFilter;
 begin
-  FinalizeLyricsRenderer;
-  FinalizeMusicSync;
-  FinalizeMusicSyncAnchor;
-  FinalizeSongLyricsRuntime;
-  FinalizeLastFrameCapture;
+  try
+    FinalizeLyricsRenderer;
+  finally
+    try
+      FinalizeMusicSync;
+    finally
+      try
+        FinalizeMusicSyncAnchor;
+      finally
+        try
+          FinalizeSongLyricsRuntime;
+        finally
+          FinalizeLastFrameCapture;
+        end;
+      end;
+    end;
+  end;
 end;
 
 end.

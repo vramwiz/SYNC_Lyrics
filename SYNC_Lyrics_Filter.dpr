@@ -5,6 +5,7 @@
 {$ALIGN 8}
 
 uses
+  System.Skia in 'Win64\SkiaOverride\System.Skia.pas',
   TextRendererSkiaBootstrap in 'Source\Lib\TextRenderer\TextRendererSkiaBootstrap.pas',
   TextRendererTypes in 'Source\Lib\TextRenderer\TextRendererTypes.pas',
   TextRenderer in 'Source\Lib\TextRenderer\TextRenderer.pas',
@@ -90,18 +91,32 @@ uses
 
 function InitializePlugin(Version: Cardinal): Byte; cdecl;
 begin
-  InitializeLyricsFilter;
-  Result := 1;
+  Result := 0;
+  try
+    InitializeLyricsFilter;
+    Result := 1;
+  except
+    // Exceptions must not cross AviUtl2's C callback boundary.
+  end;
 end;
 
 procedure UninitializePlugin; cdecl;
 begin
-  FinalizeLyricsFilter;
+  try
+    FinalizeLyricsFilter;
+  except
+    // DLL unload must continue even if Skia cleanup fails.
+  end;
 end;
 
 function GetFilterPluginTable: PFILTER_PLUGIN_TABLE; cdecl;
 begin
-  Result := GetLyricsFilterTable;
+  Result := nil;
+  try
+    Result := GetLyricsFilterTable;
+  except
+    // The host treats a missing table as plugin initialization failure.
+  end;
 end;
 
 exports

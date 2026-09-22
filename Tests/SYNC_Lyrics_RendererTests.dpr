@@ -644,6 +644,41 @@ begin
   Check(CountAfterColorPixels > 0, 'consumed lyrics produced no after-color pixels');
 end;
 
+procedure TestSilentMarksSwitchAtNoteBoundary;
+var
+  I: Integer;
+  LogicalUnits: TLyricsDisplayUnits;
+  PlainText: string;
+  ResolvedUnits: TResolvedLyricsDisplayUnits;
+  RubySpans: TLyricsRubySpans;
+begin
+  ParseLyrics('「歌、 空。」', PlainText, RubySpans);
+  BuildLyricsDisplayUnits(PlainText, RubySpans, LogicalUnits);
+  SetLength(ResolvedUnits, Length(LogicalUnits));
+  for I := 0 to High(LogicalUnits) do
+  begin
+    ResolvedUnits[I].ConsumesNote := LogicalUnits[I].ConsumesNote;
+    ResolvedUnits[I].SyncUnitIndex := LogicalUnits[I].SyncUnitIndex;
+  end;
+  Check((ResolveLyricsDisplayUnitProgress(ResolvedUnits, 0, 0) = 0) and
+    (ResolveLyricsDisplayUnitProgress(ResolvedUnits, 0, 0.25) = 1),
+    'leading mark did not switch at the first note start');
+  Check(SameValue(ResolveLyricsDisplayUnitProgress(
+    ResolvedUnits, 1, 0.25), 0.25),
+    'sounding lyric lost gradual progress');
+  Check((ResolveLyricsDisplayUnitProgress(ResolvedUnits, 2, 0.99) = 0) and
+    (ResolveLyricsDisplayUnitProgress(ResolvedUnits, 2, 1) = 1) and
+    (ResolveLyricsDisplayUnitProgress(ResolvedUnits, 3, 1) = 1),
+    'middle silent units did not switch at the previous note end');
+  Check((ResolveLyricsDisplayUnitProgress(ResolvedUnits, 5, 1.99) = 0) and
+    (ResolveLyricsDisplayUnitProgress(ResolvedUnits, 5, 2) = 1) and
+    (ResolveLyricsDisplayUnitProgress(ResolvedUnits, 6, 2) = 1),
+    'trailing silent units did not switch at the final note end');
+  Check(SameValue(ResolveLyricsDisplayUnitProgress(
+    ResolvedUnits, 4, 1.25), 0.25),
+    'second sounding lyric lost gradual progress');
+end;
+
 procedure TestRubyAndBaseShareProgress;
 var
   ObjectInfo: TOBJECT_INFO;
@@ -1848,6 +1883,7 @@ begin
     TestVisibleJapaneseLyrics;
     TestRubyIsDrawnAboveLyrics;
     TestConsumedLyricsUseAfterColor;
+    TestSilentMarksSwitchAtNoteBoundary;
     TestFourColorChangeModes;
     TestRubyAndBaseShareProgress;
     TestPositionOffsetsMoveBaseAndRuby;

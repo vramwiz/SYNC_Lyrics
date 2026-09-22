@@ -131,11 +131,20 @@ begin
     RuntimeLines[1].SyncStartFrame := 330;
     RuntimeLines[1].SyncEndFrame := 350;
     RuntimeLines := AlignSongLyricsLinesToStartLine(RuntimeLines,
-      StartLineID, SongStartFrame);
+      StartLineID, 30, SongStartFrame);
     Check((SongStartFrame = 300) and
       (RuntimeLines[1].DisplayStartFrame = 0) and
       (RuntimeLines[1].SyncStartFrame = 30),
       'The selected start line was not aligned to object frame zero.');
+    RuntimeLines[1].DisplayStartFrame := 0;
+    RuntimeLines[1].SyncStartFrame := 0;
+    RuntimeLines[1].SyncEndFrame := 20;
+    RuntimeLines := AlignSongLyricsLinesToStartLine(RuntimeLines,
+      StartLineID, 15, SongStartFrame);
+    Check((SongStartFrame = -15) and
+      (RuntimeLines[1].DisplayStartFrame = 0) and
+      (RuntimeLines[1].SyncStartFrame = 15),
+      'An immediate first note must wait through the pre-display interval.');
     RuntimeLines[0].DisplayStartFrame := -1;
     RuntimeLines[0].DisplayEndFrame := -1;
     RuntimeLines[1].DisplayStartFrame := -1;

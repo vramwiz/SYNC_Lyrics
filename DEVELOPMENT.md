@@ -15,6 +15,9 @@
 ## 共通ビルドルール
 
 - Delphi 37.0を使用し、対象プラットフォームはWin64だけとする。
+- Filterのビルド前イベントは`Scripts/PrepareSkiaUnit.ps1`でDelphi 37の`System.Skia`を
+  `Win64/SkiaOverride`へ生成する。プラグインDLLロード中のSkia初期化を避けるため、Filterは
+  `.dproj`経由でビルドし、SDKのクラス初期化実装が変わった場合はスクリプトの検査で停止させる。
 - 完成品は`_Filter`単体とし、DebugとReleaseの両構成を検証する。`_Input`は旧方式の比較用として
   残す間だけ、変更した場合に限ってビルドする。
 - コンパイル警告とエラーを確認し、原則として警告0、エラー0で完了とする。
