@@ -20,6 +20,8 @@ type
     procedure Draw(Canvas: TCanvas; const Bounds: TRect);
     procedure DrawAt(Canvas: TCanvas; const Bounds,
       Destination: TRect);
+    procedure DrawCenterGuides(Canvas: TCanvas; const Destination: TRect;
+      Vertical, Horizontal: Boolean);
     function ImageHeight: Integer;
     function ImageWidth: Integer;
     function HasImage: Boolean;
@@ -30,12 +32,13 @@ type
 implementation
 
 uses
-  System.Math;
+  System.Math,
+  Winapi.Windows;
 
 constructor TDisplayPreviewBackground.Create;
 begin
   inherited Create;
-  FBitmap := TBitmap.Create;
+  FBitmap := Vcl.Graphics.TBitmap.Create;
   FBitmap.PixelFormat := pf32bit;
 end;
 
@@ -53,8 +56,14 @@ var
   Scale: Double;
 begin
   Result := Bounds;
-  if not HasImage or (Bounds.Width <= 0) or (Bounds.Height <= 0) then
+  if (Bounds.Width <= 0) or (Bounds.Height <= 0) then
     Exit;
+  if not HasImage then
+  begin
+    InflateRect(Result, -Min(24, Bounds.Width div 8),
+      -Min(24, Bounds.Height div 8));
+    Exit;
+  end;
   Scale := Min(Bounds.Width / FBitmap.Width,
     Bounds.Height / FBitmap.Height);
   DrawWidth := Max(1, Round(FBitmap.Width * Scale));
@@ -75,10 +84,39 @@ procedure TDisplayPreviewBackground.DrawAt(Canvas: TCanvas;
   const Bounds, Destination: TRect);
 begin
   Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := clBlack;
+  Canvas.Brush.Color := RGB(105, 108, 114);
   Canvas.FillRect(Bounds);
   if HasImage then
-    Canvas.StretchDraw(Destination, FBitmap);
+    Canvas.StretchDraw(Destination, FBitmap)
+  else
+  begin
+    Canvas.Brush.Color := RGB(29, 31, 35);
+    Canvas.FillRect(Destination);
+  end;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Color := RGB(165, 168, 173);
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Rectangle(Destination);
+end;
+
+procedure TDisplayPreviewBackground.DrawCenterGuides(Canvas: TCanvas;
+  const Destination: TRect; Vertical, Horizontal: Boolean);
+begin
+  Canvas.Pen.Color := RGB(99, 204, 220);
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Style := psDot;
+  if Vertical then
+  begin
+    Canvas.MoveTo(Destination.CenterPoint.X, Destination.Top);
+    Canvas.LineTo(Destination.CenterPoint.X, Destination.Bottom);
+  end;
+  if Horizontal then
+  begin
+    Canvas.MoveTo(Destination.Left, Destination.CenterPoint.Y);
+    Canvas.LineTo(Destination.Right, Destination.CenterPoint.Y);
+  end;
+  Canvas.Pen.Style := psSolid;
 end;
 
 function TDisplayPreviewBackground.HasImage: Boolean;

@@ -24,7 +24,9 @@ uses
 
 type
   TLineDisplayPageSelection = (ldpsBase, ldpsRuby);
-  TLineDisplayPageDragMode = (ldpdNone, ldpdPan, ldpdMove, ldpdResize,
+  TLineDisplayPageDragMode = (ldpdNone, ldpdPan, ldpdMove,
+    ldpdResizeTopLeft, ldpdResizeTopRight,
+    ldpdResizeBottomLeft, ldpdResizeBottomRight,
     ldpdSpacingLeft, ldpdSpacingRight, ldpdRubyGap, ldpdOutlineBlur,
     ldpdOutlineWidth, ldpdShadowBlur, ldpdShadowOffset,
     ldpdShadowSpread);
@@ -45,6 +47,7 @@ type
     FDragMode: TLineDisplayPageDragMode;
     FDragStartBaseCharacterSpacing: Integer;
     FDragStartFontHeight: Integer;
+    FDragStartBounds: TRect;
     FDragStartOutlineBlur: Single;
     FDragStartOutlineWidth: Single;
     FDragStartPoint: TPoint;
@@ -57,7 +60,8 @@ type
     FDragStartShadowOffsetY: Single;
     FDragStartShadowSpread: Single;
     FDragStartViewPan: TPointF;
-    FActionToolbar: TSyncLyricsToolbarButtons;
+    FSnapX: Boolean;
+    FSnapY: Boolean;
     FColorPanel: TDisplaySettingsColorPanel;
     FFormattingToolbar: TSyncLyricsToolbarButtons;
     FInitialCandidate: Integer;
@@ -76,8 +80,6 @@ type
     FUpdatingControls: Boolean;
     FViewPan: TPointF;
     FViewZoom: Double;
-    procedure ActionToolbarExecute(Sender: TObject;
-      Button: TSyncLyricsToolbarButton);
     procedure FontComboChange(Sender: TObject);
     procedure ColorPanelChange(Sender: TObject);
     procedure ColorTargetChange(Sender: TObject);
@@ -113,7 +115,8 @@ type
       AfterPhase: Boolean);
     function HitTestDragMode(const PointValue: TPoint):
       TLineDisplayPageDragMode;
-    function ResizeHandleRect(const Bounds: TRect): TRect;
+    function ResizeHandleRect(const Bounds: TRect;
+      Mode: TLineDisplayPageDragMode): TRect;
     function RenderPreviewTextImage(Canvas: TCanvas; const Text: string;
       CharacterSpacing: Integer; AfterPhase,
       IncludeDecoration: Boolean): TTextRenderImage;
@@ -151,7 +154,6 @@ type
     property RubyFontCombo: TComboBox read FRubyFontCombo;
     property BasePreviewBounds: TRect read FBasePreviewBounds;
     property ColorPanel: TDisplaySettingsColorPanel read FColorPanel;
-    property ActionToolbar: TSyncLyricsToolbarButtons read FActionToolbar;
     property FormattingToolbar: TSyncLyricsToolbarButtons
       read FFormattingToolbar;
     property OutlineButton: TSyncLyricsToolbarButton read FOutlineButton;
@@ -223,14 +225,9 @@ begin
     #19979#32218, tbgUnderline, 4);
   FFormattingButtons[3] := FFormattingToolbar.AddToggleButton(
     #21462#12426#28040#12375#32218, tbgStrikeOut, 8);
-  FActionToolbar := TSyncLyricsToolbarButtons.Create(Self);
-  FActionToolbar.Parent := Self;
-  FActionToolbar.Color := Color;
-  FActionToolbar.ParentBackground := False;
-  FActionToolbar.OnButtonExecute := ActionToolbarExecute;
-  FOutlineButton := FActionToolbar.AddToggleButton(
+  FOutlineButton := FFormattingToolbar.AddToggleButton(
     #32257#21462#12426, tbgOutline, 100);
-  FShadowButton := FActionToolbar.AddToggleButton(
+  FShadowButton := FFormattingToolbar.AddToggleButton(
     #24433, tbgShadow, 101);
 
   FPreview := TPaintBox.Create(Self);
@@ -263,20 +260,6 @@ begin
   FPreviewRenderer.Free;
   FBackground.Free;
   inherited;
-end;
-
-procedure TFrameLyricsLineDisplaySettingsPage.ActionToolbarExecute(
-  Sender: TObject; Button: TSyncLyricsToolbarButton);
-begin
-  if FUpdatingControls then
-    Exit;
-  case Button.Tag of
-    100: FCurrentCommon.OutlineEnabled :=
-      Button.CheckState = tbcsChecked;
-    101: FCurrentCommon.ShadowEnabled :=
-      Button.CheckState = tbcsChecked;
-  end;
-  FPreview.Invalidate;
 end;
 
 procedure TFrameLyricsLineDisplaySettingsPage.CandidateChanged(
@@ -427,6 +410,20 @@ var
 begin
   if FUpdatingControls or (FCurrentCandidate < 0) then
     Exit;
+  case Button.Tag of
+    100:
+      begin
+        FCurrentCommon.OutlineEnabled := Button.CheckState = tbcsChecked;
+        FPreview.Invalidate;
+        Exit;
+      end;
+    101:
+      begin
+        FCurrentCommon.ShadowEnabled := Button.CheckState = tbcsChecked;
+        FPreview.Invalidate;
+        Exit;
+      end;
+  end;
   StyleValue := SelectedFontStyle;
   if Button.CheckState = tbcsChecked then
     StyleValue := StyleValue or Byte(Button.Tag)
@@ -457,7 +454,7 @@ var
   DrawHeight: Integer;
   DrawWidth: Integer;
 begin
-  Result := FPreview.ClientRect;
+  Result := FBackground.DestinationRect(FPreview.ClientRect);
   if not FBackground.HasImage then
     Exit;
   BaseDestination := FBackground.DestinationRect(FPreview.ClientRect);
@@ -768,7 +765,7 @@ var
   BaseY: Integer;
   CenterX: Integer;
   Destination: TRect;
-  Handle: TRect;
+  Mode: TLineDisplayPageDragMode;
   LeftHandle: TRect;
   OldCharacterSpacing: Integer;
   PlainText: string;
@@ -793,6 +790,9 @@ var
 begin
   FBackground.DrawAt(FPreview.Canvas, FPreview.ClientRect,
     PreviewDestinationRect);
+  if FDragMode = ldpdMove then
+    FBackground.DrawCenterGuides(FPreview.Canvas,
+      PreviewDestinationRect, FSnapX, FSnapY);
   PreviewScale := PreviewBackgroundScale;
   FPreview.Canvas.Brush.Style := bsClear;
   ParseLyrics(FCurrentLyrics, PlainText, RubySpans);
@@ -921,12 +921,12 @@ begin
   end;
   FPreview.Canvas.Pen.Color := SelectionColor;
   FPreview.Canvas.Rectangle(SelectedBounds);
-  Handle := ResizeHandleRect(SelectedBounds);
   LeftHandle := SpacingHandleRect(SelectedBounds, True);
   RightHandle := SpacingHandleRect(SelectedBounds, False);
   FPreview.Canvas.Brush.Style := bsSolid;
   FPreview.Canvas.Brush.Color := SelectionColor;
-  FPreview.Canvas.FillRect(Handle);
+  for Mode := ldpdResizeTopLeft to ldpdResizeBottomRight do
+    FPreview.Canvas.FillRect(ResizeHandleRect(SelectedBounds, Mode));
   if ((FSelection = ldpsBase) and (Length(PlainText) > 1)) or
     ((FSelection = ldpsRuby) and (RubySpacingIntervalCount > 0)) then
   begin
@@ -1116,6 +1116,7 @@ function TFrameLyricsLineDisplaySettingsPage.HitTestDragMode(
   const PointValue: TPoint): TLineDisplayPageDragMode;
 var
   IntervalCount: Integer;
+  Mode: TLineDisplayPageDragMode;
   SelectedBounds: TRect;
 begin
   Result := ldpdNone;
@@ -1153,8 +1154,9 @@ begin
     if (IntervalCount > 0) and
       PtInRect(SpacingHandleRect(SelectedBounds, False), PointValue) then
       Exit(ldpdSpacingRight);
-    if PtInRect(ResizeHandleRect(SelectedBounds), PointValue) then
-      Exit(ldpdResize);
+    for Mode := ldpdResizeTopLeft to ldpdResizeBottomRight do
+      if PtInRect(ResizeHandleRect(SelectedBounds, Mode), PointValue) then
+        Exit(Mode);
     if PtInRect(SelectedBounds, PointValue) then
       if FSelection = ldpsRuby then
         Exit(ldpdRubyGap)
@@ -1170,8 +1172,10 @@ end;
 procedure TFrameLyricsLineDisplaySettingsPage.PreviewMouseDown(
   Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
+  Mode: TLineDisplayPageDragMode;
   PointValue: TPoint;
   SelectedBounds: TRect;
+  OnHandle: Boolean;
 begin
   if Button <> mbLeft then
     Exit;
@@ -1180,9 +1184,12 @@ begin
     SelectedBounds := FRubyPreviewBounds
   else
     SelectedBounds := FBasePreviewBounds;
-  if not (PtInRect(ResizeHandleRect(SelectedBounds), PointValue) or
-    PtInRect(SpacingHandleRect(SelectedBounds, True), PointValue) or
-    PtInRect(SpacingHandleRect(SelectedBounds, False), PointValue)) then
+  OnHandle := PtInRect(SpacingHandleRect(SelectedBounds, True), PointValue) or
+    PtInRect(SpacingHandleRect(SelectedBounds, False), PointValue);
+  for Mode := ldpdResizeTopLeft to ldpdResizeBottomRight do
+    OnHandle := OnHandle or
+      PtInRect(ResizeHandleRect(SelectedBounds, Mode), PointValue);
+  if not OnHandle then
   begin
     if PtInRect(FRubyPreviewBounds, PointValue) then
       FSelection := ldpsRuby
@@ -1195,6 +1202,8 @@ begin
     FDragMode := ldpdPan;
   if FDragMode <> ldpdNone then
   begin
+    FSnapX := False;
+    FSnapY := False;
     FDragStartPoint := PointValue;
     FDragStartPositionX := FCurrentCommon.PositionX;
     FDragStartPositionY := FCurrentCommon.PositionY;
@@ -1211,6 +1220,10 @@ begin
     FDragStartShadowSpread := FCurrentCommon.ShadowSpread;
     FDragStartViewPan := FViewPan;
     if FSelection = ldpsRuby then
+      FDragStartBounds := FRubyPreviewBounds
+    else
+      FDragStartBounds := FBasePreviewBounds;
+    if FSelection = ldpsRuby then
       FDragStartFontHeight := FCurrentCommon.RubyFontHeight
     else
       FDragStartFontHeight := FCurrentCommon.BaseFontHeight;
@@ -1223,9 +1236,14 @@ procedure TFrameLyricsLineDisplaySettingsPage.PreviewMouseMove(
 var
   DeltaX: Integer;
   DeltaY: Integer;
+  HorizontalRatio: Double;
   IntervalCount: Integer;
   Mode: TLineDisplayPageDragMode;
+  PixelDeltaX: Integer;
+  PixelDeltaY: Integer;
   PreviewScale: Double;
+  ScaleRatio: Double;
+  VerticalRatio: Double;
 begin
   if FDragMode = ldpdNone then
   begin
@@ -1233,8 +1251,10 @@ begin
     case Mode of
       ldpdMove, ldpdShadowOffset:
         FPreview.Cursor := crSizeAll;
-      ldpdResize:
+      ldpdResizeTopLeft, ldpdResizeBottomRight:
         FPreview.Cursor := crSizeNWSE;
+      ldpdResizeTopRight, ldpdResizeBottomLeft:
+        FPreview.Cursor := crSizeNESW;
       ldpdSpacingLeft, ldpdSpacingRight, ldpdOutlineBlur,
         ldpdOutlineWidth, ldpdShadowBlur, ldpdShadowSpread:
         FPreview.Cursor := crSizeWE;
@@ -1263,15 +1283,38 @@ begin
           FDragStartPositionX + DeltaX, -10000, 10000);
         FCurrentCommon.PositionY := EnsureRange(
           FDragStartPositionY + DeltaY, -10000, 10000);
+        FSnapX := Abs(FCurrentCommon.PositionX * PreviewScale) <= 8;
+        FSnapY := Abs(FCurrentCommon.PositionY * PreviewScale) <= 8;
+        if FSnapX then
+          FCurrentCommon.PositionX := 0;
+        if FSnapY then
+          FCurrentCommon.PositionY := 0;
       end;
-    ldpdResize:
+    ldpdResizeTopLeft, ldpdResizeTopRight,
+      ldpdResizeBottomLeft, ldpdResizeBottomRight:
       begin
+        PixelDeltaX := X - FDragStartPoint.X;
+        PixelDeltaY := Y - FDragStartPoint.Y;
+        if FDragMode in [ldpdResizeTopLeft,
+          ldpdResizeBottomLeft] then
+          PixelDeltaX := -PixelDeltaX;
+        if FDragMode in [ldpdResizeTopLeft,
+          ldpdResizeTopRight] then
+          PixelDeltaY := -PixelDeltaY;
+        HorizontalRatio := (Max(1, FDragStartBounds.Width) +
+          PixelDeltaX) / Max(1, FDragStartBounds.Width);
+        VerticalRatio := (Max(1, FDragStartBounds.Height) +
+          PixelDeltaY) / Max(1, FDragStartBounds.Height);
+        if Abs(HorizontalRatio - 1) >= Abs(VerticalRatio - 1) then
+          ScaleRatio := HorizontalRatio
+        else
+          ScaleRatio := VerticalRatio;
         if FSelection = ldpsRuby then
           FCurrentCommon.RubyFontHeight := EnsureRange(
-            FDragStartFontHeight + DeltaY, 1, 1024)
+            Round(FDragStartFontHeight * ScaleRatio), 1, 1024)
         else
           FCurrentCommon.BaseFontHeight := EnsureRange(
-            FDragStartFontHeight + DeltaY, 1, 1024);
+            Round(FDragStartFontHeight * ScaleRatio), 1, 1024);
       end;
     ldpdSpacingLeft, ldpdSpacingRight:
       begin
@@ -1385,8 +1428,11 @@ begin
   if Button <> mbLeft then
     Exit;
   FDragMode := ldpdNone;
+  FSnapX := False;
+  FSnapY := False;
   TDisplayPageControlAccess(FPreview).MouseCapture := False;
   PreviewMouseMove(Sender, Shift, X, Y);
+  FPreview.Invalidate;
 end;
 
 function TFrameLyricsLineDisplaySettingsPage.BaseSpacingIntervalCount:
@@ -1400,14 +1446,23 @@ begin
 end;
 
 function TFrameLyricsLineDisplaySettingsPage.ResizeHandleRect(
-  const Bounds: TRect): TRect;
+  const Bounds: TRect; Mode: TLineDisplayPageDragMode): TRect;
 var
+  CenterX: Integer;
+  CenterY: Integer;
   Size: Integer;
 begin
   Size := MulDiv(8, CurrentPPI, 96);
-  Result := Rect(Bounds.Right - Size div 2,
-    Bounds.Bottom - Size div 2, Bounds.Right + Size div 2 + 1,
-    Bounds.Bottom + Size div 2 + 1);
+  if Mode in [ldpdResizeTopLeft, ldpdResizeBottomLeft] then
+    CenterX := Bounds.Left
+  else
+    CenterX := Bounds.Right;
+  if Mode in [ldpdResizeTopLeft, ldpdResizeTopRight] then
+    CenterY := Bounds.Top
+  else
+    CenterY := Bounds.Bottom;
+  Result := Rect(CenterX - Size div 2, CenterY - Size div 2,
+    CenterX + Size div 2 + 1, CenterY + Size div 2 + 1);
 end;
 
 function TFrameLyricsLineDisplaySettingsPage.RubySpacingIntervalCount:
@@ -1556,10 +1611,7 @@ begin
     MulDiv(16, CurrentPPI, 96), MulDiv(2, CurrentPPI, 96),
     Max(1, ClientWidth - FRubyFontCombo.Left - FRubyFontCombo.Width -
       Margin - MulDiv(16, CurrentPPI, 96)), Extent);
-  FActionToolbar.ButtonExtent := Extent;
-  FActionToolbar.SetBounds(Margin, Extent + MulDiv(6, CurrentPPI, 96),
-    Max(1, ClientWidth - Margin * 2), Extent);
-  TopValue := Extent * 2 + Gap + MulDiv(6, CurrentPPI, 96);
+  TopValue := Extent + Gap;
   FColorPanel.SetBounds(ClientWidth - Margin - MulDiv(188, CurrentPPI, 96),
     TopValue, MulDiv(188, CurrentPPI, 96),
     Max(1, ClientHeight - TopValue - Margin));

@@ -33,6 +33,10 @@ var
   BackgroundPixels: TBytes;
   BaseBoundsBeforeRubyResize: TRect;
   Bounds: TRect;
+  CornerIndex: Integer;
+  CornerPoint: TPoint;
+  DragPoint: TPoint;
+  ExpectedCursor: TCursor;
   EditedCandidateCommon: TArray<TDisplayCommonSettings>;
   CommonSettings: TArray<TDisplayCommonSettings>;
   CharacterCommonSettings: TArray<TDisplayCommonSettings>;
@@ -205,6 +209,22 @@ begin
           (CharacterPage.ElementPlacement(0).Y =
           CharacterPlacementBefore.Y) then
           raise Exception.Create('character move drag was not retained');
+        CharacterPage.Preview.OnPaint(CharacterPage.Preview);
+        Bounds := CharacterPage.PreviewElementBounds(0);
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+          [], Bounds.CenterPoint.X, Bounds.CenterPoint.Y);
+        CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+          CharacterPage.Preview.ClientWidth div 2 + 4,
+          CharacterPage.Preview.ClientHeight div 2 + 4);
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+          [], 0, 0);
+        CharacterPage.Preview.OnPaint(CharacterPage.Preview);
+        Bounds := CharacterPage.PreviewElementBounds(0);
+        if (Abs(Bounds.CenterPoint.X -
+          CharacterPage.Preview.ClientWidth div 2) > 2) or
+          (Abs(Bounds.CenterPoint.Y -
+          CharacterPage.Preview.ClientHeight div 2) > 2) then
+          raise Exception.Create('character center snap failed');
         Bounds := CharacterPage.PreviewElementBounds(1);
         CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
           [ssShift], Bounds.Right - 1,
@@ -427,6 +447,17 @@ begin
           raise Exception.Create('line position drag was not retained');
         LinePage.Preview.OnPaint(LinePage.Preview);
         Bounds := LinePage.BasePreviewBounds;
+        LinePage.Preview.OnMouseDown(LinePage.Preview, mbLeft, [],
+          Bounds.CenterPoint.X, Bounds.CenterPoint.Y);
+        LinePage.Preview.OnMouseMove(LinePage.Preview, [],
+          LinePage.Preview.ClientWidth div 2 + 4,
+          LinePage.Preview.ClientHeight div 2 + 4);
+        LinePage.Preview.OnMouseUp(LinePage.Preview, mbLeft, [], 0, 0);
+        if (LinePage.SelectedCommonSettings.PositionX <> 0) or
+          (LinePage.SelectedCommonSettings.PositionY <> 0) then
+          raise Exception.Create('line center snap failed');
+        LinePage.Preview.OnPaint(LinePage.Preview);
+        Bounds := LinePage.BasePreviewBounds;
         SettingsBeforeDrag := LinePage.SelectedCommonSettings;
         LinePage.Preview.OnMouseDown(LinePage.Preview, mbLeft, [],
           Bounds.Right, Bounds.Bottom);
@@ -436,6 +467,46 @@ begin
         if LinePage.SelectedCommonSettings.BaseFontHeight =
           SettingsBeforeDrag.BaseFontHeight then
           raise Exception.Create('line size drag was not retained');
+        for CornerIndex := 0 to 3 do
+        begin
+          LinePage.Preview.OnPaint(LinePage.Preview);
+          Bounds := LinePage.BasePreviewBounds;
+          case CornerIndex of
+            0: begin
+              CornerPoint := Point(Bounds.Left, Bounds.Top);
+              DragPoint := Point(Bounds.Left - 12, Bounds.Top - 12);
+              ExpectedCursor := crSizeNWSE;
+            end;
+            1: begin
+              CornerPoint := Point(Bounds.Right, Bounds.Top);
+              DragPoint := Point(Bounds.Right + 12, Bounds.Top - 12);
+              ExpectedCursor := crSizeNESW;
+            end;
+            2: begin
+              CornerPoint := Point(Bounds.Left, Bounds.Bottom);
+              DragPoint := Point(Bounds.Left - 12, Bounds.Bottom + 12);
+              ExpectedCursor := crSizeNESW;
+            end;
+          else
+            CornerPoint := Point(Bounds.Right, Bounds.Bottom);
+            DragPoint := Point(Bounds.Right + 12, Bounds.Bottom + 12);
+            ExpectedCursor := crSizeNWSE;
+          end;
+          LinePage.Preview.OnMouseMove(LinePage.Preview, [],
+            CornerPoint.X, CornerPoint.Y);
+          if LinePage.Preview.Cursor <> ExpectedCursor then
+            raise Exception.Create('line corner resize cursor mismatch');
+          SettingsBeforeDrag := LinePage.SelectedCommonSettings;
+          LinePage.Preview.OnMouseDown(LinePage.Preview, mbLeft, [],
+            CornerPoint.X, CornerPoint.Y);
+          LinePage.Preview.OnMouseMove(LinePage.Preview, [],
+            DragPoint.X, DragPoint.Y);
+          LinePage.Preview.OnMouseUp(LinePage.Preview, mbLeft, [],
+            DragPoint.X, DragPoint.Y);
+          if LinePage.SelectedCommonSettings.BaseFontHeight <=
+            SettingsBeforeDrag.BaseFontHeight then
+            raise Exception.Create('line corner resize did not enlarge text');
+        end;
         LinePage.Preview.OnPaint(LinePage.Preview);
         Bounds := LinePage.BasePreviewBounds;
         SettingsBeforeDrag := LinePage.SelectedCommonSettings;
@@ -496,6 +567,25 @@ begin
         if LinePage.BasePreviewBounds.Top <>
           BaseBoundsBeforeRubyResize.Top then
           raise Exception.Create('ruby size moved the base lyrics');
+        Bounds := LinePage.RubyPreviewBounds;
+        SettingsBeforeDrag := LinePage.SelectedCommonSettings;
+        LinePage.Preview.OnMouseMove(LinePage.Preview, [],
+          Bounds.Left, Bounds.Top);
+        if LinePage.Preview.Cursor <> crSizeNWSE then
+          raise Exception.Create('ruby top-left resize cursor mismatch');
+        LinePage.Preview.OnMouseDown(LinePage.Preview, mbLeft, [],
+          Bounds.Left, Bounds.Top);
+        LinePage.Preview.OnMouseMove(LinePage.Preview, [],
+          Bounds.Left - 12, Bounds.Top - 12);
+        LinePage.Preview.OnMouseUp(LinePage.Preview, mbLeft, [],
+          Bounds.Left - 12, Bounds.Top - 12);
+        if LinePage.SelectedCommonSettings.RubyFontHeight <=
+          SettingsBeforeDrag.RubyFontHeight then
+          raise Exception.Create('ruby top-left resize did not enlarge text');
+        LinePage.Preview.OnPaint(LinePage.Preview);
+        if LinePage.BasePreviewBounds.Top <>
+          BaseBoundsBeforeRubyResize.Top then
+          raise Exception.Create('ruby top-left resize moved the base lyrics');
         Bounds := LinePage.BasePreviewBounds;
         LinePage.Preview.OnMouseDown(LinePage.Preview, mbLeft, [],
           (Bounds.Left + Bounds.Right) div 2,

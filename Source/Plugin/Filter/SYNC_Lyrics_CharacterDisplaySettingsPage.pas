@@ -63,6 +63,8 @@ type
     FDragStartPlacements: TDisplayPlacementItems;
     FDragStartGroupBounds: TRect;
     FDragStartViewPan: TPointF;
+    FSnapX: Boolean;
+    FSnapY: Boolean;
     FPlainText: string;
     FRubySpans: TLyricsRubySpans;
     FSelected: TBooleanArray;
@@ -1131,6 +1133,9 @@ var
   I: Integer;
   HoverMode: TCharacterLayoutDragMode;
   Scale: Double;
+  SnapOffsetX: Integer;
+  SnapOffsetY: Integer;
+  Destination: TRect;
 begin
   if FSelectingRectangle then
   begin
@@ -1160,14 +1165,25 @@ begin
     end;
     if FDragMode = cldmMove then
     begin
+      Destination := PreviewDestinationRect;
+      SnapOffsetX := Destination.CenterPoint.X -
+        (FDragStartGroupBounds.CenterPoint.X + X - FDragStartMouse.X);
+      SnapOffsetY := Destination.CenterPoint.Y -
+        (FDragStartGroupBounds.CenterPoint.Y + Y - FDragStartMouse.Y);
+      FSnapX := Abs(SnapOffsetX) <= 8;
+      FSnapY := Abs(SnapOffsetY) <= 8;
+      if not FSnapX then
+        SnapOffsetX := 0;
+      if not FSnapY then
+        SnapOffsetY := 0;
       for I := 0 to Min(High(FSelected),
         High(FCurrentPlacements)) do
         if FSelected[I] then
         begin
           FCurrentPlacements[I].X := FDragStartPlacements[I].X +
-            (X - FDragStartMouse.X) / Scale;
+            (X - FDragStartMouse.X + SnapOffsetX) / Scale;
           FCurrentPlacements[I].Y := FDragStartPlacements[I].Y +
-            (Y - FDragStartMouse.Y) / Scale;
+            (Y - FDragStartMouse.Y + SnapOffsetY) / Scale;
         end;
       FPreview.Cursor := crSizeAll;
     end
@@ -1273,6 +1289,8 @@ begin
   if (FDragMode <> cldmNone) and FDragChanged then
     StoreCurrentCandidate;
   FDragMode := cldmNone;
+  FSnapX := False;
+  FSnapY := False;
   FClickCandidateModeToggle := False;
   FDragChanged := False;
   PreviewMouseMove(Sender, Shift, X, Y);
@@ -1599,6 +1617,9 @@ var
 begin
   Destination := PreviewDestinationRect;
   FBackground.DrawAt(FPreview.Canvas, FPreview.ClientRect, Destination);
+  if FDragMode = cldmMove then
+    FBackground.DrawCenterGuides(FPreview.Canvas, Destination,
+      FSnapX, FSnapY);
   Scale := PreviewScale;
   for I := 0 to Min(High(FUnits), High(FCurrentPlacements)) do
   begin
