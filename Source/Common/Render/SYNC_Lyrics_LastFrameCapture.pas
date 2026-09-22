@@ -1,4 +1,4 @@
-unit SYNC_Lyrics_LastFrameCapture;
+﻿unit SYNC_Lyrics_LastFrameCapture;
 
 // Keeps the most recent composited AviUtl2 framebuffer for setting tools.
 
@@ -285,6 +285,8 @@ end;
 function CopyLastFrame(out Pixels: TBytes; out Width, Height: Integer;
   out Status: string): Boolean;
 var
+  RawPixels: TBytes;
+  SnapshotFormat: DXGI_FORMAT;
   Destination: PByte;
   I: NativeInt;
   PixelCount: NativeInt;
@@ -307,61 +309,65 @@ begin
       Exit;
     Width := CaptureWidth;
     Height := CaptureHeight;
-    PixelCount := NativeInt(Width) * Height;
-    SetLength(Pixels, PixelCount * 4);
-    Source := CaptureBuffer;
-    Destination := @Pixels[0];
-    case CaptureFormat of
-      DXGI_FORMAT_R8G8B8A8_UNORM,
-      DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
-        Move(Source^, Destination^, Length(Pixels));
-      DXGI_FORMAT_B8G8R8A8_UNORM,
-      DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
-        for I := 0 to PixelCount - 1 do
-        begin
-          Destination[0] := Source[2];
-          Destination[1] := Source[1];
-          Destination[2] := Source[0];
-          Destination[3] := Source[3];
-          Inc(Source, 4);
-          Inc(Destination, 4);
-        end;
-      DXGI_FORMAT_R16G16B16A16_UNORM:
-        begin
-          SourceWords := PPixelWords(Source);
-          for I := 0 to PixelCount - 1 do
-          begin
-            Destination[0] := SourceWords[0] div 257;
-            Destination[1] := SourceWords[1] div 257;
-            Destination[2] := SourceWords[2] div 257;
-            Destination[3] := SourceWords[3] div 257;
-            Inc(SourceWords);
-            Inc(Destination, 4);
-          end;
-        end;
-      DXGI_FORMAT_R16G16B16A16_FLOAT:
-        begin
-          SourceWords := PPixelWords(Source);
-          for I := 0 to PixelCount - 1 do
-          begin
-            Destination[0] := FloatToByte(
-              HalfToSingle(SourceWords[0]));
-            Destination[1] := FloatToByte(
-              HalfToSingle(SourceWords[1]));
-            Destination[2] := FloatToByte(
-              HalfToSingle(SourceWords[2]));
-            Destination[3] := Round(EnsureRange(
-              HalfToSingle(SourceWords[3]), 0.0, 1.0) * 255);
-            Inc(SourceWords);
-            Inc(Destination, 4);
-          end;
-        end;
-    else
-      Pixels := nil;
-      Result := False;
-    end;
+    SetLength(RawPixels, CaptureBufferSize);
+    Move(CaptureBuffer^, RawPixels[0], CaptureBufferSize);
+    SnapshotFormat := CaptureFormat;
   finally
     LeaveCriticalSection(CaptureLock);
+  end;
+  // Convert an owned snapshot so the next video frame can be captured concurrently.
+  PixelCount := NativeInt(Width) * Height;
+  SetLength(Pixels, PixelCount * 4);
+  Source := @RawPixels[0];
+  Destination := @Pixels[0];
+  case SnapshotFormat of
+    DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+      Move(Source^, Destination^, Length(Pixels));
+    DXGI_FORMAT_B8G8R8A8_UNORM,
+    DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+      for I := 0 to PixelCount - 1 do
+      begin
+        Destination[0] := Source[2];
+        Destination[1] := Source[1];
+        Destination[2] := Source[0];
+        Destination[3] := Source[3];
+        Inc(Source, 4);
+        Inc(Destination, 4);
+      end;
+    DXGI_FORMAT_R16G16B16A16_UNORM:
+      begin
+        SourceWords := PPixelWords(Source);
+        for I := 0 to PixelCount - 1 do
+        begin
+          Destination[0] := SourceWords[0] div 257;
+          Destination[1] := SourceWords[1] div 257;
+          Destination[2] := SourceWords[2] div 257;
+          Destination[3] := SourceWords[3] div 257;
+          Inc(SourceWords);
+          Inc(Destination, 4);
+        end;
+      end;
+    DXGI_FORMAT_R16G16B16A16_FLOAT:
+      begin
+        SourceWords := PPixelWords(Source);
+        for I := 0 to PixelCount - 1 do
+        begin
+          Destination[0] := FloatToByte(
+            HalfToSingle(SourceWords[0]));
+          Destination[1] := FloatToByte(
+            HalfToSingle(SourceWords[1]));
+          Destination[2] := FloatToByte(
+            HalfToSingle(SourceWords[2]));
+          Destination[3] := Round(EnsureRange(
+            HalfToSingle(SourceWords[3]), 0.0, 1.0) * 255);
+          Inc(SourceWords);
+          Inc(Destination, 4);
+        end;
+      end;
+  else
+    Pixels := nil;
+    Result := False;
   end;
 end;
 

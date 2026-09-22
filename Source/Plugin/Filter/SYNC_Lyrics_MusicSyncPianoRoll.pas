@@ -234,7 +234,6 @@ var
   I: Integer;
   Key: Integer;
   KeyText: string;
-  KeyTextWidth: Integer;
   KeyThickness: Double;
   LeftPosition: Integer;
   LowestKey: Integer;
@@ -243,6 +242,7 @@ var
   SecondIndex: Integer;
   SyncNoteIndex: Integer;
   SyncNoteIndexForNote: Integer;
+  LyricTop: Integer;
   TopPosition: Integer;
   X: Integer;
 begin
@@ -374,7 +374,6 @@ begin
     Canvas.Font.Height := -ScaleMusicSyncMetric(12, Layout.Dpi);
     Canvas.Font.Style := [fsBold];
     Canvas.Font.Color := RGB(12, 45, 58);
-    KeyTextWidth := Canvas.TextWidth(KeyText);
     Canvas.TextRect(Rect(LeftPosition +
       ScaleMusicSyncMetric(1, Layout.Dpi), TopPosition,
       RightPosition - ScaleMusicSyncMetric(1, Layout.Dpi),
@@ -383,15 +382,11 @@ begin
     if Trim(Note.Lyric) <> '' then
     begin
       Canvas.Font.Style := [];
-      Canvas.TextRect(Rect(
-        Min(RightPosition - ScaleMusicSyncMetric(1, Layout.Dpi),
-          LeftPosition + KeyTextWidth +
-            ScaleMusicSyncMetric(7, Layout.Dpi)),
-        TopPosition, RightPosition -
-          ScaleMusicSyncMetric(1, Layout.Dpi), BottomPosition),
-        LeftPosition + KeyTextWidth +
-          ScaleMusicSyncMetric(7, Layout.Dpi),
-        TopPosition, Note.Lyric);
+      Canvas.Font.Color := clWhite;
+      LyricTop := Max(0, TopPosition - Canvas.TextHeight(Note.Lyric) -
+        ScaleMusicSyncMetric(2, Layout.Dpi));
+      Canvas.TextRect(Rect(LeftPosition, LyricTop, PianoWidth,
+        TopPosition), LeftPosition, LyricTop, Note.Lyric);
     end;
     Canvas.Brush.Style := bsSolid;
   end;

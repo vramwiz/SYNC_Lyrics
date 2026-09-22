@@ -51,6 +51,8 @@ uses
     'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
   SYNC_Lyrics_MusicSyncEditModel in
     'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',
+  SYNC_Lyrics_MidiLyricMatcher in
+    'Source\Plugin\Filter\SYNC_Lyrics_MidiLyricMatcher.pas',
   SYNC_Lyrics_TimeRuler in
     'Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas';
 
@@ -1126,6 +1128,80 @@ begin
   end;
 end;
 
+procedure TestMidiLyricAutoAssignment;
+var
+  Cost: Double;
+  I: Integer;
+  Model: TLyricsSongModel;
+  Notes: TMusicNoteStarts;
+begin
+  Model := TLyricsSongModel.Create;
+  try
+    Model.SetLyricsText('走(はし)れ！' + sLineBreak + 'ギンガマン');
+    SetLength(Notes, 7);
+    Notes[0].Lyric := 'は';
+    Notes[1].Lyric := 'し';
+    Notes[2].Lyric := 'れ';
+    Notes[3].Lyric := 'ギン';
+    Notes[4].Lyric := 'ガ';
+    Notes[5].Lyric := 'マ';
+    Notes[6].Lyric := 'ン';
+    for I := 0 to High(Notes) do
+      Notes[I].TrackIndex := 1;
+    Check(TryAssignMidiLyricSync(Notes, 0.5, Model, Cost),
+      'MIDI lyric alignment failed');
+    Check((Model[0].SyncState = lssProvisional) and
+      (Model[1].SyncState = lssProvisional),
+      'automatic synchronization was not provisional');
+    Check(CountMusicSyncRequiredNotes(Model[0].SyncText, 2) = 3,
+      'ruby unit did not consume two notes');
+    Check(CountMusicSyncRequiredNotes(Model[1].SyncText, 5) = 4,
+      'combined MIDI lyric did not merge two units');
+    Check(Model[1].StartNoteIndex = 3,
+      'second line did not start after the first line');
+    Check(TryAssignMidiLyricSync(Notes, 0.5, Model, Cost),
+      'provisional synchronization could not be reassigned');
+    Check(Model.TrySetSync(0, 0.5, DEFAULT_MUSIC_SYNC_TEXT) and
+      Model.TrySetSync(1, 0.5, DEFAULT_MUSIC_SYNC_TEXT),
+      'could not restore default provisional synchronization');
+    Check(TryAssignMidiLyricSync(Notes, 0.5, Model, Cost),
+      'default provisional synchronization could not be reassigned');
+    Check(Model.TrySetSyncState(0, lssConfirmed),
+      'could not confirm the first line');
+    Check(not TryAssignMidiLyricSync(Notes, 0.5, Model, Cost),
+      'confirmed synchronization was overwritten');
+  finally
+    Model.Free;
+  end;
+end;
+
+procedure TestFiveCounterAssignment;
+var
+  Cost: Double;
+  Model: TLyricsSongModel;
+  Notes: TMusicNoteStarts;
+begin
+  Model := TLyricsSongModel.Create;
+  try
+    Model.SetLyricsText('５つの[雄叫](おたけ)び');
+    SetLength(Notes, 8);
+    Notes[0].Lyric := 'い';
+    Notes[1].Lyric := 'つ';
+    Notes[2].Lyric := 'つ';
+    Notes[3].Lyric := 'の';
+    Notes[4].Lyric := 'お';
+    Notes[5].Lyric := 'た';
+    Notes[6].Lyric := 'け';
+    Notes[7].Lyric := 'び';
+    Check(TryAssignMidiLyricSync(Notes, 0.5, Model, Cost),
+      'five counter alignment failed');
+    Check(Pos('stages=1,0,0,2', Model[0].SyncText) > 0,
+      'five counter did not assign two notes to the numeral');
+  finally
+    Model.Free;
+  end;
+end;
+
 begin
   TestDisplaySettingsData;
   TestCharacterLayoutInteraction;
@@ -1142,5 +1218,7 @@ begin
   TestUnassignedLyrics;
   TestMusicSyncAnchorPerObject;
   TestManualSyncEditModel;
+  TestMidiLyricAutoAssignment;
+  TestFiveCounterAssignment;
   Writeln('PASS');
 end.

@@ -175,6 +175,8 @@
             <Form>FormLyricsLineDisplaySettings</Form>
         </DCCReference>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MidiLyricMatcher.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MidiLyricAutoAssign.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas"/>

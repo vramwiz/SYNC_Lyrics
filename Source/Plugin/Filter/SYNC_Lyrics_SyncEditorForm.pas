@@ -136,6 +136,7 @@ uses
   Winapi.Windows,
   Vcl.Dialogs,
   SYNC_Lyrics_DarkTheme,
+  SYNC_Lyrics_MidiLyricAutoAssign,
   SYNC_Lyrics_SyncSourceKind,
   SYNC_Lyrics_SyncFormat;
 
@@ -680,6 +681,9 @@ begin
   else
     FSongModel.SetLyricsText(LyricsText);
   FEditingWholeLyrics := False;
+  AnalyzeMidiLyricAssignment(FMusicFileName, FMusicTrack, FSongModel);
+  AutoAssignMidiLyrics(FMusicFileName, FMusicTrack,
+    FDefaultPreDisplaySeconds, FSongModel);
   ShowSongEditor;
 end;
 
@@ -778,6 +782,9 @@ begin
     Exit;
   FInitialSongDataText := DataText;
   FSongDataText := DataText;
+  AnalyzeMidiLyricAssignment(FMusicFileName, FMusicTrack, FSongModel);
+  AutoAssignMidiLyrics(FMusicFileName, FMusicTrack,
+    FDefaultPreDisplaySeconds, FSongModel);
   ShowSongEditor;
 end;
 

@@ -133,7 +133,7 @@ var
   PluginTableInitialized: Boolean;
 
 const
-  FILTER_EFFECT_NAME = 'SYNC_歌詞テロップ_Filter';
+  FILTER_EFFECT_NAME = '歌詞テロップ';
   PLACEMENT_MODE_LINE = Ord(lpmLine);
   PLACEMENT_MODE_FREE = Ord(lpmFree);
 
@@ -1118,9 +1118,9 @@ begin
     Obj := Edit^.GetFocusObject();
 
   CurrentLyrics := '';
-  if not TryGetObjectItemText(Edit, Obj, '音楽ファイル',
-    CurrentMusicFileName) then
-    CurrentMusicFileName := '';
+  CurrentMusicFileName := '';
+  if Assigned(MusicFileItem.Value) then
+    CurrentMusicFileName := string(MusicFileItem.Value);
   CurrentSyncText := DEFAULT_MUSIC_SYNC_TEXT;
   if not TryGetObjectItemText(Edit, Obj, '歌詞データ',
     CurrentSongDataText) then
@@ -1948,7 +1948,7 @@ begin
   if not PluginTableInitialized then
   begin
     SetupPluginTable(FILTER_FLAG_VIDEO or FILTER_FLAG_FILTER,
-      'SYNC_歌詞テロップ_Filter', 'SYNC',
+      '歌詞テロップ', 'SYNC',
       '音楽データに同期する歌詞テロップフィルター',
       LyricsProcVideoMulti, nil);
     AddFile(MusicFileItem, '音楽ファイル', '',

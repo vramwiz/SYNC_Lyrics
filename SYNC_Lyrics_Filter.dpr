@@ -74,6 +74,8 @@ uses
   SYNC_Lyrics_CharacterLayoutSettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas' {FormLyricsCharacterLayoutSettings},
   SYNC_Lyrics_LineDisplaySettingsForm in 'Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas' {FormLyricsLineDisplaySettings},
   SYNC_Lyrics_MusicSyncEditModel in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',
+  SYNC_Lyrics_MidiLyricMatcher in 'Source\Plugin\Filter\SYNC_Lyrics_MidiLyricMatcher.pas',
+  SYNC_Lyrics_MidiLyricAutoAssign in 'Source\Plugin\Filter\SYNC_Lyrics_MidiLyricAutoAssign.pas',
   SYNC_Lyrics_MusicSyncPianoRoll in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
   SYNC_Lyrics_MusicSyncNoteLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas',
   SYNC_Lyrics_MusicSyncFixedLyrics in 'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas',
