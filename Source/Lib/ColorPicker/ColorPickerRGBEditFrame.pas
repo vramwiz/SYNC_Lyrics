@@ -1,4 +1,6 @@
-unit ColorPickerRGBEditFrame;
+﻿unit ColorPickerRGBEditFrame;
+
+// RGB数値入力と現在色のプレビューを色選択画面へ提供する。
 
 interface
 

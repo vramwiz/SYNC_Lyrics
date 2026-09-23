@@ -33,6 +33,9 @@ function IsSoundingLyricsText(const Text: string): Boolean;
 // 1行の構文を解析し、音へ割り当てる表示単位数を返す。
 function CountLyricsDisplayUnits(const Source: string): Integer;
 
+// 音へ割り当てる各表示単位の本文を、前回の配列内容を残さず返す。
+function BuildLyricsSyncUnitLabels(const Source: string): TArray<string>;
+
 implementation
 
 uses
@@ -242,6 +245,29 @@ begin
   for UnitIndex := 0 to High(Units) do
     if Units[UnitIndex].ConsumesNote then
       Inc(Result);
+end;
+
+function BuildLyricsSyncUnitLabels(const Source: string): TArray<string>;
+var
+  I: Integer;
+  LabelCount: Integer;
+  PlainText: string;
+  RubySpans: TLyricsRubySpans;
+  Units: TLyricsDisplayUnits;
+begin
+  SetLength(Result, 0);
+  ParseLyrics(Source, PlainText, RubySpans);
+  BuildLyricsDisplayUnits(PlainText, RubySpans, Units);
+  LabelCount := 0;
+  for I := 0 to High(Units) do
+    if Units[I].SyncUnitIndex >= LabelCount then
+      LabelCount := Units[I].SyncUnitIndex + 1;
+  SetLength(Result, LabelCount);
+  for I := 0 to High(Units) do
+    if Units[I].SyncUnitIndex >= 0 then
+      Result[Units[I].SyncUnitIndex] :=
+        Result[Units[I].SyncUnitIndex] +
+        Copy(PlainText, Units[I].BaseStart, Units[I].BaseLength);
 end;
 
 end.

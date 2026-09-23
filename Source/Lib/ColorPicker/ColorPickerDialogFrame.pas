@@ -1,4 +1,6 @@
-unit ColorPickerDialogFrame;
+﻿unit ColorPickerDialogFrame;
+
+// 色選択ダイアログ内の入力部品とプレビューを連動させるフレーム。
 
 interface
 

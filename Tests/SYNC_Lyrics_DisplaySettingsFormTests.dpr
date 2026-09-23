@@ -1,4 +1,4 @@
-program SYNC_Lyrics_DisplaySettingsFormTests;
+﻿program SYNC_Lyrics_DisplaySettingsFormTests;
 
 {$APPTYPE CONSOLE}
 
@@ -19,13 +19,13 @@ uses
   ColorPickerColorMath in '..\Source\Lib\ColorPicker\ColorPickerColorMath.pas',
   ColorPickerHueBar in '..\Source\Lib\ColorPicker\ColorPickerHueBar.pas',
   ColorPickerSVArea in '..\Source\Lib\ColorPicker\ColorPickerSVArea.pas',
-  SYNC_Lyrics_DisplaySettingsModePage in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsModePage.pas',
-  SYNC_Lyrics_DisplaySettingsColorPanel in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsColorPanel.pas',
-  SYNC_Lyrics_DisplayPreviewBackground in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplayPreviewBackground.pas',
-  SYNC_Lyrics_CharacterLayoutInteraction in '..\Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas',
-  SYNC_Lyrics_LineDisplaySettingsPage in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsPage.pas',
-  SYNC_Lyrics_CharacterDisplaySettingsPage in '..\Source\Plugin\Filter\SYNC_Lyrics_CharacterDisplaySettingsPage.pas',
-  SYNC_Lyrics_DisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsForm.pas';
+  SYNC_Lyrics_DisplaySettingsModePage in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsModePage.pas',
+  SYNC_Lyrics_DisplaySettingsColorPanel in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsColorPanel.pas',
+  SYNC_Lyrics_DisplayPreviewBackground in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewBackground.pas',
+  SYNC_Lyrics_CharacterLayoutInteraction in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutInteraction.pas',
+  SYNC_Lyrics_LineDisplaySettingsPage in '..\Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsPage.pas',
+  SYNC_Lyrics_CharacterDisplaySettingsPage in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDisplaySettingsPage.pas',
+  SYNC_Lyrics_DisplaySettingsForm in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsForm.pas';
 
 var
   Bitmap: TBitmap;

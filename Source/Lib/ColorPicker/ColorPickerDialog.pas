@@ -1,4 +1,6 @@
-unit ColorPickerDialog;
+﻿unit ColorPickerDialog;
+
+// 色相・彩度明度・RGB入力をまとめて表示する色選択ダイアログ。
 
 interface
 

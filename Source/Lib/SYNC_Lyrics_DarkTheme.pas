@@ -1,4 +1,6 @@
-unit SYNC_Lyrics_DarkTheme;
+﻿unit SYNC_Lyrics_DarkTheme;
+
+// VCLフォームと共通操作部品へ、歌詞編集画面の暗色配色を適用する。
 
 interface
 
@@ -18,16 +20,26 @@ const
   SYNC_LYRICS_DARK_CONTROL_COLOR = TColor($00303030);
   SYNC_LYRICS_DARK_TEXT_COLOR = TColor($00E6E6E6);
 
+// フォーム本体とWindowsタイトルバーを暗色へ揃える。
 procedure ApplySyncLyricsDarkForm(Form: TForm);
+// フレームが親の明色背景を継承しないようにする。
 procedure ApplySyncLyricsDarkFrame(Frame: TFrame);
+// パネルの背景と文字色を揃える。
 procedure ApplySyncLyricsDarkPanel(Panel: TPanel);
+// 候補コンボを暗色の所有者描画に切り替える。
 procedure ApplySyncLyricsDarkComboBox(ComboBox: TComboBox;
   DrawItemEvent: TDrawItemEvent);
+// 文字入力欄の背景と文字色を揃える。
 procedure ApplySyncLyricsDarkEdit(Edit: TEdit);
+// 複数行入力欄の背景と文字色を揃える。
 procedure ApplySyncLyricsDarkMemo(Memo: TMemo);
+// 歌詞一覧の背景と文字色を揃える。
 procedure ApplySyncLyricsDarkListBox(ListBox: TListBox);
+// 配置要素一覧の背景と文字色を揃える。
 procedure ApplySyncLyricsDarkListView(ListView: TListView);
+// ボタンのVCL標準配色を暗色へ切り替える。
 procedure ApplySyncLyricsDarkButton(Button: TButton);
+// DPIに合わせた余白で候補コンボの1項目を描画する。
 procedure DrawSyncLyricsDarkComboBoxItem(ComboBox: TComboBox;
   Index: Integer; const ItemRect: TRect; State: TOwnerDrawState;
   PPI: Integer);

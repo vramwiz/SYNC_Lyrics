@@ -1,19 +1,26 @@
-unit PluginFilterSerifDrawSyncHighlight;
+﻿unit PluginFilterSerifDrawSyncHighlight;
+
+// 同期進捗から文字単位の強調位置と滑らかな色塗り範囲を計算する。
 
 interface
 
 uses
   System.Types;
 
+// 進捗に対応する表示単位番号を返す。単位がない場合は-1。
 function CalculateSerifSyncHighlightIndex(const AUnitCount: Integer;
   const AProgress: Double): Integer;
+// 曲全体進捗を単位番号とその単位内の0～1進捗へ分解する。
 procedure CalculateSerifSyncHighlightPosition(const AUnitCount: Integer;
   const AProgress: Double; out AIndex: Integer; out ALocalProgress: Double);
+// 帯幅を反映した単位内の塗り進捗を0～1へ制限して返す。
 function CalculateSerifSyncSmoothFillProgress(const ALocalProgress,
   ASizePercent: Double): Double;
+// 滑らかな色帯の開始・終了を表示単位座標で返す。
 procedure CalculateSerifSyncSmoothWindow(const AIndex: Integer;
   const ALocalProgress, ASizePercent: Double; out AStartPosition,
   AEndPosition: Double);
+// 番号が有効なら表示単位の矩形、無効なら空矩形を返す。
 function CalculateSerifSyncHighlightRectAtIndex(
   const ATextUnitBounds: TArray<TRect>;
   const AIndex: Integer): TRect;

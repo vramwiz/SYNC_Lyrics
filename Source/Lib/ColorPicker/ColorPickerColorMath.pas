@@ -1,13 +1,19 @@
-unit ColorPickerColorMath;
+﻿unit ColorPickerColorMath;
+
+// VCL色とHSV色空間の相互変換をカラーピッカーへ提供する。
 
 interface
 
 uses
   Vcl.Graphics;
 
+// 色を色相0～360度、彩度・明度0～1へ分解する。
 procedure ColorToHsv(Color: TColor; out Hue, Saturation, Value: Double);
+// 彩度と明度に関係なく色相だけを取り出す。
 function ColorHue(Color: TColor): Double;
+// 色相を保ったまま編集するため、彩度と明度だけを取り出す。
 procedure ColorToSv(Color: TColor; out Saturation, Value: Double);
+// 度数の色相と0～1の彩度・明度をVCL色へ戻す。
 function HsvToColor(Hue, Saturation, Value: Double): TColor;
 
 implementation

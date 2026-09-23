@@ -1,12 +1,6 @@
-unit ColorPickerHueBar;
+﻿unit ColorPickerHueBar;
 
-{
-  ColorPickerHueBar
-  -----------------
-  色相（Hue）を選択するためのシンプルなカラーバーコンポーネント。
-  PaintBox を継承し、色相グラデーションの描画とマウス操作による
-  色選択を行う。色が変更されると OnChange イベントを通知する。
-}
+// 色相グラデーションの描画とマウス選択を行い、変更を通知する。
 
 interface
 

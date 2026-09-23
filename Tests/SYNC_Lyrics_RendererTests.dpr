@@ -20,10 +20,29 @@ uses
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_ResolvedDisplayUnits in
     'Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas',
+  MVAnimationTypes in 'Source\Lib\EdgeAnimation\Core\MVAnimationTypes.pas',
+  MVTransitionTiming in 'Source\Lib\EdgeAnimation\Core\MVTransitionTiming.pas',
+  MVAnimationCatalog in 'Source\Lib\EdgeAnimation\Core\MVAnimationCatalog.pas',
+  MVTransitionParts in 'Source\Lib\EdgeAnimation\Core\MVTransitionParts.pas',
+  MVTransitionComposition in 'Source\Lib\EdgeAnimation\Core\MVTransitionComposition.pas',
+  MVTransitionBasic in 'Source\Lib\EdgeAnimation\Transition\MVTransitionBasic.pas',
+  MVTransitionExtended in 'Source\Lib\EdgeAnimation\Transition\MVTransitionExtended.pas',
+  MVTransitionMovement in 'Source\Lib\EdgeAnimation\Transition\MVTransitionMovement.pas',
+  MVTransitionScale in 'Source\Lib\EdgeAnimation\Transition\MVTransitionScale.pas',
+  MVTransitionMasks in 'Source\Lib\EdgeAnimation\Transition\MVTransitionMasks.pas',
+  MVTransitionScatter in 'Source\Lib\EdgeAnimation\Transition\MVTransitionScatter.pas',
+  MVTransitionKinetic in 'Source\Lib\EdgeAnimation\Transition\MVTransitionKinetic.pas',
+  MVTransitionPattern in 'Source\Lib\EdgeAnimation\Transition\MVTransitionPattern.pas',
+  MVTransitionPath in 'Source\Lib\EdgeAnimation\Transition\MVTransitionPath.pas',
+  MVHoldBasic in 'Source\Lib\EdgeAnimation\Hold\MVHoldBasic.pas',
+  MVHoldExtended in 'Source\Lib\EdgeAnimation\Hold\MVHoldExtended.pas',
+  MVHoldKinetic in 'Source\Lib\EdgeAnimation\Hold\MVHoldKinetic.pas',
+  MVHoldAccent in 'Source\Lib\EdgeAnimation\Hold\MVHoldAccent.pas',
   SYNC_Lyrics_Animation in
     'Source\Common\Render\SYNC_Lyrics_Animation.pas',
   SYNC_Lyrics_SerifAnimationItems in
-    'Source\Plugin\Filter\SYNC_Lyrics_SerifAnimationItems.pas',
+    'Source\Plugin\Filter\Animation\SYNC_Lyrics_SerifAnimationItems.pas',
+  SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_Renderer in 'Source\Common\Render\SYNC_Lyrics_Renderer.pas';
 
 const
@@ -642,6 +661,372 @@ begin
   Check(RenderLyrics(@Video, '同期', 0.5, Settings, 0, 0),
     'consumed lyrics render failed');
   Check(CountAfterColorPixels > 0, 'consumed lyrics produced no after-color pixels');
+end;
+
+procedure TestRubyBackingCoversRuby;
+var
+  Baseline: TArray<TPIXEL_RGBA>;
+  CutoffY: Integer;
+  I: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+  X: Integer;
+  Y: Integer;
+  ChangedAboveBase: Boolean;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.ColorFillMode := lcfCharacter;
+  Settings.ColorAfterMode := lcaRestore;
+  Settings.SyncColor.R := 255;
+  Settings.SyncColor.G := 0;
+  Settings.SyncColor.B := 0;
+  Settings.SyncKind := lskNone;
+  Check(RenderLyrics(@Video, '[字](か)', 0.5, Settings, 0, 0),
+    'ruby backing line baseline failed');
+  Baseline := Copy(CapturedPixels);
+  Settings.SyncKind := lskBacking;
+  Check(RenderLyrics(@Video, '[字](か)', 0.5, Settings, 0, 0),
+    'ruby backing line render failed');
+  CutoffY := Floor((TEST_HEIGHT - (Settings.RubyFontHeight + 4 +
+    Settings.BaseFontHeight)) * 0.5 + Settings.RubyFontHeight + 4) - 2;
+  ChangedAboveBase := False;
+  for Y := 0 to CutoffY - 1 do
+    for X := 0 to TEST_WIDTH - 1 do
+    begin
+      I := Y * TEST_WIDTH + X;
+      if CapturedPixels[I].A > Baseline[I].A then
+        ChangedAboveBase := True;
+    end;
+  Check(ChangedAboveBase, 'line backing did not reach the ruby region');
+
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[0].HasRubyOffsetY := True;
+  Placements[0].RubyOffsetY := -30;
+  Settings.SyncKind := lskNone;
+  Check(RenderFreePlacementLyrics(@Video, '[字](か)', 0.5,
+    Settings, Placements, 0, 0), 'ruby backing free baseline failed');
+  Baseline := Copy(CapturedPixels);
+  Settings.SyncKind := lskBacking;
+  Check(RenderFreePlacementLyrics(@Video, '[字](か)', 0.5,
+    Settings, Placements, 0, 0), 'ruby backing free render failed');
+  CutoffY := TEST_HEIGHT div 2 - Settings.BaseFontHeight div 2 - 10;
+  ChangedAboveBase := False;
+  for Y := 0 to CutoffY - 1 do
+    for X := 0 to TEST_WIDTH - 1 do
+    begin
+      I := Y * TEST_WIDTH + X;
+      if CapturedPixels[I].A > Baseline[I].A then
+        ChangedAboveBase := True;
+    end;
+  Check(ChangedAboveBase, 'free backing did not reach the ruby region');
+end;
+
+procedure TestGlowVisibility;
+var
+  Baseline: TArray<TPIXEL_RGBA>;
+  HaloPixels: Integer;
+  I: Integer;
+  MaxHaloAlpha: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+  WideHaloPixels: Integer;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.OutlineEnabled := False;
+  Settings.ShadowEnabled := False;
+  Settings.AfterColor := Settings.BeforeColor;
+  Settings.ColorAfterMode := lcaRestore;
+  Settings.SyncKind := lskNone;
+  Check(RenderLyrics(@Video, 'A', 0.5, Settings, 0, 0),
+    'glow baseline failed');
+  Baseline := Copy(CapturedPixels);
+  Settings.SyncKind := lskGlow;
+  Settings.SyncColor.R := 255;
+  Settings.SyncColor.G := 32;
+  Settings.SyncColor.B := 32;
+  Check(RenderLyrics(@Video, 'A', 0.5, Settings, 0, 0),
+    'glow render failed');
+  HaloPixels := 0;
+  MaxHaloAlpha := 0;
+  for I := 0 to High(CapturedPixels) do
+    if (Baseline[I].A = 0) and (CapturedPixels[I].A >= 20) then
+    begin
+      Inc(HaloPixels);
+      MaxHaloAlpha := Max(MaxHaloAlpha, CapturedPixels[I].A);
+    end;
+  Check(HaloPixels > 3000, 'glow halo did not extend beyond glyphs');
+  Check(MaxHaloAlpha > 100, 'glow halo is too faint');
+  Settings.ColorBandSizePercent := 200;
+  Check(RenderLyrics(@Video, 'A', 0.5, Settings, 0, 0),
+    'wide glow render failed');
+  WideHaloPixels := 0;
+  for I := 0 to High(CapturedPixels) do
+    if (Baseline[I].A = 0) and (CapturedPixels[I].A >= 20) then
+      Inc(WideHaloPixels);
+  Check(WideHaloPixels > HaloPixels,
+    'glow size did not increase the visible halo');
+end;
+
+procedure TestDefaultSyncTransform;
+const
+  MotionIDs: array[0..1] of Integer = (16, 17);
+var
+  BaselineHash: UInt64;
+  MotionID: Integer;
+  NormalSizeHash: UInt64;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.SyncKind := lskNone;
+  Settings.AfterColor := Settings.BeforeColor;
+  Settings.HasSyncNoteEvent := True;
+  Settings.SyncNoteFirstUnit := 0;
+  Settings.SyncNoteUnitCount := 1;
+  Settings.SyncNoteProgress := 0.5;
+  Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+    'default sync transform baseline failed');
+  BaselineHash := CapturedPixelHash;
+  for MotionID in MotionIDs do
+  begin
+    Settings.SyncMotionID := MotionID;
+    Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+      'default sync transform failed');
+    Check(CapturedPixelHash <> BaselineHash,
+      Format('default sync motion %d changed no pixels', [MotionID]));
+    NormalSizeHash := CapturedPixelHash;
+    Settings.ColorBandSizePercent := 200;
+    Check(RenderLyrics(@Video, 'AB', 0.5, Settings, 0, 0),
+      'larger sync transform failed');
+    Check(CapturedPixelHash <> NormalSizeHash,
+      Format('sync motion %d ignored the size setting', [MotionID]));
+    Settings.ColorBandSizePercent := 100;
+  end;
+  SetLength(Placements, 2);
+  Placements[0].Index := 0;
+  Placements[0].X := -60;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[1].Index := 1;
+  Placements[1].X := 60;
+  Placements[1].ScaleX := 1;
+  Placements[1].ScaleY := 1;
+  Settings.SyncMotionID := 0;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.5, Settings,
+    Placements, 0, 0), 'free default sync baseline failed');
+  BaselineHash := CapturedPixelHash;
+  for MotionID in MotionIDs do
+  begin
+    Settings.SyncMotionID := MotionID;
+    Check(RenderFreePlacementLyrics(@Video, 'AB', 0.5, Settings,
+      Placements, 0, 0), 'free default sync transform failed');
+    Check(CapturedPixelHash <> BaselineHash,
+      Format('free default sync motion %d changed no pixels', [MotionID]));
+  end;
+end;
+
+procedure TestSyncAndAsyncAnimation;
+const
+  SyncMotions: array[0..10] of Integer =
+    (2, 3, 4, 9, 10, 11, 12, 13, 14, 16, 17);
+var
+  BaseHash: UInt64;
+  CombinedHash: UInt64;
+  FirstUnit: Integer;
+  I: Integer;
+  MotionHash: UInt64;
+  NoteProgress: Double;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Settings: TLyricsRenderSettings;
+  UnitCount: Integer;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  Check(ResolveMusicSyncNoteEvent([1], 1, 0.125,
+    FirstUnit, UnitCount, NoteProgress) and
+    (FirstUnit = 0) and (UnitCount = 1) and
+    (Abs(NoteProgress - 0.25) < 0.0001),
+    'first of two notes did not start its own pulse');
+  Check(ResolveMusicSyncNoteEvent([1], 1, 0.625,
+    FirstUnit, UnitCount, NoteProgress) and
+    (Abs(NoteProgress - 0.25) < 0.0001),
+    'second note did not restart the same unit pulse');
+  Check(ResolveMusicSyncNoteEvent([-1], 2, 0.5,
+    FirstUnit, UnitCount, NoteProgress) and
+    (FirstUnit = 0) and (UnitCount = 2) and
+    (Abs(NoteProgress - 0.25) < 0.0001),
+    'one note did not cover both display units');
+
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.SyncKind := lskNone;
+  Settings.AfterColor := Settings.BeforeColor;
+  Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+    'sync motion baseline failed');
+  BaseHash := CapturedPixelHash;
+
+  Settings.ColorBandSizePercent := 150;
+  Settings.SyncMotionID := 16;
+  Settings.HasSyncNoteEvent := True;
+  Settings.SyncNoteFirstUnit := 0;
+  Settings.SyncNoteUnitCount := 1;
+  Check(ResolveMusicSyncNoteEvent([1], 1, 0.125,
+    FirstUnit, UnitCount, Settings.SyncNoteProgress),
+    'first note phase was unavailable');
+  Check(RenderLyrics(@Video, 'AB', 0.125, Settings, 0, 0),
+    'first note pulse failed to render');
+  MotionHash := CapturedPixelHash;
+  Settings.SyncMotionID := 0;
+  Check(RenderLyrics(@Video, 'AB', 0.125, Settings, 0, 0),
+    'first note pulse baseline failed');
+  Check(MotionHash <> CapturedPixelHash,
+    'first note changed no pixels');
+  Settings.SyncMotionID := 16;
+  Check(ResolveMusicSyncNoteEvent([1], 1, 0.625,
+    FirstUnit, UnitCount, Settings.SyncNoteProgress),
+    'second note phase was unavailable');
+  Check(RenderLyrics(@Video, 'AB', 0.625, Settings, 0, 0),
+    'second note pulse failed to render');
+  CombinedHash := CapturedPixelHash;
+  Settings.SyncMotionID := 0;
+  Check(RenderLyrics(@Video, 'AB', 0.625, Settings, 0, 0),
+    'second note pulse baseline failed');
+  Check(CombinedHash <> CapturedPixelHash,
+    'one display unit did not replay its motion on the second note');
+  Settings.SyncMotionID := 16;
+  Settings.SyncNoteUnitCount := 0;
+  Settings.SyncNoteProgress := 0;
+  Check(RenderLyrics(@Video, 'AB', 2, Settings, 0, 0),
+    'post-note motion failed to render');
+  MotionHash := CapturedPixelHash;
+  Settings.SyncMotionID := 0;
+  Check(RenderLyrics(@Video, 'AB', 2, Settings, 0, 0),
+    'post-note baseline failed to render');
+  Check(MotionHash = CapturedPixelHash,
+    'note-triggered motion persisted after the final note');
+
+  for I := Low(SyncMotions) to High(SyncMotions) do
+  begin
+    Settings.SyncMotionID := SyncMotions[I];
+    Settings.HasSyncNoteEvent := True;
+    Settings.SyncNoteFirstUnit := 0;
+    Settings.SyncNoteUnitCount := 1;
+    Settings.SyncNoteProgress := 0.2;
+    Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+      'sync motion candidate failed to render');
+    MotionHash := CapturedPixelHash;
+    if MotionHash = BaseHash then
+    begin
+      Settings.SyncNoteProgress := 0.4;
+      Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+        'sync motion candidate failed at second phase');
+      MotionHash := CapturedPixelHash;
+    end;
+    Check(MotionHash <> BaseHash,
+      Format('sync motion %d changed no pixels', [SyncMotions[I]]));
+  end;
+
+  Settings.SyncMotionID := 2;
+  Settings.HasSyncNoteEvent := True;
+  Settings.SyncNoteFirstUnit := 0;
+  Settings.SyncNoteUnitCount := 1;
+  Settings.SyncNoteProgress := 0.25;
+  Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+    'note triggered motion failed');
+  MotionHash := CapturedPixelHash;
+  Check(MotionHash <> BaseHash, 'note triggered motion changed no pixels');
+  Settings.SyncKind := lskGlitch;
+  Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+    'combined sync motion and display failed');
+  CombinedHash := CapturedPixelHash;
+  Check(CombinedHash <> MotionHash,
+    'sync display did not combine with sync motion');
+  Settings.SyncMotionID := 0;
+  Settings.SyncKind := lskBlink;
+  Settings.SyncNoteProgress := 0.5;
+  Check(RenderLyrics(@Video, 'AB', 0.25, Settings, 0, 0),
+    'note triggered blink failed');
+  Check(CapturedPixelHash <> BaseHash,
+    'note triggered blink changed no pixels');
+
+  Settings.SyncKind := lskNone;
+  Settings.SyncMotionID := 2;
+  Settings.SyncNoteProgress := 0.25;
+  SetLength(Placements, 2);
+  Placements[0].Index := 0;
+  Placements[0].X := -60;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Placements[1].Index := 1;
+  Placements[1].X := 60;
+  Placements[1].ScaleX := 1;
+  Placements[1].ScaleY := 1;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.25, Settings,
+    Placements, 0, 0), 'free placement sync motion failed');
+  MotionHash := CapturedPixelHash;
+  Settings.SyncMotionID := 0;
+  Check(RenderFreePlacementLyrics(@Video, 'AB', 0.25, Settings,
+    Placements, 0, 0), 'free placement sync baseline failed');
+  Check(CapturedPixelHash <> MotionHash,
+    'free placement sync motion changed no pixels');
+
+  Settings := TestRenderSettings;
+  Settings.SyncKind := lskNone;
+  Settings.AfterColor := Settings.BeforeColor;
+  Settings.AsyncHoldID := 1;
+  Settings.EdgeSettings.LocalSeconds := 0.25;
+  Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+    'asynchronous motion failed');
+  Check(CapturedPixelHash <> BaseHash,
+    'asynchronous motion changed no pixels');
+  for I := 1 to 15 do
+  begin
+    Settings.AsyncHoldID := I;
+    Settings.EdgeSettings.LocalSeconds := 0.2;
+    Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+      'asynchronous candidate failed to render');
+    MotionHash := CapturedPixelHash;
+    if MotionHash = BaseHash then
+    begin
+      Settings.EdgeSettings.LocalSeconds := 0.4;
+      Check(RenderLyrics(@Video, 'AB', 0, Settings, 0, 0),
+        'asynchronous candidate failed at second phase');
+      MotionHash := CapturedPixelHash;
+    end;
+    Check(MotionHash <> BaseHash,
+      Format('asynchronous candidate %d changed no pixels', [I]));
+  end;
 end;
 
 procedure TestSilentMarksSwitchAtNoteBoundary;
@@ -1358,6 +1743,110 @@ begin
     'character underline remained after the end fade');
 end;
 
+procedure TestEdgeAnimationChoices;
+const
+  MotionIDs: array[0..19] of Integer =
+    (2, 3, 4, 5, 7, 8, 15, 16, 17, 18, 26, 27, 29, 30, 31,
+     32, 33, 37, 38, 39);
+  DisplayIDs: array[0..7] of Integer = (1, 9, 10, 24, 34, 35, 36, 6);
+var
+  BaselineHash: UInt64;
+  MotionHash: UInt64;
+  DisplayHash: UInt64;
+  ID: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+    'edge-animation baseline render failed');
+  BaselineHash := CapturedPixelHash;
+  Settings.EdgeSettings.BeforeDuration := 1;
+  Settings.EdgeSettings.AfterDuration := 1;
+  Settings.EdgeSettings.LocalSeconds := 0.35;
+  Settings.EdgeSettings.RemainingSeconds := 3;
+  for ID in MotionIDs do
+  begin
+    Settings.EdgeSettings.BeforeMotionID := ID;
+    Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+      Format('before motion %d render failed', [ID]));
+    Check(CapturedPixelHash <> BaselineHash,
+      Format('before motion %d did not change pixels', [ID]));
+  end;
+  Settings.EdgeSettings.BeforeMotionID := 0;
+  for ID in DisplayIDs do
+  begin
+    Settings.EdgeSettings.BeforeDisplayID := ID;
+    Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+      Format('before display %d render failed', [ID]));
+    Check(CapturedPixelHash <> BaselineHash,
+      Format('before display %d did not change pixels', [ID]));
+  end;
+  Settings.EdgeSettings.BeforeDisplayID := 0;
+  Settings.EdgeSettings.LocalSeconds := 3;
+  Settings.EdgeSettings.RemainingSeconds := 0.35;
+  for ID in MotionIDs do
+  begin
+    Settings.EdgeSettings.AfterMotionID := ID;
+    Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+      Format('after motion %d render failed', [ID]));
+    Check(CapturedPixelHash <> BaselineHash,
+      Format('after motion %d did not change pixels', [ID]));
+  end;
+  Settings.EdgeSettings.AfterMotionID := 0;
+  for ID in DisplayIDs do
+  begin
+    Settings.EdgeSettings.AfterDisplayID := ID;
+    Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+      Format('after display %d render failed', [ID]));
+    Check(CapturedPixelHash <> BaselineHash,
+      Format('after display %d did not change pixels', [ID]));
+  end;
+  Settings.EdgeSettings.AfterDisplayID := 0;
+  Settings.EdgeSettings.BeforeMotionID := 2;
+  Settings.EdgeSettings.LocalSeconds := 0.35;
+  Settings.EdgeSettings.RemainingSeconds := 3;
+  Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+    'before motion-only render failed');
+  MotionHash := CapturedPixelHash;
+  Settings.EdgeSettings.BeforeMotionID := 0;
+  Settings.EdgeSettings.BeforeDisplayID := 10;
+  Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+    'before display-only render failed');
+  DisplayHash := CapturedPixelHash;
+  Settings.EdgeSettings.BeforeMotionID := 2;
+  Check(RenderLyrics(@Video, '[漢](かん)字AB', 0, Settings, 0, 0),
+    'before combined render failed');
+  Check((CapturedPixelHash <> MotionHash) and
+    (CapturedPixelHash <> DisplayHash),
+    'before motion and display did not combine');
+  Settings.EdgeSettings.BeforeMotionID := 27;
+  Settings.EdgeSettings.BeforeDisplayID := 34;
+  Settings.EdgeSettings.LocalSeconds := 0.35;
+  Settings.EdgeSettings.RemainingSeconds := 3;
+  SetLength(Placements, 4);
+  for ID := 0 to High(Placements) do
+  begin
+    Placements[ID].Index := ID;
+    Placements[ID].X := (ID - 1) * 110;
+    Placements[ID].Y := 0;
+    Placements[ID].ScaleX := 1;
+    Placements[ID].ScaleY := 1;
+  end;
+  Check(RenderFreePlacementLyrics(@Video, '[漢](かん)字AB', 0,
+    Settings, Placements, 0, 0), 'free-placement edge render failed');
+  Check(CountVisiblePixels > 0,
+    'free-placement edge animation removed every unit');
+end;
+
 procedure TestAnimationTimeItems;
 begin
   InitializeSerifAnimationItems;
@@ -1878,6 +2367,10 @@ begin
     TestRubyParser;
     TestResolvedDisplayUnits;
     TestSerifSyncEffects;
+    TestRubyBackingCoversRuby;
+    TestGlowVisibility;
+    TestDefaultSyncTransform;
+    TestSyncAndAsyncAnimation;
     TestLineUnitsShareBaseline;
     TestLyricsLayersAreComposited;
     TestVisibleJapaneseLyrics;
@@ -1893,6 +2386,7 @@ begin
     TestConfiguredFontStylesAreUsed;
     TestDisplayTypes;
     TestLyricsAnimations;
+    TestEdgeAnimationChoices;
     TestAnimationTimeItems;
     TestRubyGapAdjustmentChangesRowDistance;
     TestFreePlacementCoordinates;

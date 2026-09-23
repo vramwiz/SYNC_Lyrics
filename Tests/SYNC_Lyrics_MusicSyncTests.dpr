@@ -12,31 +12,31 @@ uses
   Winapi.Windows,
   SYNC_Lyrics_ToolbarButtons in
     'Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
-  RTTIPersistent in 'Source\Lib\SongReader\RTTIPersistent.pas',
-  RTTIPersistentIni in 'Source\Lib\SongReader\RTTIPersistentIni.pas',
-  SectionFileManager in 'Source\Lib\SongReader\SectionFileManager.pas',
-  TextEncodingUtils in 'Source\Lib\SongReader\TextEncodingUtils.pas',
-  SongAIUEO in 'Source\Lib\SongReader\SongAIUEO.pas',
-  SongDataInfo in 'Source\Lib\SongReader\SongDataInfo.pas',
-  SongDataNote in 'Source\Lib\SongReader\SongDataNote.pas',
-  SongDataTempo in 'Source\Lib\SongReader\SongDataTempo.pas',
-  SongDataTrack in 'Source\Lib\SongReader\SongDataTrack.pas',
-  SongData in 'Source\Lib\SongReader\SongData.pas',
-  SongReader in 'Source\Lib\SongReader\SongReader.pas',
-  SongReaderSMF in 'Source\Lib\SongReader\SongReaderSMF.pas',
-  SongReaderUST in 'Source\Lib\SongReader\SongReaderUST.pas',
-  SongReaderVSQX in 'Source\Lib\SongReader\SongReaderVSQX.pas',
-  SongReaderMusicXML in 'Source\Lib\SongReader\SongReaderMusicXML.pas',
-  SongReaderMusicMSC in 'Source\Lib\SongReader\SongReaderMusicMSC.pas',
-  SongReaderMusicMSCZ in 'Source\Lib\SongReader\SongReaderMusicMSCZ.pas',
-  SongReaderManager in 'Source\Lib\SongReader\SongReaderManager.pas',
+  RTTIPersistent in 'Source\Lib\SongReader\Persistence\RTTIPersistent.pas',
+  RTTIPersistentIni in 'Source\Lib\SongReader\Persistence\RTTIPersistentIni.pas',
+  SectionFileManager in 'Source\Lib\SongReader\Persistence\SectionFileManager.pas',
+  TextEncodingUtils in 'Source\Lib\SongReader\Persistence\TextEncodingUtils.pas',
+  SongAIUEO in 'Source\Lib\SongReader\Core\SongAIUEO.pas',
+  SongDataInfo in 'Source\Lib\SongReader\Core\SongDataInfo.pas',
+  SongDataNote in 'Source\Lib\SongReader\Core\SongDataNote.pas',
+  SongDataTempo in 'Source\Lib\SongReader\Core\SongDataTempo.pas',
+  SongDataTrack in 'Source\Lib\SongReader\Core\SongDataTrack.pas',
+  SongData in 'Source\Lib\SongReader\Core\SongData.pas',
+  SongReader in 'Source\Lib\SongReader\Core\SongReader.pas',
+  SongReaderSMF in 'Source\Lib\SongReader\Formats\SongReaderSMF.pas',
+  SongReaderUST in 'Source\Lib\SongReader\Formats\SongReaderUST.pas',
+  SongReaderVSQX in 'Source\Lib\SongReader\Formats\SongReaderVSQX.pas',
+  SongReaderMusicXML in 'Source\Lib\SongReader\Formats\SongReaderMusicXML.pas',
+  SongReaderMusicMSC in 'Source\Lib\SongReader\Formats\SongReaderMusicMSC.pas',
+  SongReaderMusicMSCZ in 'Source\Lib\SongReader\Formats\SongReaderMusicMSCZ.pas',
+  SongReaderManager in 'Source\Lib\SongReader\Core\SongReaderManager.pas',
   SYNC_Lyrics_LyricParser in 'Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_SongLyricsModel in
     'Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
   SYNC_Lyrics_DisplaySettingsData in
     'Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   SYNC_Lyrics_CharacterLayoutInteraction in
-    'Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas',
+    'Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutInteraction.pas',
   SYNC_Lyrics_SyncFormat in 'Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_SyncSourceKind in
     'Source\Common\Sync\SYNC_Lyrics_SyncSourceKind.pas',
@@ -48,13 +48,13 @@ uses
     'Source\Common\Sync\SYNC_Lyrics_MusicSyncAnchor.pas',
   SYNC_Lyrics_MusicSync in 'Source\Common\Sync\SYNC_Lyrics_MusicSync.pas',
   SYNC_Lyrics_MusicSyncPianoRoll in
-    'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas',
+    'Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncPianoRoll.pas',
   SYNC_Lyrics_MusicSyncEditModel in
-    'Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas',
+    'Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncEditModel.pas',
   SYNC_Lyrics_MidiLyricMatcher in
-    'Source\Plugin\Filter\SYNC_Lyrics_MidiLyricMatcher.pas',
+    'Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MidiLyricMatcher.pas',
   SYNC_Lyrics_TimeRuler in
-    'Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas';
+    'Source\Plugin\Filter\Sync\SYNC_Lyrics_TimeRuler.pas';
 
 const
   TEST_MIDI: array[0..50] of Byte = (
@@ -1121,11 +1121,58 @@ begin
     Check(Model.MoveBoundary(1, 6.0) and
       (Model.BoundarySeconds(1) < Model.BoundarySeconds(2)),
       'manual boundary drag did not preserve ordering');
+    Check(Model.MoveLineStart(4.0) and
+      (Abs(Model.BoundarySeconds(0) - 4.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(1) - 7.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(3) - 10.0) < 0.0001),
+      'dragging the lyric start did not move the whole line');
+    Check(Model.MoveLineStart(20.0) and
+      (Abs(Model.BoundarySeconds(3) - 12.0) < 0.0001),
+      'moving the whole line exceeded the audio duration');
+    Model.Initialize(3, 12.0,
+      SerializeManualSyncText([3.0, 6.0, 7.0, 9.0]));
+    Check(Model.MoveSuffix(1, 5.0) and
+      (Abs(Model.BoundarySeconds(0) - 3.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(1) - 5.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(2) - 6.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(3) - 8.0) < 0.0001),
+      'dragging the second lyric did not move its suffix');
+    Check(Model.MoveSuffix(1, 20.0) and
+      (Abs(Model.BoundarySeconds(0) - 3.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(1) - 9.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(3) - 12.0) < 0.0001),
+      'moving the lyric suffix exceeded the audio duration');
+    Check(not Model.MoveSuffix(3, 10.0),
+      'the final boundary was treated as a lyric start');
+    Check(Model.MoveBoundary(3, 11.0) and
+      (Abs(Model.BoundarySeconds(0) - 3.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(1) - 9.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(2) - 10.0) < 0.0001) and
+      (Abs(Model.BoundarySeconds(3) - 11.0) < 0.0001),
+      'dragging the final lyric end moved earlier boundaries');
     Check(Pos('mode=manual', Model.SerializeSyncText) > 0,
       'manual sync serialization failed');
   finally
     Model.Free;
   end;
+end;
+
+procedure TestLyricsSyncUnitLabels;
+var
+  Labels: TArray<string>;
+begin
+  Labels := BuildLyricsSyncUnitLabels(
+    '[朝](あさ)の[光](ひかり)が');
+  Check((Length(Labels) = 4) and
+    (Labels[0] = '朝') and (Labels[2] = '光'),
+    'first lyric line labels were incorrect');
+  Labels := BuildLyricsSyncUnitLabels(
+    '[窓](まど)を[照](て)らす');
+  Check((Length(Labels) = 5) and
+    (Labels[0] = '窓') and (Labels[1] = 'を') and
+    (Labels[2] = '照') and (Labels[3] = 'ら') and
+    (Labels[4] = 'す'),
+    'second lyric line retained characters from the first');
 end;
 
 procedure TestMidiLyricAutoAssignment;
@@ -1218,6 +1265,7 @@ begin
   TestUnassignedLyrics;
   TestMusicSyncAnchorPerObject;
   TestManualSyncEditModel;
+  TestLyricsSyncUnitLabels;
   TestMidiLyricAutoAssignment;
   TestFiveCounterAssignment;
   Writeln('PASS');

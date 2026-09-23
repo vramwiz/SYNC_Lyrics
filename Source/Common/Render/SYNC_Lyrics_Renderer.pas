@@ -6,6 +6,7 @@ interface
 
 uses
   AviUtl2FilterTypes,
+  SYNC_Lyrics_Animation,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_ResolvedDisplayUnits;
 
@@ -18,7 +19,7 @@ type
   TLyricsColorFillMode = (lcfCharacter, lcfSmooth);
   TLyricsColorAfterMode = (lcaRestore, lcaKeep);
   TLyricsSyncKind = (lskNone, lskColor, lskFront, lskBacking, lskUnderline,
-    lskZoom, lskGlow, lskJump);
+    lskZoom, lskGlow, lskJump, lskBlink, lskGlitch);
 
   // AviUtl2の色項目から独立して描画処理へ渡すARGB色。
   TLyricsRenderColor = record
@@ -36,6 +37,13 @@ type
     ColorBandSizePercent: Double;
     CompletionRestoreProgress: Double; // 0 at sync end, 1 at hold end.
     SyncKind: TLyricsSyncKind;
+    SyncMotionID: Integer; // 音の切り替わりで再発動する動作。16=拡大、17=ジャンプ。
+    HasSyncNoteEvent: Boolean; // 曲同期では音の範囲外も含め、表示単位進捗への代替を禁止する。
+    SyncNoteFirstUnit: Integer; // 1音が担当する表示単位範囲の先頭。
+    SyncNoteUnitCount: Integer; // 1音が同時に担当する表示単位数。
+    SyncNoteProgress: Double; // 現在音の開始0から終了1まで。
+    AsyncHoldID: Integer; // 音から独立して周期評価する参考元の表示中演出ID。
+    AsyncSpeed: Double; // 非同期演出の1秒当たりの周期数。
     SyncShape: Integer;
     SyncOffsetX: Double;
     SyncOffsetY: Double;
@@ -48,6 +56,7 @@ type
     LayerBlurRadius: Double;
     LayerWipeDirection: Integer;
     LayerWipeProgress: Double;
+    EdgeSettings: TLyricsEdgeSettings; // 表示単位ごとの登場・退場動作と表示。
     BaseFontName: string;
     RubyFontName: string;
     BaseBold: Boolean;
@@ -135,8 +144,9 @@ uses
   System.SysUtils,
   System.Types,
   System.UITypes,
+  MVAnimationTypes,
+  MVAnimationCatalog,
   PluginFilterSerifDrawSyncHighlight,
-  SYNC_Lyrics_Animation,
   SYNC_Lyrics_LyricParser,
   TextRendererSkiaBootstrap,
   TextRenderer,
@@ -193,6 +203,13 @@ begin
   Result.ColorBandSizePercent := 100;
   Result.CompletionRestoreProgress := 1;
   Result.SyncKind := lskColor;
+  Result.SyncMotionID := 0;
+  Result.HasSyncNoteEvent := False;
+  Result.SyncNoteFirstUnit := 0;
+  Result.SyncNoteUnitCount := 0;
+  Result.SyncNoteProgress := 0;
+  Result.AsyncHoldID := 0;
+  Result.AsyncSpeed := 1;
   Result.SyncShape := 0;
   Result.SyncOffsetX := 0;
   Result.SyncOffsetY := 0;
@@ -205,6 +222,7 @@ begin
   Result.LayerBlurRadius := 0;
   Result.LayerWipeDirection := 0;
   Result.LayerWipeProgress := 1;
+  Result.EdgeSettings := Default(TLyricsEdgeSettings);
   Result.BaseFontName := 'Yu Gothic UI';
   Result.RubyFontName := 'Yu Gothic UI';
   Result.BaseBold := True;
@@ -451,21 +469,33 @@ end;
 procedure ApplySerifSyncTransform(UnitSyncIndex, CurrentIndex: Integer;
   CurrentProgress: Double; FontHeight: Integer;
   const Settings: TLyricsRenderSettings; var State: TLyricsUnitEffectState);
+const
+  SYNC_TRANSFORM_STRENGTH = 0.35;
 var
   JumpHeight: Double;
   Phase: Double;
   Scale: Double;
 begin
-  if not (Settings.SyncKind in [lskZoom, lskJump]) then
+  if not ((Settings.SyncMotionID in [16, 17]) or
+    (Settings.SyncKind in [lskZoom, lskJump])) then
     Exit;
-  Phase := ResolveSerifSyncPhase(UnitSyncIndex, CurrentIndex,
-    CurrentProgress, Settings);
+  if (Settings.SyncMotionID in [16, 17]) and Settings.HasSyncNoteEvent then
+  begin
+    Phase := 0;
+    if (UnitSyncIndex >= Settings.SyncNoteFirstUnit) and
+      (UnitSyncIndex < Settings.SyncNoteFirstUnit + Settings.SyncNoteUnitCount) then
+      Phase := Sin(EnsureRange(Settings.SyncNoteProgress, 0.0, 1.0) * Pi);
+  end
+  else
+    Phase := ResolveSerifSyncPhase(UnitSyncIndex, CurrentIndex,
+      CurrentProgress, Settings);
   if Phase <= 0 then
     Exit;
-  if Settings.SyncKind = lskZoom then
+  // 同期サイズ100%を効果量の基準とし、倍率1.0や移動量0にしない。
+  if (Settings.SyncMotionID = 16) or (Settings.SyncKind = lskZoom) then
   begin
-    Scale := 1.0 + (Max(0.01, Settings.ColorBandSizePercent) / 100.0 - 1.0) *
-      Phase;
+    Scale := 1.0 + EnsureRange(Settings.ColorBandSizePercent,
+      1.0, 1000.0) / 100.0 * SYNC_TRANSFORM_STRENGTH * Phase;
     State.ScaleX := State.ScaleX * Scale;
     State.ScaleY := State.ScaleY * Scale;
     State.OffsetX := State.OffsetX + Settings.SyncOffsetX * Phase;
@@ -474,7 +504,8 @@ begin
   else
   begin
     JumpHeight := Max(1, FontHeight) *
-      (Max(0.01, Settings.ColorBandSizePercent) / 100.0 - 1.0);
+      EnsureRange(Settings.ColorBandSizePercent, 1.0, 1000.0) / 100.0 *
+      SYNC_TRANSFORM_STRENGTH;
     State.OffsetX := State.OffsetX + Settings.SyncOffsetX * Phase;
     State.OffsetY := State.OffsetY +
       (Settings.SyncOffsetY - JumpHeight) * Phase;
@@ -581,6 +612,8 @@ function PrepareLyricsPart(const Part: TResolvedLyricsPart;
   const Settings: TLyricsRenderSettings;
   out Prepared: TPreparedLyricsPart): Boolean;
 var
+  GlowColor: TAlphaColor;
+  GlowScale: Double;
   Metrics: TTextRenderMetrics;
   Request: TTextRenderRequest;
   Shadow: TTextRenderShadow;
@@ -672,15 +705,25 @@ begin
     Prepared.AfterImage := SkiaRenderer.Render(Request, Metrics);
     if Settings.SyncKind = lskGlow then
     begin
+      GlowScale := Sqrt(EnsureRange(Settings.ColorBandSizePercent,
+        1.0, 1000.0) / 100.0);
+      GlowColor := TAlphaColor($FF000000 or
+        (Cardinal(Settings.SyncColor.R) shl 16) or
+        (Cardinal(Settings.SyncColor.G) shl 8) or
+        Cardinal(Settings.SyncColor.B));
       Request.FillColor := TAlphaColorRec.Null;
-      Request.Shadows := [];
+      Shadow := Default(TTextRenderShadow);
+      Shadow.Offset := PointF(0, 0);
+      Shadow.BlurRadius := Max(2.0,
+        Part.Style.FontHeight * 0.12 * GlowScale);
+      Shadow.SpreadRadius := Max(1.0,
+        Part.Style.FontHeight * 0.06 * GlowScale);
+      Shadow.Color := GlowColor;
+      Request.Shadows := [Shadow];
       Request.Outlines := [TTextRenderOutline.Create(
-        Max(1.0, Part.Style.FontHeight * 0.03),
-        Max(1.0, Part.Style.FontHeight * 0.075),
-        TAlphaColor($FF000000 or
-          (Cardinal(Settings.SyncColor.R) shl 16) or
-          (Cardinal(Settings.SyncColor.G) shl 8) or
-          Cardinal(Settings.SyncColor.B)))];
+        Max(2.0, Part.Style.FontHeight * 0.075 * GlowScale),
+        Max(1.0, Part.Style.FontHeight * 0.025 * GlowScale),
+        GlowColor)];
       Prepared.GlowImage := SkiaRenderer.Render(Request, Metrics);
     end;
     ResolvePreparedAdvance(Prepared);
@@ -1008,6 +1051,134 @@ begin
       Opacity);
 end;
 
+procedure IncludeLyricsImageBounds(var Bounds: TRect; Image: TTextRenderImage;
+  PivotX, PivotY, BaselineLocalX, BaselineLocalY, ScaleX, ScaleY: Double);
+var Left, Top: Double;
+begin
+  if (Image = nil) or Image.IsEmpty then Exit;
+  ScaleX := EnsureRange(ScaleX, 0.01, 100.0);
+  ScaleY := EnsureRange(ScaleY, 0.01, 100.0);
+  Left := PivotX + (BaselineLocalX + Image.Bounds.Left) * ScaleX;
+  Top := PivotY + (BaselineLocalY + Image.Bounds.Top) * ScaleY;
+  Bounds.Left := Min(Bounds.Left, Floor(Left));
+  Bounds.Top := Min(Bounds.Top, Floor(Top));
+  Bounds.Right := Max(Bounds.Right, Ceil(Left + Image.Width * ScaleX));
+  Bounds.Bottom := Max(Bounds.Bottom, Ceil(Top + Image.Height * ScaleY));
+end;
+
+procedure IncludeLyricsPartBounds(var Bounds: TRect;
+  const Prepared: TPreparedLyricsPart; PivotX, PivotY, BaselineLocalX,
+  BaselineLocalY, ScaleX, ScaleY, GlowOffsetX, GlowOffsetY: Double);
+begin
+  IncludeLyricsImageBounds(Bounds, Prepared.BeforeImage, PivotX, PivotY,
+    BaselineLocalX, BaselineLocalY, ScaleX, ScaleY);
+  IncludeLyricsImageBounds(Bounds, Prepared.AfterImage, PivotX, PivotY,
+    BaselineLocalX, BaselineLocalY, ScaleX, ScaleY);
+  IncludeLyricsImageBounds(Bounds, Prepared.GlowImage,
+    PivotX + GlowOffsetX, PivotY + GlowOffsetY,
+    BaselineLocalX, BaselineLocalY, ScaleX, ScaleY);
+end;
+
+procedure FinalizeLyricsUnitBounds(var Bounds: TRect; Width, Height: Integer;
+  const Settings: TLyricsRenderSettings; FontHeight: Double);
+var Padding: Integer;
+begin
+  // 同期色の図形と下線は字形画像より外側へ出るため、消去・合成領域へ含める。
+  Padding := 16;
+  if Settings.SyncKind in [lskBacking, lskFront, lskUnderline] then
+    Padding := Max(Padding, Ceil(FontHeight *
+      Max(1.0, Settings.ColorBandSizePercent) / 100.0) +
+      Ceil(Max(Abs(Settings.SyncOffsetX), Abs(Settings.SyncOffsetY))) + 16);
+  Bounds.Inflate(Padding, Padding);
+  Bounds.Left := EnsureRange(Bounds.Left, 0, Width);
+  Bounds.Right := EnsureRange(Bounds.Right, 0, Width);
+  Bounds.Top := EnsureRange(Bounds.Top, 0, Height);
+  Bounds.Bottom := EnsureRange(Bounds.Bottom, 0, Height);
+end;
+
+procedure ClearLyricsUnitLayer(Buffer: PPIXEL_RGBA; Width: Integer;
+  const Bounds: TRect);
+var Y: Integer;
+begin
+  if (Bounds.Right <= Bounds.Left) or (Bounds.Bottom <= Bounds.Top) then Exit;
+  for Y := Bounds.Top to Bounds.Bottom - 1 do
+    FillChar(PPIXEL_RGBA(PByte(Buffer) +
+      (NativeInt(Y) * Width + Bounds.Left) * SizeOf(TPIXEL_RGBA))^,
+      (Bounds.Right - Bounds.Left) * SizeOf(TPIXEL_RGBA), 0);
+end;
+
+procedure CompositeLyricsEdgeUnit(Destination, Source: PPIXEL_RGBA;
+  Width, Height: Integer; const SourceRegion: TRect;
+  const Motion: TMVMotion; UnitIndex, UnitCount: Integer); forward;
+
+function NeedsLyricsUnitComposition(const Settings: TLyricsRenderSettings;
+  ProgressUnits: Double): Boolean;
+var
+  NoteActive: Boolean;
+begin
+  NoteActive := (ProgressUnits > 0) and
+    (Abs(Frac(ProgressUnits)) > 0.000001);
+  if Settings.HasSyncNoteEvent then
+    NoteActive := (Settings.SyncNoteProgress > 0.000001) and
+      (Settings.SyncNoteProgress < 0.999999);
+  Result := HasActiveLyricsEdgeAnimation(Settings.EdgeSettings) or
+    ((Settings.AsyncHoldID <> 0) and (Settings.AsyncSpeed > 0)) or
+    (NoteActive and ((Settings.SyncMotionID in [2, 3, 4, 9..14]) or
+    (Settings.SyncKind in [lskBlink, lskGlitch])));
+end;
+
+function ResolveLyricsUnitMotion(const Settings: TLyricsRenderSettings;
+  UnitIndex, UnitCount, UnitSyncIndex, CurrentSyncIndex: Integer;
+  CurrentSyncProgress: Double; ConsumesNote: Boolean): TMVMotion;
+var
+  Descriptor: TMVAnimationDescriptor;
+  Input: TMVAnimationInput;
+  DisplayHoldID: Integer;
+  NoteActive: Boolean;
+  NoteProgress: Double;
+begin
+  Result := ResolveLyricsEdgeMotion(Settings.EdgeSettings, UnitIndex, UnitCount);
+  Input := Default(TMVAnimationInput);
+  Input.Amount := 60;
+  Input.Strength := 1;
+  Input.Envelope := 1;
+  Input.UnitIndex := UnitIndex;
+  if (Settings.AsyncHoldID <> 0) and (Settings.AsyncSpeed > 0) and
+    FindMVAnimation(makHold, Settings.AsyncHoldID, Descriptor) and
+    Assigned(Descriptor.Evaluate) then
+  begin
+    Input.Phase := Settings.EdgeSettings.LocalSeconds *
+      Settings.AsyncSpeed * 2 * Pi;
+    Descriptor.Evaluate(Result, Input);
+  end;
+  NoteActive := ConsumesNote and (UnitSyncIndex = CurrentSyncIndex);
+  NoteProgress := CurrentSyncProgress;
+  if Settings.HasSyncNoteEvent then
+  begin
+    NoteActive := ConsumesNote and
+      (UnitSyncIndex >= Settings.SyncNoteFirstUnit) and
+      (UnitSyncIndex < Settings.SyncNoteFirstUnit + Settings.SyncNoteUnitCount);
+    NoteProgress := Settings.SyncNoteProgress;
+  end;
+  if not NoteActive or (NoteProgress <= 0) or (NoteProgress >= 1) then Exit;
+  Input.Amount := EnsureRange(Settings.ColorBandSizePercent, 1.0, 1000.0) * 0.6;
+  Input.Phase := NoteProgress * 2 * Pi;
+  Input.Envelope := Sin(NoteProgress * Pi);
+  if (Settings.SyncMotionID in [2, 3, 4, 9..14]) and
+    FindMVAnimation(makHold, Settings.SyncMotionID, Descriptor) and
+    Assigned(Descriptor.Evaluate) then
+    Descriptor.Evaluate(Result, Input);
+  DisplayHoldID := 0;
+  case Settings.SyncKind of
+    lskBlink: DisplayHoldID := 5;
+    lskGlitch: DisplayHoldID := 15;
+  end;
+  if (DisplayHoldID <> 0) and
+    FindMVAnimation(makHold, DisplayHoldID, Descriptor) and
+    Assigned(Descriptor.Evaluate) then
+    Descriptor.Evaluate(Result, Input);
+end;
+
 procedure DrawSkiaLineLyrics(Buffer: PPIXEL_RGBA; Width, Height: Integer;
   const Source: string; ProgressUnits: Double;
   const Settings: TLyricsRenderSettings; PositionX, PositionY: Integer);
@@ -1030,6 +1201,8 @@ var
   DefaultBaseStyle: TResolvedLyricsStyle;
   DefaultRubyStyle: TResolvedLyricsStyle;
   Effect: TLyricsUnitDisplayEffect;
+  EdgeActive: Boolean;
+  EdgeMotion: TMVMotion;
   EmptyPlacements: TDisplayPlacementItems;
   Gap: Double;
   GlowOpacity: Double;
@@ -1045,10 +1218,18 @@ var
   RubyLayoutTop: Double;
   RubySpans: TLyricsRubySpans;
   RubyTop: Double;
+  RubyLeft: Double;
   RubyWidth: Double;
   State: TLyricsUnitEffectState;
+  TargetBuffer: PPIXEL_RGBA;
+  UnitBounds: TRect;
+  UnitLayer: PPIXEL_RGBA;
+  SyncEffectBottom: Double;
   SyncEffectHeight: Double;
+  SyncEffectLeft: Double;
+  SyncEffectRight: Double;
   SyncEffectTop: Double;
+  SyncEffectWidth: Double;
   SyncPhase: Double;
   SyncUnitCount: Integer;
   TotalBaseWidth: Double;
@@ -1065,6 +1246,14 @@ begin
   SetLength(PreparedRuby, Length(ResolvedUnits));
   SetLength(BaseUnitLefts, Length(ResolvedUnits));
   SetLength(BaseUnitWidths, Length(ResolvedUnits));
+  EdgeActive := NeedsLyricsUnitComposition(Settings, ProgressUnits);
+  UnitLayer := nil;
+  if EdgeActive then
+  begin
+    GetMem(UnitLayer, NativeInt(Width) * Height * SizeOf(TPIXEL_RGBA));
+    FillChar(UnitLayer^, NativeInt(Width) * Height * SizeOf(TPIXEL_RGBA), 0);
+  end;
+  if EdgeActive then TargetBuffer := UnitLayer else TargetBuffer := Buffer;
   try
     TotalBaseWidth := 0;
     AnyRuby := False;
@@ -1168,7 +1357,8 @@ begin
       GlowOpacity := 0;
       if Settings.SyncKind = lskGlow then
         GlowOpacity := SyncPhase *
-          Max(0.0, Settings.ColorBandSizePercent) / 100.0;
+          Min(1.0, Sqrt(EnsureRange(Settings.ColorBandSizePercent,
+            1.0, 1000.0) / 100.0));
       AfterClipStart := 0;
       AfterClipEnd := State.AfterProgress;
       if Settings.DisplayType = ldtKaraoke then
@@ -1184,43 +1374,81 @@ begin
       BasePivotX := BaseLeft + BaseUnitWidths[UnitIndex] * 0.5;
       // 拡大しても本文の底辺が動かないよう、表示単位の下端を変形基準にする。
       BasePivotY := BaseBaselineY + BaseLayoutBottom;
-      DrawSyncBacking(Buffer, Width, Height, BaseLeft,
-        BaseTop, BaseUnitWidths[UnitIndex],
-        ResolvedUnits[UnitIndex].Base.Style.FontHeight,
+      UnitBounds := Rect(Floor(BaseLeft), Floor(BaseTop),
+        Ceil(BaseLeft + BaseUnitWidths[UnitIndex]),
+        Ceil(BaseTop + ResolvedUnits[UnitIndex].Base.Style.FontHeight));
+      SyncEffectLeft := BaseLeft;
+      SyncEffectRight := BaseLeft + BaseUnitWidths[UnitIndex];
+      SyncEffectTop := BaseTop;
+      SyncEffectBottom := BaseTop +
+        ResolvedUnits[UnitIndex].Base.Style.FontHeight;
+      if ResolvedUnits[UnitIndex].HasRuby then
+      begin
+        RubyWidth := Max(0, PreparedRuby[UnitIndex].AdvanceRight -
+          PreparedRuby[UnitIndex].AdvanceLeft);
+        RubyLeft := BaseLeft + (BaseUnitWidths[UnitIndex] - RubyWidth) * 0.5;
+        RubyBaselineX := RubyLeft - PreparedRuby[UnitIndex].AdvanceLeft;
+        SyncEffectLeft := Min(SyncEffectLeft, RubyLeft);
+        SyncEffectRight := Max(SyncEffectRight, RubyLeft + RubyWidth);
+        SyncEffectTop := Min(SyncEffectTop, RubyTop);
+        SyncEffectBottom := Max(SyncEffectBottom, RubyTop +
+          ResolvedUnits[UnitIndex].Ruby.Style.FontHeight);
+      end;
+      SyncEffectWidth := SyncEffectRight - SyncEffectLeft;
+      SyncEffectHeight := SyncEffectBottom - SyncEffectTop;
+      DrawSyncBacking(TargetBuffer, Width, Height, SyncEffectLeft,
+        SyncEffectTop, SyncEffectWidth, SyncEffectHeight,
         AfterClipStart, AfterClipEnd, SyncPhase, Settings);
-      DrawPreparedPart(Buffer, Width, Height, PreparedBase[UnitIndex], State,
+      DrawPreparedPart(TargetBuffer, Width, Height, PreparedBase[UnitIndex], State,
         BasePivotX + State.OffsetX, BasePivotY + State.OffsetY,
         BaseBaselineX - BasePivotX,
         BaseBaselineY - BasePivotY, State.ScaleX, State.ScaleY,
         AfterClipStart, AfterClipEnd, GlowOpacity,
         Settings.SyncOffsetX, Settings.SyncOffsetY, Settings.Opacity);
-      SyncEffectTop := BaseTop;
-      SyncEffectHeight := ResolvedUnits[UnitIndex].Base.Style.FontHeight;
+      if EdgeActive then
+        IncludeLyricsPartBounds(UnitBounds, PreparedBase[UnitIndex],
+          BasePivotX + State.OffsetX, BasePivotY + State.OffsetY,
+          BaseBaselineX - BasePivotX, BaseBaselineY - BasePivotY,
+          State.ScaleX, State.ScaleY, Settings.SyncOffsetX,
+          Settings.SyncOffsetY);
       if ResolvedUnits[UnitIndex].HasRuby then
       begin
-        RubyWidth := PreparedRuby[UnitIndex].AdvanceRight -
-          PreparedRuby[UnitIndex].AdvanceLeft;
-        RubyBaselineX := BaseLeft + (BaseUnitWidths[UnitIndex] - RubyWidth) *
-          0.5 - PreparedRuby[UnitIndex].AdvanceLeft;
-        DrawPreparedPart(Buffer, Width, Height, PreparedRuby[UnitIndex], State,
+        DrawPreparedPart(TargetBuffer, Width, Height, PreparedRuby[UnitIndex], State,
           BasePivotX + State.OffsetX, BasePivotY + State.OffsetY,
           RubyBaselineX - BasePivotX,
           RubyBaselineY - BasePivotY, State.ScaleX, State.ScaleY,
           AfterClipStart, AfterClipEnd, GlowOpacity,
           Settings.SyncOffsetX, Settings.SyncOffsetY, Settings.Opacity);
-        SyncEffectTop := RubyTop;
-        SyncEffectHeight := BaseTop +
-          ResolvedUnits[UnitIndex].Base.Style.FontHeight - RubyTop;
+        if EdgeActive then
+          IncludeLyricsPartBounds(UnitBounds, PreparedRuby[UnitIndex],
+            BasePivotX + State.OffsetX, BasePivotY + State.OffsetY,
+            RubyBaselineX - BasePivotX, RubyBaselineY - BasePivotY,
+            State.ScaleX, State.ScaleY, Settings.SyncOffsetX,
+            Settings.SyncOffsetY);
       end;
-      DrawSyncFront(Buffer, Width, Height, BaseLeft, SyncEffectTop,
-        BaseUnitWidths[UnitIndex], SyncEffectHeight, AfterClipStart,
+      DrawSyncFront(TargetBuffer, Width, Height, SyncEffectLeft, SyncEffectTop,
+        SyncEffectWidth, SyncEffectHeight, AfterClipStart,
         AfterClipEnd, SyncPhase, Settings);
-      DrawSyncUnderline(Buffer, Width, Height, BaseLeft, BaseTop,
+      DrawSyncUnderline(TargetBuffer, Width, Height, BaseLeft, BaseTop,
         BaseUnitWidths[UnitIndex],
         ResolvedUnits[UnitIndex].Base.Style.FontHeight,
         AfterClipStart, AfterClipEnd, SyncPhase, Settings);
+      if EdgeActive then
+      begin
+        FinalizeLyricsUnitBounds(UnitBounds, Width, Height, Settings,
+          Max(ResolvedUnits[UnitIndex].Base.Style.FontHeight,
+          Settings.RubyFontHeight));
+        EdgeMotion := ResolveLyricsUnitMotion(Settings, UnitIndex,
+          Length(ResolvedUnits), ResolvedUnits[UnitIndex].SyncUnitIndex,
+          CurrentSyncIndex, CurrentSyncProgress,
+          ResolvedUnits[UnitIndex].ConsumesNote);
+        CompositeLyricsEdgeUnit(Buffer, UnitLayer, Width, Height,
+          UnitBounds, EdgeMotion, UnitIndex, Length(ResolvedUnits));
+        ClearLyricsUnitLayer(UnitLayer, Width, UnitBounds);
+      end;
     end;
   finally
+    if UnitLayer <> nil then FreeMem(UnitLayer);
     FreePreparedParts(PreparedRuby);
     FreePreparedParts(PreparedBase);
   end;
@@ -1242,6 +1470,8 @@ var
   CurrentSyncProgress: Double;
   DefaultBaseStyle: TResolvedLyricsStyle;
   DefaultRubyStyle: TResolvedLyricsStyle;
+  EdgeActive: Boolean;
+  EdgeMotion: TMVMotion;
   Effect: TLyricsUnitDisplayEffect;
   GlowOpacity: Double;
   LogicalUnits: TLyricsDisplayUnits;
@@ -1253,12 +1483,19 @@ var
   RubyBaselineY: Double;
   RubyGap: Double;
   RubySpans: TLyricsRubySpans;
+  RubyLeft: Double;
   RubyTop: Double;
+  RubyWidth: Double;
   ScaleX: Double;
   ScaleY: Double;
   State: TLyricsUnitEffectState;
+  TargetBuffer: PPIXEL_RGBA;
+  UnitBounds: TRect;
+  UnitLayer: PPIXEL_RGBA;
+  SyncEffectBottom: Double;
   SyncEffectHeight: Double;
   SyncEffectLeft: Double;
+  SyncEffectRight: Double;
   SyncEffectTop: Double;
   SyncEffectWidth: Double;
   SyncPhase: Double;
@@ -1277,6 +1514,15 @@ begin
     DefaultRubyStyle, Placements, True, PlainText, RubySpans,
     LogicalUnits, ResolvedUnits) then
     Exit;
+  EdgeActive := NeedsLyricsUnitComposition(Settings, ProgressUnits);
+  UnitLayer := nil;
+  if EdgeActive then
+  begin
+    GetMem(UnitLayer, NativeInt(Width) * Height * SizeOf(TPIXEL_RGBA));
+    FillChar(UnitLayer^, NativeInt(Width) * Height * SizeOf(TPIXEL_RGBA), 0);
+  end;
+  if EdgeActive then TargetBuffer := UnitLayer else TargetBuffer := Buffer;
+  try
   RubyGap := EnsureRange(DEFAULT_RUBY_GAP + Settings.RubyGapAdjustment,
     MIN_RUBY_GAP, MAX_RUBY_GAP);
   SyncUnitCount := 0;
@@ -1317,7 +1563,8 @@ begin
       GlowOpacity := 0;
       if Settings.SyncKind = lskGlow then
         GlowOpacity := SyncPhase *
-          Max(0.0, Settings.ColorBandSizePercent) / 100.0;
+          Min(1.0, Sqrt(EnsureRange(Settings.ColorBandSizePercent,
+            1.0, 1000.0) / 100.0));
       AfterClipStart := 0;
       AfterClipEnd := State.AfterProgress;
       if Settings.DisplayType = ldtKaraoke then
@@ -1346,14 +1593,11 @@ begin
         ScaleY;
       SyncEffectLeft := PivotX - SyncEffectWidth * 0.5;
       SyncEffectTop := PivotY + BaseTop * ScaleY;
-      DrawSyncBacking(Buffer, Width, Height, SyncEffectLeft,
-        SyncEffectTop, SyncEffectWidth, SyncEffectHeight,
-        AfterClipStart, AfterClipEnd, SyncPhase, Settings);
-      DrawPreparedPart(Buffer, Width, Height, PreparedBase, State,
-        PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
-        BaseBaselineX, BaseBaselineY - BaseBottom, ScaleX, ScaleY,
-        AfterClipStart, AfterClipEnd, GlowOpacity,
-        Settings.SyncOffsetX, Settings.SyncOffsetY, Settings.Opacity);
+      SyncEffectRight := SyncEffectLeft + SyncEffectWidth;
+      SyncEffectBottom := SyncEffectTop + SyncEffectHeight;
+      UnitBounds := Rect(Floor(SyncEffectLeft), Floor(SyncEffectTop),
+        Ceil(SyncEffectLeft + SyncEffectWidth),
+        Ceil(SyncEffectTop + SyncEffectHeight));
       if ResolvedUnits[UnitIndex].HasRuby then
       begin
         RubyTop := BaseTop - RubyGap +
@@ -1363,28 +1607,71 @@ begin
           ResolvedUnits[UnitIndex].Ruby.OffsetX;
         RubyBaselineY := RubyTop -
           PreparedRuby.BeforeImage.LayoutBounds.Bottom;
-        DrawPreparedPart(Buffer, Width, Height, PreparedRuby, State,
+        RubyWidth := Max(0, PreparedRuby.AdvanceRight -
+          PreparedRuby.AdvanceLeft) * ScaleX;
+        RubyLeft := PivotX + (RubyBaselineX +
+          PreparedRuby.AdvanceLeft) * ScaleX;
+        SyncEffectLeft := Min(SyncEffectLeft, RubyLeft);
+        SyncEffectRight := Max(SyncEffectRight, RubyLeft + RubyWidth);
+        SyncEffectTop := Min(SyncEffectTop, PivotY + RubyTop * ScaleY);
+        SyncEffectBottom := Max(SyncEffectBottom, PivotY +
+          (RubyTop + ResolvedUnits[UnitIndex].Ruby.Style.FontHeight) * ScaleY);
+        SyncEffectWidth := SyncEffectRight - SyncEffectLeft;
+        SyncEffectHeight := SyncEffectBottom - SyncEffectTop;
+      end;
+      DrawSyncBacking(TargetBuffer, Width, Height, SyncEffectLeft,
+        SyncEffectTop, SyncEffectWidth, SyncEffectHeight,
+        AfterClipStart, AfterClipEnd, SyncPhase, Settings);
+      DrawPreparedPart(TargetBuffer, Width, Height, PreparedBase, State,
+        PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
+        BaseBaselineX, BaseBaselineY - BaseBottom, ScaleX, ScaleY,
+        AfterClipStart, AfterClipEnd, GlowOpacity,
+        Settings.SyncOffsetX, Settings.SyncOffsetY, Settings.Opacity);
+      if EdgeActive then
+        IncludeLyricsPartBounds(UnitBounds, PreparedBase,
+          PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
+          BaseBaselineX, BaseBaselineY - BaseBottom, ScaleX, ScaleY,
+          Settings.SyncOffsetX, Settings.SyncOffsetY);
+      if ResolvedUnits[UnitIndex].HasRuby then
+      begin
+        DrawPreparedPart(TargetBuffer, Width, Height, PreparedRuby, State,
           PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
           RubyBaselineX, RubyBaselineY - BaseBottom, ScaleX, ScaleY,
           AfterClipStart, AfterClipEnd, GlowOpacity,
           Settings.SyncOffsetX, Settings.SyncOffsetY, Settings.Opacity);
-        SyncEffectTop := Min(SyncEffectTop,
-          PivotY + RubyTop * ScaleY);
-        SyncEffectHeight := PivotY +
-          (BaseTop + ResolvedUnits[UnitIndex].Base.Style.FontHeight) *
-          ScaleY - SyncEffectTop;
+        if EdgeActive then
+          IncludeLyricsPartBounds(UnitBounds, PreparedRuby,
+            PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
+            RubyBaselineX, RubyBaselineY - BaseBottom, ScaleX, ScaleY,
+            Settings.SyncOffsetX, Settings.SyncOffsetY);
       end;
-      DrawSyncFront(Buffer, Width, Height, SyncEffectLeft,
+      DrawSyncFront(TargetBuffer, Width, Height, SyncEffectLeft,
         SyncEffectTop, SyncEffectWidth, SyncEffectHeight,
         AfterClipStart, AfterClipEnd, SyncPhase, Settings);
-      DrawSyncUnderline(Buffer, Width, Height, SyncEffectLeft,
+      DrawSyncUnderline(TargetBuffer, Width, Height, SyncEffectLeft,
         PivotY + BaseTop * ScaleY, SyncEffectWidth,
         ResolvedUnits[UnitIndex].Base.Style.FontHeight * ScaleY,
         AfterClipStart, AfterClipEnd, SyncPhase, Settings);
+      if EdgeActive then
+      begin
+        FinalizeLyricsUnitBounds(UnitBounds, Width, Height, Settings,
+          Max(ResolvedUnits[UnitIndex].Base.Style.FontHeight,
+            Settings.RubyFontHeight) * Max(ScaleX, ScaleY));
+        EdgeMotion := ResolveLyricsUnitMotion(Settings, UnitIndex,
+          Length(ResolvedUnits), ResolvedUnits[UnitIndex].SyncUnitIndex,
+          CurrentSyncIndex, CurrentSyncProgress,
+          ResolvedUnits[UnitIndex].ConsumesNote);
+        CompositeLyricsEdgeUnit(Buffer, UnitLayer, Width, Height,
+          UnitBounds, EdgeMotion, UnitIndex, Length(ResolvedUnits));
+        ClearLyricsUnitLayer(UnitLayer, Width, UnitBounds);
+      end;
     finally
       FreePreparedPart(PreparedRuby);
       FreePreparedPart(PreparedBase);
     end;
+  end;
+  finally
+    if UnitLayer <> nil then FreeMem(UnitLayer);
   end;
 end;
 
@@ -1505,6 +1792,156 @@ begin
   Result.R := EnsureRange(Integer((SumR + SumA div 2) div SumA), 0, 255);
   Result.G := EnsureRange(Integer((SumG + SumA div 2) div SumA), 0, 255);
   Result.B := EnsureRange(Integer((SumB + SumA div 2) div SumA), 0, 255);
+end;
+
+function LyricsBlockRank(Index, Seed: Integer): Integer;
+var Value: Integer;
+begin
+  Value := (Index + (Seed and 63)) and 63;
+  Value := Value xor (Value shr 3);
+  Value := (Value * 37) and 63;
+  Result := Value xor (Value shr 2);
+end;
+
+procedure BlendLayerPixel(const Source: TPIXEL_RGBA; Opacity: Double;
+  var Destination: TPIXEL_RGBA); forward;
+
+function IsLyricsEdgePixelVisible(X, Y: Double; const Bounds: TRect;
+  const Motion: TMVMotion): Boolean;
+var
+  Cell, Column, Row: Integer;
+  Fraction, NormalX, NormalY, Visible: Double;
+begin
+  Result := False;
+  if (Bounds.Width <= 0) or (Bounds.Height <= 0) then Exit;
+  NormalX := (X - Bounds.Left) / Bounds.Width;
+  NormalY := (Y - Bounds.Top) / Bounds.Height;
+  if (NormalX < Motion.ClipLeft) or (NormalX >= Motion.ClipRight) or
+    (NormalY < Motion.ClipTop) or (NormalY >= Motion.ClipBottom) then Exit;
+  Visible := EnsureRange(Motion.MaskVisibility, 0.0, 1.0);
+  case Motion.Mask of
+    mamBlinds:
+      begin
+        if Motion.MaskDirection in [madUp, madDown] then
+          Fraction := Frac(NormalY * 8)
+        else
+          Fraction := Frac(NormalX * 8);
+        if Motion.MaskDirection in [madUp, madLeft] then
+          Result := Fraction < Visible
+        else
+          Result := Fraction >= 1 - Visible;
+      end;
+    mamDissolve:
+      begin
+        Column := EnsureRange(Floor(NormalX * 8), 0, 7);
+        Row := EnsureRange(Floor(NormalY * 8), 0, 7);
+        Cell := Row * 8 + Column;
+        Result := LyricsBlockRank(Cell, Motion.EffectSeed) + 0.5 <
+          Visible * 64;
+      end;
+  else
+    Result := True;
+  end;
+end;
+
+procedure CompositeLyricsEdgeUnit(Destination, Source: PPIXEL_RGBA;
+  Width, Height: Integer; const SourceRegion: TRect;
+  const Motion: TMVMotion; UnitIndex, UnitCount: Integer);
+var
+  Actual: TRect;
+  Angle, CosAngle, SinAngle, PivotX, PivotY: Double;
+  BlurRadius, Margin: Integer;
+  CornerX, CornerY, DX, DY, LocalX, LocalY: Double;
+  OffsetX, OffsetY, ScaleX, ScaleY: Double;
+  DestinationPixel, SourcePixel: PPIXEL_RGBA;
+  DestLeft, DestTop, DestRight, DestBottom: Integer;
+  Sample: TPIXEL_RGBA;
+  SampleX, SampleY, X, Y, I: Integer;
+begin
+  if (Motion.Opacity <= 0) or (Motion.Scale <= 0) or
+    (Motion.ScaleX <= 0.0001) or (Motion.ScaleY <= 0.0001) or
+    (SourceRegion.Right <= SourceRegion.Left) or
+    (SourceRegion.Bottom <= SourceRegion.Top) then Exit;
+  Actual := Rect(SourceRegion.Right, SourceRegion.Bottom,
+    SourceRegion.Left, SourceRegion.Top);
+  for Y := SourceRegion.Top to SourceRegion.Bottom - 1 do
+    for X := SourceRegion.Left to SourceRegion.Right - 1 do
+    begin
+      SourcePixel := Source;
+      Inc(SourcePixel, NativeInt(Y) * Width + X);
+      if SourcePixel^.A = 0 then Continue;
+      Actual.Left := Min(Actual.Left, X);
+      Actual.Top := Min(Actual.Top, Y);
+      Actual.Right := Max(Actual.Right, X + 1);
+      Actual.Bottom := Max(Actual.Bottom, Y + 1);
+    end;
+  if (Actual.Right <= Actual.Left) or (Actual.Bottom <= Actual.Top) then Exit;
+  PivotX := (Actual.Left + Actual.Right) * 0.5;
+  PivotY := (Actual.Top + Actual.Bottom) * 0.5;
+  ScaleX := Max(0.01, Motion.Scale * Motion.ScaleX);
+  ScaleY := Max(0.01, Motion.Scale * Motion.ScaleY);
+  OffsetX := Motion.X + Motion.Tracking *
+    (UnitIndex - (UnitCount - 1) * 0.5);
+  OffsetY := Motion.Y;
+  Angle := DegToRad(Motion.Angle);
+  CosAngle := Cos(Angle);
+  SinAngle := Sin(Angle);
+  BlurRadius := EnsureRange(Ceil(Motion.BlurSigma), 0, 16);
+  Margin := BlurRadius + Ceil(Motion.GlitchAmount) + 2;
+  DestLeft := Width;
+  DestTop := Height;
+  DestRight := 0;
+  DestBottom := 0;
+  for I := 0 to 3 do
+  begin
+    if (I and 1) = 0 then CornerX := Actual.Left - Margin
+    else CornerX := Actual.Right + Margin;
+    if (I and 2) = 0 then CornerY := Actual.Top - Margin
+    else CornerY := Actual.Bottom + Margin;
+    DX := (CornerX - PivotX) * ScaleX;
+    DY := (CornerY - PivotY) * ScaleY;
+    LocalX := PivotX + OffsetX + CosAngle * DX - SinAngle * DY;
+    LocalY := PivotY + OffsetY + SinAngle * DX + CosAngle * DY;
+    DestLeft := Min(DestLeft, Floor(LocalX));
+    DestTop := Min(DestTop, Floor(LocalY));
+    DestRight := Max(DestRight, Ceil(LocalX));
+    DestBottom := Max(DestBottom, Ceil(LocalY));
+  end;
+  for Y := Max(0, DestTop) to Min(Height, DestBottom) - 1 do
+    for X := Max(0, DestLeft) to Min(Width, DestRight) - 1 do
+    begin
+      DX := X + 0.5 - PivotX - OffsetX;
+      DY := Y + 0.5 - PivotY - OffsetY;
+      LocalX := PivotX + (CosAngle * DX + SinAngle * DY) / ScaleX;
+      LocalY := PivotY + (-SinAngle * DX + CosAngle * DY) / ScaleY;
+      if not IsLyricsEdgePixelVisible(LocalX, LocalY, Actual, Motion) then
+        Continue;
+      if Motion.GlitchAmount > 0.01 then
+      begin
+        I := EnsureRange(Floor((LocalY - Actual.Top) * 8 /
+          Max(1, Actual.Height)), 0, 7);
+        LocalX := LocalX - Sin((I + 1) * 12.9898 +
+          Motion.GlitchStep * 7.233 + Motion.EffectSeed * 1.713) *
+          Motion.GlitchAmount;
+      end;
+      SampleX := Floor(LocalX);
+      SampleY := Floor(LocalY);
+      if (SampleX < 0) or (SampleX >= Width) or
+        (SampleY < 0) or (SampleY >= Height) then Continue;
+      if BlurRadius > 0 then
+        Sample := SampleBlurredLayerPixel(Source, Width, Height,
+          SampleX, SampleY, BlurRadius)
+      else
+      begin
+        SourcePixel := Source;
+        Inc(SourcePixel, NativeInt(SampleY) * Width + SampleX);
+        Sample := SourcePixel^;
+      end;
+      if Sample.A = 0 then Continue;
+      DestinationPixel := Destination;
+      Inc(DestinationPixel, NativeInt(Y) * Width + X);
+      BlendLayerPixel(Sample, Motion.Opacity, DestinationPixel^);
+    end;
 end;
 
 procedure BlendLayerPixel(const Source: TPIXEL_RGBA; Opacity: Double;

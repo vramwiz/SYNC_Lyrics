@@ -33,6 +33,11 @@ function SerializeManualSyncText(const Boundaries: array of Double): string;
 function CountMusicSyncRequiredNotes(const Text: string;
   DisplayUnitCount: Integer): Integer;
 
+// 表示単位の連続進捗を現在の音の進捗へ戻す。複数音で1単位でも音ごとに0へ戻る。
+function ResolveMusicSyncNoteEvent(const Stages: array of Integer;
+  DisplayUnitCount: Integer; ProgressUnits: Double;
+  out FirstUnit, UnitCount: Integer; out NoteProgress: Double): Boolean;
+
 implementation
 
 uses
@@ -275,6 +280,48 @@ begin
     end;
     Inc(Result, NoteCount);
     Inc(UnitIndex, UnitCount);
+    Inc(StageIndex);
+  end;
+end;
+
+function ResolveMusicSyncNoteEvent(const Stages: array of Integer;
+  DisplayUnitCount: Integer; ProgressUnits: Double;
+  out FirstUnit, UnitCount: Integer; out NoteProgress: Double): Boolean;
+var
+  NoteCount: Integer;
+  Position: Double;
+  StageIndex: Integer;
+  StageValue: Integer;
+begin
+  Result := False;
+  FirstUnit := 0;
+  UnitCount := 0;
+  NoteProgress := 0;
+  if IsNan(ProgressUnits) or IsInfinite(ProgressUnits) or
+    (DisplayUnitCount <= 0) or (ProgressUnits <= 0) or
+    (ProgressUnits >= DisplayUnitCount) then Exit;
+  StageIndex := 0;
+  while FirstUnit < DisplayUnitCount do
+  begin
+    if StageIndex <= High(Stages) then StageValue := Stages[StageIndex]
+    else StageValue := 0;
+    if StageValue < 0 then
+    begin
+      UnitCount := Min(Abs(StageValue) + 1, DisplayUnitCount - FirstUnit);
+      NoteCount := 1;
+    end
+    else
+    begin
+      UnitCount := 1;
+      NoteCount := StageValue + 1;
+    end;
+    if ProgressUnits < FirstUnit + UnitCount then
+    begin
+      Position := (ProgressUnits - FirstUnit) * NoteCount / UnitCount;
+      NoteProgress := Frac(Position);
+      Exit((Position >= 0) and (Position < NoteCount));
+    end;
+    Inc(FirstUnit, UnitCount);
     Inc(StageIndex);
   end;
 end;

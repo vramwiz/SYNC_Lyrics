@@ -16,6 +16,7 @@ end;
 
 procedure RunTests;
 var
+  Data: TSyncTextData;
   Model: TLyricsSongModel;
 begin
   Model := TLyricsSongModel.Create;
@@ -187,6 +188,57 @@ begin
       'The manual pre-display range was not calculated.');
     Check(Model[0].DisplayEndFrame = 89,
       'The manual hold range was not calculated.');
+
+    Model.SetLyricsText('a' + sLineBreak + 'b' + sLineBreak +
+      'c' + sLineBreak + 'd');
+    Model.RecalculateManualDefaults(40);
+    Check(TryParseSyncText(Model[0].SyncText, Data) and
+      (Abs(Data.ManualBoundaries[1] - 10) < 0.0001),
+      'the first automatic line did not end at the next line');
+    Check(TryParseSyncText(Model[1].SyncText, Data) and
+      (Abs(Data.ManualBoundaries[0] - 10) < 0.0001),
+      'the second automatic line did not follow the first');
+    Check(Model.TrySetLineText(2, 'cc'),
+      'the automatic line text could not be edited');
+    Model.RecalculateManualDefaults(40);
+    Check((Model[2].SyncState = lssUnset) and
+      TryParseSyncText(Model[2].SyncText, Data) and
+      (Length(Data.ManualBoundaries) = 3),
+      'editing automatic lyrics did not rebuild its boundaries');
+    Check(Model.TrySetSync(1, 0,
+      SerializeManualSyncText([12.0, 18.0])),
+      'the second line could not provide a fixed next start');
+    Model.RecalculateManualDefaults(40);
+    Check(TryParseSyncText(Model[0].SyncText, Data) and
+      (Abs(Data.ManualBoundaries[1] - 12) < 0.0001),
+      'the first automatic line did not end at the edited next line');
+    Check(Model.TryClearManualSync(1),
+      'the fixed next start could not be released');
+    Model.RecalculateManualDefaults(40);
+    Check(Model.TrySetSync(0, 0,
+      SerializeManualSyncText([0.0, 6.0])),
+      'the first manual line could not be edited');
+    Model.RecalculateManualDefaults(40);
+    Check(TryParseSyncText(Model[1].SyncText, Data) and
+      (Abs(Data.ManualBoundaries[0] - 6) < 0.0001),
+      'an unedited second line did not follow the edited first line');
+    Check(Model.TrySetSync(1, 0,
+      SerializeManualSyncText([8.0, 13.0])),
+      'the second manual line could not be edited');
+    Check(Model.TrySetSync(0, 0,
+      SerializeManualSyncText([0.0, 7.0])),
+      'the first manual line could not be edited again');
+    Model.RecalculateManualDefaults(40);
+    Check(TryParseSyncText(Model[1].SyncText, Data) and
+      (Abs(Data.ManualBoundaries[0] - 8) < 0.0001),
+      'an edited second line followed the first line');
+    Check(Model.TryClearManualSync(1),
+      'the second line sync could not be cleared');
+    Model.RecalculateManualDefaults(40);
+    Check((Model[1].SyncState = lssUnset) and
+      TryParseSyncText(Model[1].SyncText, Data) and
+      (Abs(Data.ManualBoundaries[0] - 7) < 0.0001),
+      'clearing sync did not resume automatic following');
 
     Model.SetLyricsText('first' + sLineBreak + 'second' +
       sLineBreak + 'third');

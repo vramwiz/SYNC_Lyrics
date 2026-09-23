@@ -3,7 +3,7 @@
         <ProjectGuid>{7786106E-74E2-4DEB-875F-21914EBDD449}</ProjectGuid>
         <ProjectVersion>20.4</ProjectVersion>
         <FrameworkType>None</FrameworkType>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <ProjectName Condition="'$(ProjectName)'==''">SYNC_Lyrics_Filter</ProjectName>
         <TargetedPlatforms>2</TargetedPlatforms>
@@ -89,12 +89,13 @@
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PostBuildEvent><![CDATA[copy /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).auf2"&&copy /Y "$(BDS)\bin64\sk4d.dll" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new"&&move /Y "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll.new" "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\sk4d.dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).dll"&&if exist "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm" del /Q "C:\ProgramData\aviutl2\Plugin\SYNC_Lyrics\$(PROJECTNAME).rsm"]]></PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
-        <Debugger_HostApplication>D:\aviutl2_v2.1.0\aviutl2.exe</Debugger_HostApplication>
+        <Debugger_HostApplication>D:\aviutl2_v2.1.3a\aviutl2.exe</Debugger_HostApplication>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="Win64\SkiaOverride\System.Skia.pas"/>
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererSkiaBootstrap.pas"/>
         <DCCReference Include="Source\Lib\TextRenderer\TextRendererTypes.pas"/>
         <DCCReference Include="Source\Lib\TextRenderer\TextRenderer.pas"/>
@@ -126,24 +127,24 @@
         <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas"/>
         <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsData.pas"/>
         <DCCReference Include="Source\Common\Lyrics\SYNC_Lyrics_SongLyricsRuntime.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\RTTIPersistent.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\RTTIPersistentIni.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SectionFileManager.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\TextEncodingUtils.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongAIUEO.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongDataInfo.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongDataNote.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongDataTempo.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongDataTrack.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongData.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReader.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderSMF.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderUST.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderVSQX.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderMusicXML.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderMusicMSC.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderMusicMSCZ.pas"/>
-        <DCCReference Include="Source\Lib\SongReader\SongReaderManager.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Persistence\RTTIPersistent.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Persistence\RTTIPersistentIni.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Persistence\SectionFileManager.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Persistence\TextEncodingUtils.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongAIUEO.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongDataInfo.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongDataNote.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongDataTempo.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongDataTrack.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongData.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongReader.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Formats\SongReaderSMF.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Formats\SongReaderUST.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Formats\SongReaderVSQX.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Formats\SongReaderMusicXML.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Formats\SongReaderMusicMSC.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Formats\SongReaderMusicMSCZ.pas"/>
+        <DCCReference Include="Source\Lib\SongReader\Core\SongReaderManager.pas"/>
         <DCCReference Include="Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas"/>
         <DCCReference Include="Source\Lib\FFmpeg\FFmpegApi.pas"/>
         <DCCReference Include="Source\Lib\FFmpeg\FFmpegAudioTempo.pas"/>
@@ -159,44 +160,63 @@
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_ResolvedDisplayUnits.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_LastFrameCapture.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Core\MVAnimationTypes.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Core\MVTransitionTiming.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Core\MVAnimationCatalog.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Core\MVTransitionParts.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Core\MVTransitionComposition.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionBasic.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionExtended.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionMovement.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionScale.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionMasks.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionScatter.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionKinetic.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionPattern.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Transition\MVTransitionPath.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Hold\MVHoldBasic.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Hold\MVHoldExtended.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Hold\MVHoldKinetic.pas"/>
+        <DCCReference Include="Source\Lib\EdgeAnimation\Hold\MVHoldAccent.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Animation.pas"/>
         <DCCReference Include="Source\Common\Render\SYNC_Lyrics_Renderer.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutInteraction.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutDrawing.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsModePage.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsColorPanel.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplayPreviewBackground.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsPage.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterDisplaySettingsPage.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsForm.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas">
+        <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutInteraction.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutDrawing.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsModePage.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsColorPanel.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewBackground.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsPage.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDisplaySettingsPage.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsForm.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutSettingsForm.pas">
             <Form>FormLyricsCharacterLayoutSettings</Form>
         </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas">
+        <DCCReference Include="Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsForm.pas">
             <Form>FormLyricsLineDisplaySettings</Form>
         </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditModel.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MidiLyricMatcher.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MidiLyricAutoAssign.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncPianoRoll.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncNoteLyrics.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncFixedLyrics.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas">
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncEditModel.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MidiLyricMatcher.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MidiLyricAutoAssign.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncPianoRoll.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncNoteLyrics.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncFixedLyrics.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncSettingsForm.pas">
             <Form>FormLyricsMusicSyncSettings</Form>
         </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_TimeRuler.pas"/>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas">
+        <DCCReference Include="Source\Plugin\Filter\Sync\SYNC_Lyrics_MusicSyncEditorFrame.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\SYNC_Lyrics_TimeRuler.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Manual\SYNC_Lyrics_ManualSyncWaveform.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Sync\Manual\SYNC_Lyrics_ManualSyncSettingsForm.pas">
             <Form>FormLyricsManualSyncSettings</Form>
         </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas">
+        <DCCReference Include="Source\Plugin\Filter\Sync\SYNC_Lyrics_InitialLyricsFrame.pas">
             <Form>FrameLyricsInitialInput</Form>
             <DesignClass>TFrame</DesignClass>
         </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas">
+        <DCCReference Include="Source\Plugin\Filter\Sync\SYNC_Lyrics_SyncEditorForm.pas">
             <Form>FormLyricsSyncEditor</Form>
         </DCCReference>
-        <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_SerifAnimationItems.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Animation\SYNC_Lyrics_SerifAnimationItems.pas"/>
         <DCCReference Include="Source\Plugin\Filter\SYNC_Lyrics_FilterPlugin.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

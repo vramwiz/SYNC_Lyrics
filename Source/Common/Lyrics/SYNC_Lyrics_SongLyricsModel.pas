@@ -82,6 +82,9 @@ type
       const SyncText: string): Boolean;
     function TrySetSyncState(Index: Integer;
       SyncState: TLyricsLineSyncState): Boolean;
+    // 未編集のWAV行を前後の編集済み境界の間へ配置し直す。
+    procedure RecalculateManualDefaults(AudioDurationSeconds: Double);
+    function TryClearManualSync(Index: Integer): Boolean;
     function TrySetStartLine(Index: Integer): Boolean;
     function TrySetStartLineID(LineID: Int64): Boolean;
     // Rebuilds object-local display ranges from the shared music-note sequence.
@@ -296,6 +299,70 @@ begin
   end;
 end;
 
+procedure TLyricsSongModel.RecalculateManualDefaults(
+  AudioDurationSeconds: Double);
+var
+  Boundaries: TSyncDoubleArray;
+  Data: TSyncTextData;
+  EndSeconds: Double;
+  I: Integer;
+  J: Integer;
+  K: Integer;
+  RunEndSeconds: Double;
+  RunStartSeconds: Double;
+  StartSeconds: Double;
+  UnitCount: Integer;
+begin
+  if (AudioDurationSeconds <= 0) or (Length(FLines) = 0) then
+    Exit;
+  I := 0;
+  RunStartSeconds := 0;
+  while I < Length(FLines) do
+  begin
+    if FLines[I].SyncState <> lssUnset then
+    begin
+      if TryParseSyncText(FLines[I].SyncText, Data) and
+        (Data.Mode = smManual) and
+        (Length(Data.ManualBoundaries) >= 2) then
+        RunStartSeconds := Data.ManualBoundaries[High(Data.ManualBoundaries)];
+      Inc(I);
+      Continue;
+    end;
+    J := I + 1;
+    while (J < Length(FLines)) and
+      (FLines[J].SyncState = lssUnset) do
+      Inc(J);
+    RunEndSeconds := AudioDurationSeconds;
+    if (J < Length(FLines)) and
+      TryParseSyncText(FLines[J].SyncText, Data) and
+      (Data.Mode = smManual) and
+      (Length(Data.ManualBoundaries) >= 2) then
+      RunEndSeconds := Data.ManualBoundaries[0];
+    RunEndSeconds := Min(AudioDurationSeconds, RunEndSeconds);
+    for K := I to J - 1 do
+    begin
+      UnitCount := CountLyricsDisplayUnits(FLines[K].SourceText);
+      StartSeconds := RunStartSeconds +
+        (RunEndSeconds - RunStartSeconds) * (K - I) / (J - I);
+      EndSeconds := RunStartSeconds +
+        (RunEndSeconds - RunStartSeconds) * (K - I + 1) / (J - I);
+      if (UnitCount <= 0) or
+        (EndSeconds - StartSeconds <= UnitCount * 0.00001) then
+      begin
+        FLines[K].SyncText := '';
+        Continue;
+      end;
+      SetLength(Boundaries, UnitCount + 1);
+      for UnitCount := 0 to High(Boundaries) do
+        Boundaries[UnitCount] := StartSeconds +
+          (EndSeconds - StartSeconds) * UnitCount / High(Boundaries);
+      FLines[K].SyncText := SerializeManualSyncText(Boundaries);
+    end;
+    RunStartSeconds := RunEndSeconds;
+    I := J;
+  end;
+end;
+
 function TLyricsSongModel.LyricsText: string;
 var
   I: Integer;
@@ -487,8 +554,9 @@ begin
   ParseLyrics(FLines[Index].SourceText, FLines[Index].PlainText,
     FLines[Index].RubySpans);
   FLines[Index].PlacementText := '';
-  if (FLines[Index].SyncState <> lssUnset) or
-    (FLines[Index].SyncText <> '') then
+  if FLines[Index].SyncState = lssUnset then
+    FLines[Index].SyncText := ''
+  else
     FLines[Index].SyncState := lssInconsistent;
   RecalculateNoteOffsets;
 end;
@@ -591,6 +659,16 @@ begin
     FLines[Index].SyncState := SyncState;
     RecalculateNoteOffsets;
   end;
+end;
+
+function TLyricsSongModel.TryClearManualSync(Index: Integer): Boolean;
+begin
+  Result := (Index >= 0) and (Index < Length(FLines));
+  if not Result then
+    Exit;
+  FLines[Index].SyncText := '';
+  FLines[Index].SyncState := lssUnset;
+  RecalculateNoteOffsets;
 end;
 
 function TLyricsSongModel.TrySetStartLine(Index: Integer): Boolean;

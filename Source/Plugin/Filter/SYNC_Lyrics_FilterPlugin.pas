@@ -196,9 +196,20 @@ end;
 
 procedure ApplySerifSyncStyle(var Settings: TLyricsRenderSettings);
 begin
-  Settings.SyncKind := TLyricsSyncKind(EnsureRange(
-    SerifSyncTypeItem.Value, Ord(Low(TLyricsSyncKind)),
-    Ord(High(TLyricsSyncKind))));
+  Settings.SyncMotionID := SerifSyncMotionItem.Value;
+  case SerifSyncDisplayItem.Value of
+    SERIF_SYNC_COLOR: Settings.SyncKind := lskColor;
+    SERIF_SYNC_FRONT: Settings.SyncKind := lskFront;
+    SERIF_SYNC_BACKING: Settings.SyncKind := lskBacking;
+    SERIF_SYNC_UNDERLINE: Settings.SyncKind := lskUnderline;
+    SERIF_SYNC_GLOW: Settings.SyncKind := lskGlow;
+    SERIF_SYNC_BLINK: Settings.SyncKind := lskBlink;
+    SERIF_SYNC_GLITCH: Settings.SyncKind := lskGlitch;
+  else
+    Settings.SyncKind := lskNone;
+  end;
+  Settings.AsyncHoldID := SerifDuringTypeItem.Value;
+  Settings.AsyncSpeed := EnsureRange(SerifDuringSpeedItem.Value, 0.0, 100.0);
   Settings.SyncShape := EnsureRange(SerifSyncShapeItem.Value,
     SERIF_SYNC_SHAPE_AUTO, SERIF_SYNC_SHAPE_TRIANGLE);
   Settings.ColorFillMode := TLyricsColorFillMode(EnsureRange(
@@ -217,7 +228,7 @@ begin
   Settings.SyncColor.G := SerifSyncColorItem.G;
   Settings.SyncColor.B := SerifSyncColorItem.B;
   Settings.SyncColor.A := 255;
-  if SerifSyncTypeItem.Value <> SERIF_SYNC_COLOR then
+  if SerifSyncDisplayItem.Value <> SERIF_SYNC_COLOR then
   begin
     Settings.AfterColor := Settings.BeforeColor;
     Settings.AfterOutlineColor := Settings.BeforeOutlineColor;
@@ -226,51 +237,45 @@ begin
   end;
 end;
 
-function CurrentSerifSyncAnimation: TLyricsSyncAnimation;
-begin
-  // 同期変形は文字・ルビ単位のRendererへ移し、行全体は動かさない。
-  Result := lsaNone;
-end;
-
-function CurrentSerifStartAnimation: TLyricsEdgeAnimation;
-begin
-  case SerifBeforeTypeItem.Value of
-    1: Result := leaFade;
-    2: Result := leaSlide;
-    3: Result := leaZoom;
-    4: Result := leaPop;
-    5: Result := leaWipe;
-    6: Result := leaBlur;
-    10: Result := leaRotate;
-    11: Result := leaBounce;
-  else
-    Result := leaNone;
-  end;
-end;
-
 function CurrentSerifStartAnimationDuration: Double;
 begin
   Result := EnsureRange(SerifBeforeTimeItem.Value, 0.01, 3.00);
 end;
 
-function CurrentSerifEndAnimation: TLyricsEdgeAnimation;
-begin
-  case SerifAfterTypeItem.Value of
-    1: Result := leaFade;
-    2: Result := leaSlide;
-    3: Result := leaZoom;
-    4: Result := leaWipe;
-    5: Result := leaBlur;
-    6: Result := leaRotate;
-  else
-    Result := leaNone;
-  end;
-end;
-
 function CurrentSerifEndAnimationDuration: Double;
 begin
   Result := Min(EnsureRange(SerifAfterTimeItem.Value, 0.01, 3.00),
-    Max(0.01, HoldTimeItem.Value));
+    Max(0.0, HoldTimeItem.Value));
+end;
+
+procedure ApplyMusicNoteAnimationProgress(var Settings: TLyricsRenderSettings;
+  const SyncData: TSyncTextData; DisplayUnitCount: Integer;
+  SyncProgress: Double);
+begin
+  if SyncData.Mode <> smMusic then Exit;
+  Settings.HasSyncNoteEvent := True;
+  ResolveMusicSyncNoteEvent(
+    SyncData.MusicStages, DisplayUnitCount, SyncProgress,
+    Settings.SyncNoteFirstUnit, Settings.SyncNoteUnitCount,
+    Settings.SyncNoteProgress);
+end;
+
+function CurrentSerifEdgeSettings(LocalSeconds,
+  RemainingSeconds: Double): TLyricsEdgeSettings;
+begin
+  Result := Default(TLyricsEdgeSettings);
+  Result.BeforeMotionID := SerifBeforeMotionItem.Value;
+  Result.BeforeDisplayID := SerifBeforeDisplayItem.Value;
+  Result.AfterMotionID := SerifAfterMotionItem.Value;
+  Result.AfterDisplayID := SerifAfterDisplayItem.Value;
+  Result.BeforeDirection := SerifBeforeDirectionItem.Value;
+  Result.AfterDirection := SerifAfterDirectionItem.Value;
+  Result.BeforeZoomOrigin := SerifBeforeZoomOriginItem.Value;
+  Result.AfterZoomDestination := SerifAfterZoomDestinationItem.Value;
+  Result.BeforeDuration := CurrentSerifStartAnimationDuration;
+  Result.AfterDuration := CurrentSerifEndAnimationDuration;
+  Result.LocalSeconds := LocalSeconds;
+  Result.RemainingSeconds := RemainingSeconds;
 end;
 
 procedure ShowFontSettingsError(const MessageText: string);
@@ -1365,8 +1370,6 @@ procedure RenderLyricsLine(Video: PFILTER_PROC_VIDEO;
 var
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
-  AnimationSettings: TLyricsAnimationSettings;
-  AnimationTransform: TLyricsAnimationTransform;
   CommonSettings: TDisplayCommonSettings;
   CurrentSyncSeconds: Double;
   DisplayUnitCount: Integer;
@@ -1522,6 +1525,9 @@ begin
           ResolveManualSyncProgress(CurrentSyncSeconds,
             DisplayUnitCount, SyncData.ManualBoundaries, SyncProgress);
       end;
+    if HasSyncData then
+      ApplyMusicNoteAnimationProgress(RenderSettings, SyncData,
+        DisplayUnitCount, SyncProgress);
     if HasSongLine and (Video <> nil) and (Video^.Object_ <> nil) and
       (FrameState.Rate > 0) and (FrameState.Scale > 0) and
       (SongLine.SyncEndFrame >= 0) and
@@ -1573,34 +1579,8 @@ begin
         RemainingSeconds := Max(0,
           SongLine.DisplayEndFrame - Video^.Object_^.Frame) *
           FrameState.Scale / FrameState.Rate;
-      AnimationSettings.SyncAnimation := CurrentSerifSyncAnimation;
-      AnimationSettings.StartAnimation := CurrentSerifStartAnimation;
-      AnimationSettings.EndAnimation := CurrentSerifEndAnimation;
-      AnimationSettings.StartDurationSeconds :=
-        CurrentSerifStartAnimationDuration;
-      AnimationSettings.EndDurationSeconds :=
-        CurrentSerifEndAnimationDuration;
-      AnimationSettings.BaseFontHeight :=
-        RenderSettings.BaseFontHeight;
-      AnimationSettings.StartDirection := SerifBeforeDirectionItem.Value;
-      AnimationSettings.StartZoomOrigin :=
-        SerifBeforeZoomOriginItem.Value;
-      AnimationSettings.EndDirection := SerifAfterDirectionItem.Value;
-      AnimationSettings.EndZoomDestination :=
-        SerifAfterZoomDestinationItem.Value;
-      ResolveLyricsAnimationTransform(AnimationSettings, LocalSeconds,
-        RemainingSeconds, SyncProgress, AnimationTransform);
-      AnimationOpacity := AnimationTransform.Opacity;
-      AnimationOffsetY := 0;
-      RenderSettings.LayerOffsetX := AnimationTransform.OffsetX;
-      RenderSettings.LayerOffsetY := AnimationTransform.OffsetY;
-      RenderSettings.LayerScaleX := AnimationTransform.ScaleX;
-      RenderSettings.LayerScaleY := AnimationTransform.ScaleY;
-      RenderSettings.LayerRotationDegrees :=
-        AnimationTransform.RotationDegrees;
-      RenderSettings.LayerBlurRadius := AnimationTransform.BlurRadius;
-      RenderSettings.LayerWipeDirection := AnimationTransform.WipeDirection;
-      RenderSettings.LayerWipeProgress := AnimationTransform.WipeProgress;
+      RenderSettings.EdgeSettings := CurrentSerifEdgeSettings(
+        LocalSeconds, RemainingSeconds);
     end;
   end;
   RenderSettings.Opacity := AnimationOpacity;
@@ -1622,8 +1602,6 @@ var
   ActiveSongLineIndex: Integer;
   AnimationOffsetY: Integer;
   AnimationOpacity: Double;
-  AnimationSettings: TLyricsAnimationSettings;
-  AnimationTransform: TLyricsAnimationTransform;
   CommonSettings: TDisplayCommonSettings;
   DisplayUnitCount: Integer;
   EffectivePreDisplaySeconds: Double;
@@ -1757,6 +1735,7 @@ begin
         ObjectStartSeconds + EffectivePreDisplaySeconds,
         MusicOffsetSeconds);
       if TryParseSyncText(EffectiveSyncText, SyncData) then
+      begin
         case SyncData.Mode of
           smMusic:
             if HasSongLine then
@@ -1779,6 +1758,9 @@ begin
               FrameState.TimeSeconds, MusicOffsetSeconds),
               DisplayUnitCount, SyncData.ManualBoundaries, SyncProgress);
         end;
+        ApplyMusicNoteAnimationProgress(RenderSettings, SyncData,
+          DisplayUnitCount, SyncProgress);
+      end;
       if (Video <> nil) and (Video^.Object_ <> nil) and
         (FrameState.Rate > 0) then
       begin
@@ -1796,36 +1778,8 @@ begin
             ActiveSongLine.DisplayEndFrame -
             Video^.Object_^.Frame) *
             FrameState.Scale / FrameState.Rate;
-        AnimationSettings.SyncAnimation := CurrentSerifSyncAnimation;
-        AnimationSettings.StartAnimation := CurrentSerifStartAnimation;
-        AnimationSettings.EndAnimation := CurrentSerifEndAnimation;
-        AnimationSettings.StartDurationSeconds :=
-          CurrentSerifStartAnimationDuration;
-        AnimationSettings.EndDurationSeconds :=
-          CurrentSerifEndAnimationDuration;
-        AnimationSettings.BaseFontHeight :=
-          RenderSettings.BaseFontHeight;
-        AnimationSettings.StartDirection := SerifBeforeDirectionItem.Value;
-        AnimationSettings.StartZoomOrigin :=
-          SerifBeforeZoomOriginItem.Value;
-        AnimationSettings.EndDirection := SerifAfterDirectionItem.Value;
-        AnimationSettings.EndZoomDestination :=
-          SerifAfterZoomDestinationItem.Value;
-        ResolveLyricsAnimationTransform(AnimationSettings, LocalSeconds,
-          RemainingSeconds, SyncProgress, AnimationTransform);
-        AnimationOpacity := AnimationTransform.Opacity;
-        AnimationOffsetY := 0;
-        RenderSettings.LayerOffsetX := AnimationTransform.OffsetX;
-        RenderSettings.LayerOffsetY := AnimationTransform.OffsetY;
-        RenderSettings.LayerScaleX := AnimationTransform.ScaleX;
-        RenderSettings.LayerScaleY := AnimationTransform.ScaleY;
-        RenderSettings.LayerRotationDegrees :=
-          AnimationTransform.RotationDegrees;
-        RenderSettings.LayerBlurRadius := AnimationTransform.BlurRadius;
-        RenderSettings.LayerWipeDirection :=
-          AnimationTransform.WipeDirection;
-        RenderSettings.LayerWipeProgress :=
-          AnimationTransform.WipeProgress;
+        RenderSettings.EdgeSettings := CurrentSerifEdgeSettings(
+          LocalSeconds, RemainingSeconds);
       end;
     end;
     RenderSettings.Opacity := AnimationOpacity;
@@ -1979,15 +1933,14 @@ begin
     InitializeSerifAnimationItems;
     AddFilterItem(SerifBeforeGroup);
     AddTrack(PreDisplayTimeItem, '事前表示', 0.5, 0, 60, 0.01);
-    AddFilterItem(SerifBeforeTypeItem);
+    AddFilterItem(SerifBeforeMotionItem);
+    AddFilterItem(SerifBeforeDisplayItem);
     AddFilterItem(SerifBeforeDirectionItem);
     AddFilterItem(SerifBeforeZoomOriginItem);
     AddFilterItem(SerifBeforeTimeItem);
-    AddFilterItem(SerifDuringGroup);
-    AddFilterItem(SerifDuringEmotionItem);
-    AddFilterItem(SerifDuringSpeedItem);
     AddFilterItem(SerifSyncGroup);
-    AddFilterItem(SerifSyncTypeItem);
+    AddFilterItem(SerifSyncMotionItem);
+    AddFilterItem(SerifSyncDisplayItem);
     AddFilterItem(SerifSyncFillItem);
     AddFilterItem(SerifSyncAfterItem);
     AddFilterItem(SerifSyncShapeItem);
@@ -1995,9 +1948,13 @@ begin
     AddFilterItem(SerifSyncSizeItem);
     AddFilterItem(SerifSyncOffsetXItem);
     AddFilterItem(SerifSyncOffsetYItem);
+    AddFilterItem(SerifDuringGroup);
+    AddFilterItem(SerifDuringTypeItem);
+    AddFilterItem(SerifDuringSpeedItem);
     AddFilterItem(SerifAfterGroup);
     AddTrack(HoldTimeItem, '表示維持', 0.5, 0, 60, 0.01);
-    AddFilterItem(SerifAfterTypeItem);
+    AddFilterItem(SerifAfterMotionItem);
+    AddFilterItem(SerifAfterDisplayItem);
     AddFilterItem(SerifAfterDirectionItem);
     AddFilterItem(SerifAfterZoomDestinationItem);
     AddFilterItem(SerifAfterTimeItem);

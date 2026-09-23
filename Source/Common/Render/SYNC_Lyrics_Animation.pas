@@ -4,6 +4,8 @@ unit SYNC_Lyrics_Animation;
 
 interface
 
+uses MVAnimationTypes;
+
 type
   TLyricsUnitDisplayEffect = (
     ludeKaraoke,
@@ -63,6 +65,15 @@ type
     EndZoomDestination: Integer;
   end;
 
+  TLyricsEdgeSettings = record
+    BeforeMotionID, BeforeDisplayID: Integer; // MVスタジオの登場動作・表示の固定ID。
+    AfterMotionID, AfterDisplayID: Integer; // MVスタジオの退場動作・表示の固定ID。
+    BeforeDirection, AfterDirection: Integer; // Filterの標準・左・右・上・下。
+    BeforeZoomOrigin, AfterZoomDestination: Integer; // 既存の奥・手前選択。
+    BeforeDuration, AfterDuration: Double; // 行の表示範囲内での実効秒数。
+    LocalSeconds, RemainingSeconds: Double; // 行の表示開始・終了からの秒数。
+  end;
+
 procedure ResolveLyricsUnitEffect(Effect: TLyricsUnitDisplayEffect;
   UnitProgress: Double; out State: TLyricsUnitEffectState);
 procedure ResolveLyricsAnimation(const Settings: TLyricsAnimationSettings;
@@ -72,11 +83,87 @@ procedure ResolveLyricsAnimationTransform(
   const Settings: TLyricsAnimationSettings;
   LocalSeconds, RemainingSeconds, SyncProgress: Double;
   out Transform: TLyricsAnimationTransform);
+// 現在フレームで表示前または表示後の単位別合成が必要かを返す。
+function HasActiveLyricsEdgeAnimation(const Settings: TLyricsEdgeSettings): Boolean;
+// 参考元の固定IDを評価し、本文とルビをまとめた1表示単位の一時変形を返す。
+function ResolveLyricsEdgeMotion(const Settings: TLyricsEdgeSettings;
+  UnitIndex, UnitCount: Integer): TMVMotion;
 
 implementation
 
 uses
-  System.Math;
+  System.Math, MVTransitionComposition, MVTransitionParts;
+
+function HasActiveLyricsEdgeAnimation(const Settings: TLyricsEdgeSettings): Boolean;
+begin
+  Result := (((Settings.BeforeMotionID <> 0) or
+    (Settings.BeforeDisplayID <> 0)) and
+    (Settings.LocalSeconds < Settings.BeforeDuration)) or
+    (((Settings.AfterMotionID <> 0) or
+    (Settings.AfterDisplayID <> 0)) and
+    (Settings.RemainingSeconds < Settings.AfterDuration));
+end;
+
+function EdgeDirection(Value: Integer; Leaving: Boolean): TMVAnimationDirection;
+begin
+  case Value of
+    1: Result := madLeft;
+    2: Result := madRight;
+    3: Result := madUp;
+    4: Result := madDown;
+  else
+    if Leaving then Result := madRight else Result := madLeft;
+  end;
+end;
+
+function ResolveLyricsEdgeMotion(const Settings: TLyricsEdgeSettings;
+  UnitIndex, UnitCount: Integer): TMVMotion;
+var
+  BeforeActive: Boolean;
+  Input: TMVAnimationInput;
+  Leaving: Boolean;
+  MotionID, DisplayID, ZoomSide: Integer;
+  Progress, Duration: Double;
+begin
+  Result := DefaultMVMotion;
+  if not HasActiveLyricsEdgeAnimation(Settings) then Exit;
+  BeforeActive := ((Settings.BeforeMotionID <> 0) or
+    (Settings.BeforeDisplayID <> 0)) and
+    (Settings.LocalSeconds < Settings.BeforeDuration);
+  Leaving := not BeforeActive;
+  if Leaving then
+  begin
+    MotionID := Settings.AfterMotionID;
+    DisplayID := Settings.AfterDisplayID;
+    ZoomSide := Settings.AfterZoomDestination;
+    Duration := Max(0.0001, Settings.AfterDuration);
+    Progress := 1 - Settings.RemainingSeconds / Duration;
+  end
+  else
+  begin
+    MotionID := Settings.BeforeMotionID;
+    DisplayID := Settings.BeforeDisplayID;
+    ZoomSide := Settings.BeforeZoomOrigin;
+    Duration := Max(0.0001, Settings.BeforeDuration);
+    Progress := Settings.LocalSeconds / Duration;
+  end;
+  if (MotionID = 0) and (DisplayID = 0) then Exit;
+  Input := Default(TMVAnimationInput);
+  Input.Amount := 60;
+  Input.CurveAmount := 30;
+  Input.UnitIndex := UnitIndex;
+  Input.Leaving := Leaving;
+  if Leaving then Input.Direction := EdgeDirection(Settings.AfterDirection, True)
+  else Input.Direction := EdgeDirection(Settings.BeforeDirection, False);
+  // 文字送りには専用の遅延項目を設けないため、設定時間を表示単位数へ等分する。
+  if DisplayID = 6 then
+    Progress := EnsureRange(Progress * Max(1, UnitCount) - UnitIndex, 0.0, 1.0);
+  ApplyMVTransition(Result, 0, MotionID, DisplayID, 0,
+    EnsureRange(Progress, 0.0, 1.0), 1, Input);
+  if (ZoomSide = 1) and (MotionID in [3, 4, 15, 16, 17]) then
+    Result.Scale := Max(0.01, 2 - Result.Scale);
+  Result.EffectSeed := UnitIndex;
+end;
 
 procedure ResolveLyricsUnitEffect(Effect: TLyricsUnitDisplayEffect;
   UnitProgress: Double; out State: TLyricsUnitEffectState);

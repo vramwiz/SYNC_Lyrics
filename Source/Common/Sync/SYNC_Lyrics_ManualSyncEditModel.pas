@@ -24,6 +24,10 @@ type
     function BoundarySeconds(Index: Integer): Double;
     function Complete: Boolean;
     function MoveBoundary(Index: Integer; PositionSeconds: Double): Boolean;
+    // 行先頭を指定位置へ移し、表示単位間の間隔を保つ。
+    function MoveLineStart(PositionSeconds: Double): Boolean;
+    // Index以降の境界を一緒に移し、前の表示単位の長さだけを変える。
+    function MoveSuffix(Index: Integer; PositionSeconds: Double): Boolean;
     procedure RearmTimingInput;
     function SerializeSyncText: string;
     property TimingInputStarted: Boolean read FTimingInputStarted;
@@ -142,6 +146,42 @@ begin
   if SameValue(FBoundaries[Index], PositionSeconds, 0.0000001) then
     Exit;
   FBoundaries[Index] := PositionSeconds;
+  Result := True;
+end;
+
+function TManualSyncEditModel.MoveLineStart(
+  PositionSeconds: Double): Boolean;
+begin
+  Result := MoveSuffix(0, PositionSeconds);
+end;
+
+function TManualSyncEditModel.MoveSuffix(Index: Integer;
+  PositionSeconds: Double): Boolean;
+var
+  DeltaSeconds: Double;
+  I: Integer;
+  MaximumPosition: Double;
+  MinimumPosition: Double;
+begin
+  Result := False;
+  if (Length(FBoundaries) < 2) or
+    (Index < 0) or (Index >= High(FBoundaries)) then
+    Exit;
+  MinimumPosition := 0;
+  if Index > 0 then
+    MinimumPosition := FBoundaries[Index - 1] +
+      MIN_BOUNDARY_DISTANCE;
+  MaximumPosition := FAudioDurationSeconds -
+    (FBoundaries[High(FBoundaries)] - FBoundaries[Index]);
+  if MaximumPosition < MinimumPosition then
+    Exit;
+  PositionSeconds := EnsureRange(PositionSeconds,
+    MinimumPosition, MaximumPosition);
+  DeltaSeconds := PositionSeconds - FBoundaries[Index];
+  if SameValue(DeltaSeconds, 0.0, 0.0000001) then
+    Exit;
+  for I := Index to High(FBoundaries) do
+    FBoundaries[I] := FBoundaries[I] + DeltaSeconds;
   Result := True;
 end;
 

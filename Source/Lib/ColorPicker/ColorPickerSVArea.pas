@@ -1,12 +1,6 @@
-unit ColorPickerSVArea;
+﻿unit ColorPickerSVArea;
 
-{
-  ColorPickerSVArea
-  -----------------
-  彩度（Saturation）と明度（Value）を2次元で選択するためのカラーピッカー領域。
-  PaintBox を継承し、指定された BaseColor（Hue 基準色）を元に SV グラデーションを描画する。
-  マウス操作により SV 値を変更し、色が変化すると OnChange イベントを通知する。
-}
+// 指定色相の彩度・明度グラデーションを描き、マウス選択の変更を通知する。
 
 interface
 

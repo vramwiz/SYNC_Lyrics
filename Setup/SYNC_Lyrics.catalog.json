@@ -1,0 +1,48 @@
+[
+  {
+    "id": "VRAMWIZ.SYNC_Lyrics",
+    "name": "SYNC Lyrics",
+    "type": "フィルタプラグイン",
+    "summary": "音楽データに合わせて歌詞テロップを同期表示",
+    "description": "https://raw.githubusercontent.com/vramwiz/SYNC_Lyrics/main/README.md",
+    "author": "VRAMの魔術師",
+    "repoURL": "https://github.com/vramwiz/SYNC_Lyrics/",
+    "licenses": [
+      {
+        "type": "GPL-3.0-only",
+        "isCustom": false,
+        "copyrights": [],
+        "licenseBody": ""
+      }
+    ],
+    "tags": ["歌詞", "同期", "MIDI"],
+    "dependencies": [],
+    "images": [],
+    "installer": {
+      "source": {
+        "type": "githubRelease",
+        "owner": "vramwiz",
+        "repo": "SYNC_Lyrics",
+        "pattern": "^SYNC_Lyrics\\.zip$",
+        "github": {
+          "owner": "vramwiz",
+          "repo": "SYNC_Lyrics",
+          "pattern": "^SYNC_Lyrics\\.zip$"
+        }
+      },
+      "install": [
+        { "action": "download" },
+        { "action": "extract" },
+        {
+          "action": "copy",
+          "from": "{tmp}/SYNC_Lyrics",
+          "to": "{pluginsDir}/SYNC_Lyrics"
+        }
+      ],
+      "uninstall": [
+        { "action": "delete", "path": "{pluginsDir}/SYNC_Lyrics" }
+      ]
+    },
+    "version": []
+  }
+]

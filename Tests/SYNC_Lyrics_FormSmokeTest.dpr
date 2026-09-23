@@ -1,4 +1,4 @@
-program SYNC_Lyrics_FormSmokeTest;
+﻿program SYNC_Lyrics_FormSmokeTest;
 
 {$APPTYPE CONSOLE}
 
@@ -21,19 +21,20 @@ uses
   SYNC_Lyrics_SyncFormat in '..\Source\Common\Sync\SYNC_Lyrics_SyncFormat.pas',
   SYNC_Lyrics_SongLyricsData in '..\Source\Common\Lyrics\SYNC_Lyrics_SongLyricsData.pas',
   SYNC_Lyrics_SongLyricsModel in '..\Source\Common\Lyrics\SYNC_Lyrics_SongLyricsModel.pas',
-  SYNC_Lyrics_InitialLyricsFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_InitialLyricsFrame.pas',
-  SYNC_Lyrics_ManualSyncSettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_ManualSyncSettingsForm.pas',
-  SYNC_Lyrics_MusicSyncSettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_MusicSyncSettingsForm.pas',
-  SYNC_Lyrics_MusicSyncEditorFrame in '..\Source\Plugin\Filter\SYNC_Lyrics_MusicSyncEditorFrame.pas',
-  SYNC_Lyrics_LineDisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsForm.pas',
-  SYNC_Lyrics_CharacterLayoutSettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_CharacterLayoutSettingsForm.pas',
-  SYNC_Lyrics_DisplaySettingsModePage in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsModePage.pas',
-  SYNC_Lyrics_DisplaySettingsColorPanel in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsColorPanel.pas',
-  SYNC_Lyrics_DisplayPreviewBackground in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplayPreviewBackground.pas',
-  SYNC_Lyrics_LineDisplaySettingsPage in '..\Source\Plugin\Filter\SYNC_Lyrics_LineDisplaySettingsPage.pas',
-  SYNC_Lyrics_CharacterDisplaySettingsPage in '..\Source\Plugin\Filter\SYNC_Lyrics_CharacterDisplaySettingsPage.pas',
-  SYNC_Lyrics_DisplaySettingsForm in '..\Source\Plugin\Filter\SYNC_Lyrics_DisplaySettingsForm.pas',
-  SYNC_Lyrics_SyncEditorForm in '..\Source\Plugin\Filter\SYNC_Lyrics_SyncEditorForm.pas';
+  SYNC_Lyrics_InitialLyricsFrame in '..\Source\Plugin\Filter\Sync\SYNC_Lyrics_InitialLyricsFrame.pas',
+  SYNC_Lyrics_ManualSyncWaveform in '..\Source\Plugin\Filter\Sync\Manual\SYNC_Lyrics_ManualSyncWaveform.pas',
+  SYNC_Lyrics_ManualSyncSettingsForm in '..\Source\Plugin\Filter\Sync\Manual\SYNC_Lyrics_ManualSyncSettingsForm.pas',
+  SYNC_Lyrics_MusicSyncSettingsForm in '..\Source\Plugin\Filter\Sync\Midi\SYNC_Lyrics_MusicSyncSettingsForm.pas',
+  SYNC_Lyrics_MusicSyncEditorFrame in '..\Source\Plugin\Filter\Sync\SYNC_Lyrics_MusicSyncEditorFrame.pas',
+  SYNC_Lyrics_LineDisplaySettingsForm in '..\Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsForm.pas',
+  SYNC_Lyrics_CharacterLayoutSettingsForm in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutSettingsForm.pas',
+  SYNC_Lyrics_DisplaySettingsModePage in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsModePage.pas',
+  SYNC_Lyrics_DisplaySettingsColorPanel in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsColorPanel.pas',
+  SYNC_Lyrics_DisplayPreviewBackground in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewBackground.pas',
+  SYNC_Lyrics_LineDisplaySettingsPage in '..\Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsPage.pas',
+  SYNC_Lyrics_CharacterDisplaySettingsPage in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDisplaySettingsPage.pas',
+  SYNC_Lyrics_DisplaySettingsForm in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsForm.pas',
+  SYNC_Lyrics_SyncEditorForm in '..\Source\Plugin\Filter\Sync\SYNC_Lyrics_SyncEditorForm.pas';
 
 var
   CandidateCaptions: TArray<string>;
@@ -272,7 +273,7 @@ begin
         raise Exception.Create(
           'The common display form did not use the compact DPI width.');
       if (DisplaySettingsForm.ClientHeight <>
-        MulDiv(650, DisplaySettingsForm.CurrentPPI, 96)) or
+        MulDiv(548, DisplaySettingsForm.CurrentPPI, 96)) or
         (DisplaySettingsForm.Position <> poScreenCenter) then
         raise Exception.Create(
           'The common display form size or position was incorrect.');
