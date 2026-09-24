@@ -24,7 +24,12 @@ type
     cldmSpacingLeft,
     cldmSpacingRight,
     cldmRubyMove,
-    cldmSelectionClick
+    cldmSelectionClick,
+    cldmOutlineBlur,
+    cldmOutlineWidth,
+    cldmShadowBlur,
+    cldmShadowOffset,
+    cldmShadowSpread
   );
 
   TCharacterLayoutSelectionMode = (
@@ -50,6 +55,13 @@ procedure ApplyCharacterLayoutRubySpacingDrag(
   const Selected: TArray<Boolean>;
   const StartPlacements: TDisplayPlacementItems;
   DragMode: TCharacterLayoutDragMode; DeltaView, ViewScale: Double);
+procedure ApplyCharacterLayoutRubySpacingDragByEdge(
+  var Placements: TDisplayPlacementItems;
+  const Selected: TArray<Boolean>;
+  const RubyCharacterCounts: TArray<Integer>;
+  const StartPlacements: TDisplayPlacementItems;
+  DragMode: TCharacterLayoutDragMode; DeltaView, ViewScale: Double);
+
 procedure ApplyCharacterLayoutRubyMoveDrag(
   var Placements: TDisplayPlacementItems;
   const Selected: TArray<Boolean>;
@@ -173,6 +185,48 @@ begin
         InitialSpacing := StartPlacements[I].RubyCharacterSpacing;
       DeltaSpacing := Round(DeltaView /
         (ViewScale * Max(MIN_ITEM_SCALE, StartPlacements[I].ScaleX)));
+      if DragMode = cldmSpacingLeft then
+        DeltaSpacing := -DeltaSpacing;
+      Placements[I].RubyCharacterSpacing :=
+        EnsureRange(InitialSpacing + DeltaSpacing,
+          MIN_ADJUSTMENT, MAX_ADJUSTMENT);
+      Placements[I].HasRubyCharacterSpacing :=
+        Placements[I].RubyCharacterSpacing <> 0;
+    end;
+end;
+
+procedure ApplyCharacterLayoutRubySpacingDragByEdge(
+  var Placements: TDisplayPlacementItems;
+  const Selected: TArray<Boolean>;
+  const RubyCharacterCounts: TArray<Integer>;
+  const StartPlacements: TDisplayPlacementItems;
+  DragMode: TCharacterLayoutDragMode; DeltaView, ViewScale: Double);
+var
+  DeltaSpacing: Integer;
+  GapCount: Integer;
+  I: Integer;
+  InitialSpacing: Integer;
+  RubyScaleX: Double;
+begin
+  if not (DragMode in [cldmSpacingLeft, cldmSpacingRight]) or
+    (ViewScale <= 0) or
+    (Length(Placements) <> Length(StartPlacements)) then
+    Exit;
+  for I := 0 to Min(High(Selected), High(Placements)) do
+    if Selected[I] and (I <= High(RubyCharacterCounts)) then
+    begin
+      GapCount := RubyCharacterCounts[I] - 1;
+      if GapCount <= 0 then
+        Continue;
+      InitialSpacing := 0;
+      if StartPlacements[I].HasRubyCharacterSpacing then
+        InitialSpacing := StartPlacements[I].RubyCharacterSpacing;
+      RubyScaleX := StartPlacements[I].RubyScaleX;
+      if RubyScaleX <= 0 then
+        RubyScaleX := 1;
+      DeltaSpacing := Round(DeltaView * 2 /
+        (ViewScale * Max(MIN_ITEM_SCALE, StartPlacements[I].ScaleX) *
+        Max(MIN_ITEM_SCALE, RubyScaleX) * GapCount));
       if DragMode = cldmSpacingLeft then
         DeltaSpacing := -DeltaSpacing;
       Placements[I].RubyCharacterSpacing :=

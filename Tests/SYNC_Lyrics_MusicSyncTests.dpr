@@ -263,8 +263,10 @@ var
   DecodedItems: TDisplayPlacementItems;
   I: Integer;
   Items: TDisplayPlacementItems;
+  LastComma: Integer;
   OversizedItems: TDisplayPlacementItems;
   PlacementsMatchLyrics: Boolean;
+  PreviousComma: Integer;
   SettingsText: string;
 begin
   Common := DefaultDisplayCommonSettings;
@@ -366,6 +368,8 @@ begin
   Items[98].ShadowBlur := 2.75;
   Items[98].HasShadowSpread := True;
   Items[98].ShadowSpread := 1.25;
+  Items[98].RubyScaleX := 1.25;
+  Items[98].RubyScaleY := 0.75;
 
   Check(TryEncodeDisplaySettingsText('私[漢字](かんじ)', Common, Items,
     SettingsText), 'display settings could not be encoded as text');
@@ -418,6 +422,8 @@ begin
     (DecodedItems[98].BaseCharacterSpacing = 48) and
     DecodedItems[98].HasRubyOffsetY and
     (DecodedItems[98].RubyOffsetY = -98) and
+    (Abs(DecodedItems[98].RubyScaleX - 1.25) < 0.001) and
+    (Abs(DecodedItems[98].RubyScaleY - 0.75) < 0.001) and
     DecodedItems[98].HasBeforeOpacity and
     (DecodedItems[98].BeforeOpacity = 101) and
     DecodedItems[98].HasAfterOpacity and
@@ -455,6 +461,24 @@ begin
     DecodedCommon, DecodedItems, PlacementsMatchLyrics) and
     not PlacementsMatchLyrics and (DecodedCommon.PositionX = 123),
     'lyrics change did not preserve common settings and reject placements');
+
+  SetLength(Items, 1);
+  Items[0].Index := 0;
+  Items[0].RubyScaleX := 0;
+  Items[0].RubyScaleY := 0;
+  Check(TryEncodeDisplaySettingsText('legacy ruby scale', Common, Items,
+    SettingsText), 'old placement fixture could not be encoded');
+  LastComma := LastDelimiter(',', SettingsText);
+  PreviousComma := LastDelimiter(',', Copy(SettingsText, 1,
+    LastComma - 1));
+  SetLength(SettingsText, PreviousComma - 1);
+  Check(TryDecodeDisplaySettingsText(SettingsText,
+    'legacy ruby scale', DecodedCommon, DecodedItems,
+    PlacementsMatchLyrics) and PlacementsMatchLyrics and
+    (Length(DecodedItems) = 1) and
+    (DecodedItems[0].RubyScaleX = 1) and
+    (DecodedItems[0].RubyScaleY = 1),
+    'existing SL3 placements did not default ruby scale');
 
   SettingsText := 'SL2|00000000|0|' +
     '0,0,597520476F74686963205549,597520476F74686963205549,' +

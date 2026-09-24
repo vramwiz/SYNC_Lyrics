@@ -217,6 +217,7 @@ uses
   System.Math,
   ColorPickerDialog,
   SYNC_Lyrics_CharacterLayoutDrawing,
+  SYNC_Lyrics_ContrastGuides,
   SYNC_Lyrics_DarkTheme,
   TextRendererSkiaRuntime;
 
@@ -1826,12 +1827,7 @@ begin
   Bounds.Top := Min(FSelectionStart.Y, FSelectionCurrent.Y);
   Bounds.Right := Max(FSelectionStart.X, FSelectionCurrent.X);
   Bounds.Bottom := Max(FSelectionStart.Y, FSelectionCurrent.Y);
-  BackgroundPaintBox.Canvas.Brush.Style := bsClear;
-  BackgroundPaintBox.Canvas.Pen.Color := clWhite;
-  BackgroundPaintBox.Canvas.Pen.Width := 1;
-  BackgroundPaintBox.Canvas.Pen.Style := psDot;
-  BackgroundPaintBox.Canvas.Rectangle(Bounds);
-  BackgroundPaintBox.Canvas.Pen.Style := psSolid;
+  DrawContrastDashedRect(BackgroundPaintBox.Canvas, Bounds, CurrentPPI);
 end;
 
 procedure TFormLyricsCharacterLayoutSettings.BackgroundPaintBoxPaint(
@@ -1852,13 +1848,8 @@ begin
   if SelectionCount > 1 then
   begin
     Destination := GroupSelectionBounds;
-    BackgroundPaintBox.Canvas.Brush.Style := bsClear;
-    BackgroundPaintBox.Canvas.Pen.Color :=
-      CharacterLayoutSelectionColor(FSelectionMode);
-    BackgroundPaintBox.Canvas.Pen.Width := 1;
-    BackgroundPaintBox.Canvas.Pen.Style := psDash;
-    BackgroundPaintBox.Canvas.Rectangle(Destination);
-    BackgroundPaintBox.Canvas.Pen.Style := psSolid;
+    DrawContrastDashedRect(BackgroundPaintBox.Canvas, Destination,
+      CurrentPPI);
     if FSelectionMode in [clsmCharacterSpacing, clsmRuby] then
       DrawCharacterLayoutSpacingHandles(BackgroundPaintBox.Canvas,
         Destination, FSelectionMode = clsmRuby)

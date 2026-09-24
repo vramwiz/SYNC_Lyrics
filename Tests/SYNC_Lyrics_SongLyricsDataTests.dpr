@@ -214,6 +214,23 @@ begin
       Lines, 40);
     Check((Length(ActiveIndexes) = 1) and (ActiveIndexes[0] = 1),
       'The nearest synchronized line was not used outside display ranges.');
+    ActiveIndexes := ResolveSongLyricsPlacementAllIndexes(Lines);
+    Check((Length(ActiveIndexes) = 2) and (ActiveIndexes[0] = 0) and
+      (ActiveIndexes[1] = 1),
+      'The placement editor must offer every song line.');
+    Check(ResolveSongLyricsPlacementInitialCandidate(
+      Lines, ActiveIndexes, 40) = 1,
+      'The placement editor must initially select the nearest line.');
+    ThreeLaneLines := Copy(Lines);
+    SetLength(ThreeLaneLines, 3);
+    ThreeLaneLines[2] := Lines[1];
+    ThreeLaneLines[2].SyncStartFrame := -1;
+    ThreeLaneLines[2].SyncEndFrame := -1;
+    ActiveIndexes := ResolveSongLyricsPlacementAllIndexes(ThreeLaneLines);
+    Check((Length(ActiveIndexes) = 3) and
+      (ResolveSongLyricsPlacementInitialCandidate(
+        ThreeLaneLines, ActiveIndexes, 0) = 0),
+      'An unsynchronized line took the initial selection from a timed line.');
 
     Lines[1].SyncStartFrame := 12;
     Lines[1].SyncEndFrame := 18;

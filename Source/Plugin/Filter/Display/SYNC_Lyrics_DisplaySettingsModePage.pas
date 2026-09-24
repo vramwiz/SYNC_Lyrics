@@ -1,6 +1,6 @@
 unit SYNC_Lyrics_DisplaySettingsModePage;
 
-// Defines a display-only page contract for placement modes hosted by one form.
+// Defines the lifecycle shared by editable placement-mode pages in one host form.
 
 interface
 
@@ -11,20 +11,25 @@ uses
   SYNC_Lyrics_ToolbarButtons;
 
 const
-  DISPLAY_SETTINGS_MODE_LINE = 0;
-  DISPLAY_SETTINGS_MODE_FREE = 1;
+  DISPLAY_SETTINGS_MODE_LINE = 0; // Song-wide line placement.
+  DISPLAY_SETTINGS_MODE_FREE = 1; // Per-display-unit free placement.
 
 type
   TFrameDisplaySettingsModePage = class(TFrame)
   public
     constructor Create(AOwner: TComponent); override;
+    // Supplies the icon, stable ID, and label used by the host mode toolbar.
     function ModeGlyph: TSyncLyricsToolbarGlyph; virtual; abstract;
     function ModeID: Integer; virtual; abstract;
     function ModeName: string; virtual; abstract;
+    // Captures the page's editable state for the form-level restore action.
     procedure CaptureInitialState; virtual;
+    // Saves the outgoing candidate and loads Index within this mode.
     procedure CandidateChanged(Index: Integer); virtual;
+    // Receives host visibility transitions without discarding candidate state.
     procedure PageActivated; virtual;
     procedure PageDeactivated; virtual;
+    // Restores the state saved by CaptureInitialState.
     procedure RestoreInitialState; virtual;
   end;
 

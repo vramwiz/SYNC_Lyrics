@@ -533,6 +533,8 @@ begin
   Placements[1].Y := -40;
   Placements[1].ScaleX := 1.5;
   Placements[1].ScaleY := 0.75;
+  Placements[1].RubyScaleX := 1.25;
+  Placements[1].RubyScaleY := 0.8;
   Placements[1].BaseFontName := 'Base override';
   Placements[1].RubyFontName := 'Ruby override';
   Placements[1].HasBeforeColor := True;
@@ -570,7 +572,9 @@ begin
     LogicalUnits, ResolvedUnits), 'free resolved-unit build failed');
   Check((ResolvedUnits[1].X = 120) and (ResolvedUnits[1].Y = -40) and
     (ResolvedUnits[1].ScaleX = 1.5) and
-    (ResolvedUnits[1].ScaleY = 0.75),
+    (ResolvedUnits[1].ScaleY = 0.75) and
+    (Abs(ResolvedUnits[1].Ruby.ScaleX - 1.25) < 0.001) and
+    (Abs(ResolvedUnits[1].Ruby.ScaleY - 0.8) < 0.001),
     'free resolved-unit placement mismatch');
   Check((ResolvedUnits[1].Base.Style.FontName = 'Base override') and
     (ResolvedUnits[1].Ruby.Style.FontName = 'Ruby override') and
@@ -597,6 +601,29 @@ begin
     (Abs(ResolvedUnits[1].Base.Style.ShadowOffsetX + 3.25) < 0.001) and
     (Abs(ResolvedUnits[1].Ruby.Style.ShadowOffsetX + 3.25) < 0.001),
     'free resolved-unit decoration override mismatch');
+
+  Placements[1].OutlineWidth := 500;
+  Placements[1].HasOutlineBlur := True;
+  Placements[1].OutlineBlur := 500;
+  Placements[1].ShadowOffsetX := -2000;
+  Placements[1].HasShadowBlur := True;
+  Placements[1].ShadowBlur := 500;
+  Placements[1].HasShadowSpread := True;
+  Placements[1].ShadowSpread := 500;
+  Check(BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
+    BaseStyle, RubyStyle, Placements, True, PlainText, RubySpans,
+    LogicalUnits, ResolvedUnits), 'large saved decoration was rejected');
+  Check((ResolvedUnits[1].Base.Style.OutlineWidth =
+    MAX_DISPLAY_OUTLINE_WIDTH) and
+    (ResolvedUnits[1].Base.Style.OutlineBlur =
+    MAX_DISPLAY_DECORATION_BLUR) and
+    (ResolvedUnits[1].Base.Style.ShadowOffsetX =
+    -MAX_DISPLAY_SHADOW_OFFSET) and
+    (ResolvedUnits[1].Base.Style.ShadowBlur =
+    MAX_DISPLAY_DECORATION_BLUR) and
+    (ResolvedUnits[1].Base.Style.ShadowSpread =
+    MAX_DISPLAY_SHADOW_SPREAD),
+    'large saved decoration was not limited');
 
   SetLength(Placements, 1);
   Check(not BuildResolvedLyricsDisplayUnits('私[漢字](かんじ)',
@@ -2254,6 +2281,47 @@ begin
     'individual ruby character spacing did not increase width');
 end;
 
+procedure TestFreePlacementRubyScale;
+var
+  BaseBottom: Integer;
+  BaseLeft: Integer;
+  BaseRight: Integer;
+  BaseTop: Integer;
+  ObjectInfo: TOBJECT_INFO;
+  Placements: TDisplayPlacementItems;
+  ScaledBottom: Integer;
+  ScaledLeft: Integer;
+  ScaledRight: Integer;
+  ScaledTop: Integer;
+  Settings: TLyricsRenderSettings;
+  Video: TFILTER_PROC_VIDEO;
+begin
+  FillChar(ObjectInfo, SizeOf(ObjectInfo), 0);
+  FillChar(Video, SizeOf(Video), 0);
+  ObjectInfo.Width := TEST_WIDTH;
+  ObjectInfo.Height := TEST_HEIGHT;
+  Video.Object_ := @ObjectInfo;
+  Video.SetImageData := CaptureImage;
+  Settings := TestRenderSettings;
+  Settings.BaseFontHeight := 24;
+  Settings.RubyFontHeight := 24;
+  SetLength(Placements, 1);
+  Placements[0].Index := 0;
+  Placements[0].ScaleX := 1;
+  Placements[0].ScaleY := 1;
+  Check(RenderFreePlacementLyrics(@Video, '[字](か)', 0, Settings,
+    Placements, 0, 0), 'unscaled ruby render failed');
+  FindVisibleBounds(BaseLeft, BaseTop, BaseRight, BaseBottom);
+  Placements[0].RubyScaleX := 3;
+  Placements[0].RubyScaleY := 1.5;
+  Check(RenderFreePlacementLyrics(@Video, '[字](か)', 0, Settings,
+    Placements, 0, 0), 'scaled ruby render failed');
+  FindVisibleBounds(ScaledLeft, ScaledTop, ScaledRight, ScaledBottom);
+  Check((ScaledRight - ScaledLeft > BaseRight - BaseLeft) and
+    (ScaledBottom - ScaledTop > BaseBottom - BaseTop),
+    'ruby scale did not change rendered ruby bounds');
+end;
+
 procedure TestFreePlacementRubyOffset;
 var
   BaseBottom: Integer;
@@ -2397,6 +2465,7 @@ begin
     TestFreePlacementElementFontStyle;
     TestFreePlacementBaseCharacterSpacing;
     TestFreePlacementRubyCharacterSpacing;
+    TestFreePlacementRubyScale;
     TestFreePlacementRubyOffset;
     TestTextDecorationAndOpacity;
     TestEmptyLyricsIsTransparent;

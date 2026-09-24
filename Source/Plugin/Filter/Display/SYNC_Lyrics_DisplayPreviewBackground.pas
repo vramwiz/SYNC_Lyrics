@@ -33,7 +33,8 @@ implementation
 
 uses
   System.Math,
-  Winapi.Windows;
+  Winapi.Windows,
+  SYNC_Lyrics_ContrastGuides;
 
 constructor TDisplayPreviewBackground.Create;
 begin
@@ -53,6 +54,7 @@ function TDisplayPreviewBackground.DestinationRect(
 var
   DrawHeight: Integer;
   DrawWidth: Integer;
+  InnerBounds: TRect;
   Scale: Double;
 begin
   Result := Bounds;
@@ -64,12 +66,15 @@ begin
       -Min(24, Bounds.Height div 8));
     Exit;
   end;
-  Scale := Min(Bounds.Width / FBitmap.Width,
-    Bounds.Height / FBitmap.Height);
+  InnerBounds := Bounds;
+  InflateRect(InnerBounds, -Min(20, Bounds.Width div 8),
+    -Min(20, Bounds.Height div 8));
+  Scale := Min(InnerBounds.Width / FBitmap.Width,
+    InnerBounds.Height / FBitmap.Height);
   DrawWidth := Max(1, Round(FBitmap.Width * Scale));
   DrawHeight := Max(1, Round(FBitmap.Height * Scale));
-  Result.Left := Bounds.Left + (Bounds.Width - DrawWidth) div 2;
-  Result.Top := Bounds.Top + (Bounds.Height - DrawHeight) div 2;
+  Result.Left := InnerBounds.Left + (InnerBounds.Width - DrawWidth) div 2;
+  Result.Top := InnerBounds.Top + (InnerBounds.Height - DrawHeight) div 2;
   Result.Right := Result.Left + DrawWidth;
   Result.Bottom := Result.Top + DrawHeight;
 end;
@@ -82,6 +87,12 @@ end;
 
 procedure TDisplayPreviewBackground.DrawAt(Canvas: TCanvas;
   const Bounds, Destination: TRect);
+const
+  MARK_GAP = 4;
+  MARK_LENGTH = 14;
+var
+  RightEdge: Integer;
+  BottomEdge: Integer;
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Brush.Color := RGB(105, 108, 114);
@@ -98,25 +109,39 @@ begin
   Canvas.Pen.Width := 1;
   Canvas.Pen.Style := psSolid;
   Canvas.Rectangle(Destination);
+  // The marks stay outside the image so its editable boundary remains visible.
+  RightEdge := Destination.Right - 1;
+  BottomEdge := Destination.Bottom - 1;
+  Canvas.Pen.Color := RGB(225, 228, 232);
+  Canvas.MoveTo(Destination.Left - MARK_LENGTH, Destination.Top);
+  Canvas.LineTo(Destination.Left - MARK_GAP, Destination.Top);
+  Canvas.MoveTo(Destination.Left, Destination.Top - MARK_LENGTH);
+  Canvas.LineTo(Destination.Left, Destination.Top - MARK_GAP);
+  Canvas.MoveTo(RightEdge + MARK_GAP, Destination.Top);
+  Canvas.LineTo(RightEdge + MARK_LENGTH, Destination.Top);
+  Canvas.MoveTo(RightEdge, Destination.Top - MARK_LENGTH);
+  Canvas.LineTo(RightEdge, Destination.Top - MARK_GAP);
+  Canvas.MoveTo(Destination.Left - MARK_LENGTH, BottomEdge);
+  Canvas.LineTo(Destination.Left - MARK_GAP, BottomEdge);
+  Canvas.MoveTo(Destination.Left, BottomEdge + MARK_GAP);
+  Canvas.LineTo(Destination.Left, BottomEdge + MARK_LENGTH);
+  Canvas.MoveTo(RightEdge + MARK_GAP, BottomEdge);
+  Canvas.LineTo(RightEdge + MARK_LENGTH, BottomEdge);
+  Canvas.MoveTo(RightEdge, BottomEdge + MARK_GAP);
+  Canvas.LineTo(RightEdge, BottomEdge + MARK_LENGTH);
 end;
 
 procedure TDisplayPreviewBackground.DrawCenterGuides(Canvas: TCanvas;
   const Destination: TRect; Vertical, Horizontal: Boolean);
 begin
-  Canvas.Pen.Color := RGB(99, 204, 220);
-  Canvas.Pen.Width := 1;
-  Canvas.Pen.Style := psDot;
   if Vertical then
-  begin
-    Canvas.MoveTo(Destination.CenterPoint.X, Destination.Top);
-    Canvas.LineTo(Destination.CenterPoint.X, Destination.Bottom);
-  end;
+    DrawContrastDashedLine(Canvas,
+      Point(Destination.CenterPoint.X, Destination.Top),
+      Point(Destination.CenterPoint.X, Destination.Bottom));
   if Horizontal then
-  begin
-    Canvas.MoveTo(Destination.Left, Destination.CenterPoint.Y);
-    Canvas.LineTo(Destination.Right, Destination.CenterPoint.Y);
-  end;
-  Canvas.Pen.Style := psSolid;
+    DrawContrastDashedLine(Canvas,
+      Point(Destination.Left, Destination.CenterPoint.Y),
+      Point(Destination.Right, Destination.CenterPoint.Y));
 end;
 
 function TDisplayPreviewBackground.HasImage: Boolean;

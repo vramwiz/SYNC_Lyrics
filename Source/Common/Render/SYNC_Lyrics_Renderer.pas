@@ -337,13 +337,19 @@ begin
   Result.BeforeBlurOpacity := Settings.BeforeBlurColor.A;
   Result.AfterBlurOpacity := Settings.AfterBlurColor.A;
   Result.OutlineEnabled := Settings.OutlineEnabled;
-  Result.OutlineWidth := Settings.OutlineWidth;
-  Result.OutlineBlur := Settings.OutlineBlur;
+  Result.OutlineWidth := EnsureRange(Settings.OutlineWidth,
+    0.0, MAX_DISPLAY_OUTLINE_WIDTH);
+  Result.OutlineBlur := EnsureRange(Settings.OutlineBlur,
+    0.0, MAX_DISPLAY_DECORATION_BLUR);
   Result.ShadowEnabled := Settings.ShadowEnabled;
-  Result.ShadowOffsetX := Settings.ShadowOffsetX;
-  Result.ShadowOffsetY := Settings.ShadowOffsetY;
-  Result.ShadowBlur := Settings.ShadowBlur;
-  Result.ShadowSpread := Settings.ShadowSpread;
+  Result.ShadowOffsetX := EnsureRange(Settings.ShadowOffsetX,
+    -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
+  Result.ShadowOffsetY := EnsureRange(Settings.ShadowOffsetY,
+    -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
+  Result.ShadowBlur := EnsureRange(Settings.ShadowBlur,
+    0.0, MAX_DISPLAY_DECORATION_BLUR);
+  Result.ShadowSpread := EnsureRange(Settings.ShadowSpread,
+    0.0, MAX_DISPLAY_SHADOW_SPREAD);
 end;
 
 function UnitDisplayEffectFromType(
@@ -1481,11 +1487,14 @@ var
   ResolvedUnits: TResolvedLyricsDisplayUnits;
   RubyBaselineX: Double;
   RubyBaselineY: Double;
+  RubyAnchorY: Double;
   RubyGap: Double;
   RubySpans: TLyricsRubySpans;
   RubyLeft: Double;
   RubyTop: Double;
   RubyWidth: Double;
+  RubyScaleX: Double;
+  RubyScaleY: Double;
   ScaleX: Double;
   ScaleY: Double;
   State: TLyricsUnitEffectState;
@@ -1598,24 +1607,35 @@ begin
       UnitBounds := Rect(Floor(SyncEffectLeft), Floor(SyncEffectTop),
         Ceil(SyncEffectLeft + SyncEffectWidth),
         Ceil(SyncEffectTop + SyncEffectHeight));
+      RubyScaleX := 1;
+      RubyScaleY := 1;
       if ResolvedUnits[UnitIndex].HasRuby then
       begin
+        RubyScaleX := ResolvedUnits[UnitIndex].Ruby.ScaleX;
+        RubyScaleY := ResolvedUnits[UnitIndex].Ruby.ScaleY;
         RubyTop := BaseTop - RubyGap +
           ResolvedUnits[UnitIndex].Ruby.OffsetY;
         RubyBaselineX := -(PreparedRuby.AdvanceLeft +
           PreparedRuby.AdvanceRight) * 0.5 +
-          ResolvedUnits[UnitIndex].Ruby.OffsetX;
+          ResolvedUnits[UnitIndex].Ruby.OffsetX / RubyScaleX;
         RubyBaselineY := RubyTop -
           PreparedRuby.BeforeImage.LayoutBounds.Bottom;
+        RubyAnchorY := RubyTop +
+          ResolvedUnits[UnitIndex].Ruby.Style.FontHeight * 0.5;
+        RubyBaselineY := RubyBaselineY +
+          (RubyAnchorY - BaseBottom) * (1 / RubyScaleY - 1);
         RubyWidth := Max(0, PreparedRuby.AdvanceRight -
-          PreparedRuby.AdvanceLeft) * ScaleX;
+          PreparedRuby.AdvanceLeft) * ScaleX * RubyScaleX;
         RubyLeft := PivotX + (RubyBaselineX +
-          PreparedRuby.AdvanceLeft) * ScaleX;
+          PreparedRuby.AdvanceLeft) * ScaleX * RubyScaleX;
         SyncEffectLeft := Min(SyncEffectLeft, RubyLeft);
         SyncEffectRight := Max(SyncEffectRight, RubyLeft + RubyWidth);
-        SyncEffectTop := Min(SyncEffectTop, PivotY + RubyTop * ScaleY);
+        SyncEffectTop := Min(SyncEffectTop, PivotY +
+          (RubyAnchorY + (RubyTop - RubyAnchorY) * RubyScaleY) * ScaleY);
         SyncEffectBottom := Max(SyncEffectBottom, PivotY +
-          (RubyTop + ResolvedUnits[UnitIndex].Ruby.Style.FontHeight) * ScaleY);
+          (RubyAnchorY + (RubyTop +
+          ResolvedUnits[UnitIndex].Ruby.Style.FontHeight - RubyAnchorY) *
+          RubyScaleY) * ScaleY);
         SyncEffectWidth := SyncEffectRight - SyncEffectLeft;
         SyncEffectHeight := SyncEffectBottom - SyncEffectTop;
       end;
@@ -1636,13 +1656,15 @@ begin
       begin
         DrawPreparedPart(TargetBuffer, Width, Height, PreparedRuby, State,
           PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
-          RubyBaselineX, RubyBaselineY - BaseBottom, ScaleX, ScaleY,
+          RubyBaselineX, RubyBaselineY - BaseBottom,
+          ScaleX * RubyScaleX, ScaleY * RubyScaleY,
           AfterClipStart, AfterClipEnd, GlowOpacity,
           Settings.SyncOffsetX, Settings.SyncOffsetY, Settings.Opacity);
         if EdgeActive then
           IncludeLyricsPartBounds(UnitBounds, PreparedRuby,
             PivotX + State.OffsetX, TransformPivotY + State.OffsetY,
-            RubyBaselineX, RubyBaselineY - BaseBottom, ScaleX, ScaleY,
+            RubyBaselineX, RubyBaselineY - BaseBottom,
+            ScaleX * RubyScaleX, ScaleY * RubyScaleY,
             Settings.SyncOffsetX, Settings.SyncOffsetY);
       end;
       DrawSyncFront(TargetBuffer, Width, Height, SyncEffectLeft,

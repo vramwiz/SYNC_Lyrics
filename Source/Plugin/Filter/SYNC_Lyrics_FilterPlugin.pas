@@ -152,6 +152,7 @@ type
     PlacementMode: TLyricsPlacementMode;
     StartLineID: Int64;
     CandidateIndexes: TLyricsSongLineIndexes;
+    PreviewIndexes: TLyricsSongLineIndexes;
     InitialCandidate: Integer;
     InitialLane: Integer;
   end;
@@ -377,6 +378,7 @@ begin
   Context.PlacementMode := lpmLine;
   Context.StartLineID := 0;
   Context.CandidateIndexes := nil;
+  Context.PreviewIndexes := nil;
   Context.InitialCandidate := -1;
   Context.InitialLane := 0;
   if not TryGetObjectItemText(Edit, Obj, '歌詞データ',
@@ -414,8 +416,10 @@ begin
   end;
   AdjustedLines := AlignSongLyricsLinesToStartLine(AdjustedLines,
     StartLineID, PreDisplayFrames, SongStartFrame);
-  Context.CandidateIndexes :=
+  Context.PreviewIndexes :=
     ResolveSongLyricsPlacementCandidateIndexes(AdjustedLines, CurrentFrame);
+  Context.CandidateIndexes :=
+    ResolveSongLyricsPlacementAllIndexes(Context.Lines);
   Context.InitialCandidate := ResolveSongLyricsPlacementInitialCandidate(
     AdjustedLines, Context.CandidateIndexes, CurrentFrame);
   Context.StartLineID := StartLineID;
@@ -434,9 +438,9 @@ var
   I: Integer;
 begin
   Result := -1;
-  for I := 0 to High(Context.CandidateIndexes) do
+  for I := 0 to High(Context.PreviewIndexes) do
   begin
-    CandidateIndex := Context.CandidateIndexes[I];
+    CandidateIndex := Context.PreviewIndexes[I];
     if (CandidateIndex >= 0) and (CandidateIndex < Length(Context.Lines)) and
       (Context.Lines[CandidateIndex].DisplayLane = DisplayLane) then
       Exit(CandidateIndex);
@@ -633,7 +637,8 @@ end;
 function TryStoreDisplaySettings(Edit: PEDIT_SECTION;
   Obj: OBJECT_HANDLE; const Context: TPlacementCandidateContext;
   PlacementMode: Integer; const LaneSettingsTexts,
-  LineSettingsTexts: TArray<string>; out ErrorText: string): Boolean;
+  LineSettingsTexts, InitialLineSettingsTexts: TArray<string>;
+  out ErrorText: string): Boolean;
 var
   CandidatePosition: Integer;
   EncodedSongText: string;
@@ -648,7 +653,8 @@ begin
     ErrorText := '共通配置1～3の設定を取得できませんでした。';
     Exit;
   end;
-  if Length(LineSettingsTexts) <> Length(Context.CandidateIndexes) then
+  if (Length(LineSettingsTexts) <> Length(Context.CandidateIndexes)) or
+    (Length(InitialLineSettingsTexts) <> Length(LineSettingsTexts)) then
   begin
     ErrorText := '自由配置の編集内容を取得できませんでした。';
     Exit;
@@ -669,9 +675,11 @@ begin
         Exit;
       end;
     for CandidatePosition := 0 to High(LineSettingsTexts) do
-      if not Model.TrySetPlacementText(
-        Context.CandidateIndexes[CandidatePosition],
-        LineSettingsTexts[CandidatePosition]) then
+      if (LineSettingsTexts[CandidatePosition] <>
+        InitialLineSettingsTexts[CandidatePosition]) and
+        not Model.TrySetPlacementText(
+          Context.CandidateIndexes[CandidatePosition],
+          LineSettingsTexts[CandidatePosition]) then
       begin
         ErrorText := '自由配置設定を歌詞データへ反映できませんでした。';
         Exit;
@@ -712,6 +720,7 @@ var
   LaneSettingsTexts: TArray<string>;
   LinePage: TFrameLyricsLineDisplaySettingsPage;
   LineSettingsTexts: TArray<string>;
+  InitialLineSettingsTexts: TArray<string>;
   Obj: OBJECT_HANDLE;
   PlacementContext: TPlacementCandidateContext;
   PlacementMode: TLyricsPlacementMode;
@@ -764,6 +773,13 @@ begin
         CharacterPage.ConfigureCandidates(CandidateLyrics,
           CandidateCommon, CandidateSettingsTexts,
           PlacementContext.InitialCandidate);
+        if not CharacterPage.TryBuildCandidateSettingsTexts(
+          InitialLineSettingsTexts) then
+        begin
+          ShowFontSettingsError(
+            '自由配置の編集前設定を取得できませんでした。');
+          Exit;
+        end;
       end;
       DisplaySettingsForm.SetMode(Ord(PlacementMode));
       DisplaySettingsForm.CaptureInitialState;
@@ -797,7 +813,7 @@ begin
         end;
         if not TryStoreDisplaySettings(Edit, Obj, PlacementContext,
           DisplaySettingsForm.CurrentMode, LaneSettingsTexts,
-          LineSettingsTexts, ErrorText) then
+          LineSettingsTexts, InitialLineSettingsTexts, ErrorText) then
           ShowFontSettingsError(ErrorText);
       end;
     finally

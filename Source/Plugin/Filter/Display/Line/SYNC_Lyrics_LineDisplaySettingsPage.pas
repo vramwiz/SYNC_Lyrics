@@ -1,6 +1,6 @@
-unit SYNC_Lyrics_LineDisplaySettingsPage;
+﻿unit SYNC_Lyrics_LineDisplaySettingsPage;
 
-// Display-only first migration page for line placement settings.
+// Owns line-placement editing state and connects controls to preview rendering and SLD1 data.
 
 interface
 
@@ -15,10 +15,10 @@ uses
   Vcl.Graphics,
   Vcl.StdCtrls,
   TextRendererSkia,
-  TextRendererTypes,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_DisplayPreviewBackground,
   SYNC_Lyrics_DisplaySettingsColorPanel,
+  SYNC_Lyrics_FontHistoryComboBox,
   SYNC_Lyrics_DisplaySettingsModePage,
   SYNC_Lyrics_ToolbarButtons;
 
@@ -34,7 +34,7 @@ type
   TFrameLyricsLineDisplaySettingsPage = class(TFrameDisplaySettingsModePage)
   private
     FFormattingButtons: array[0..3] of TSyncLyricsToolbarButton;
-    FBaseFontCombo: TComboBox;
+    FBaseFontCombo: TSyncLyricsFontHistoryComboBox;
     FBaseFontLabel: TLabel;
     FBasePreviewBounds: TRect;
     FBackground: TDisplayPreviewBackground;
@@ -71,7 +71,7 @@ type
     FOutlineButton: TSyncLyricsToolbarButton;
     FPreview: TPaintBox;
     FPreviewRenderer: TSkiaTextRenderer;
-    FRubyFontCombo: TComboBox;
+    FRubyFontCombo: TSyncLyricsFontHistoryComboBox;
     FRubyFontLabel: TLabel;
     FRubyPreviewBounds: TRect;
     FRubyPreviewRects: TArray<TRect>;
@@ -90,8 +90,6 @@ type
     procedure StoreCurrentCandidate;
     procedure UpdateColorPanel;
     procedure UpdateControls;
-    procedure ComboDrawItem(Control: TWinControl; Index: Integer;
-      Rect: TRect; State: TOwnerDrawState);
     procedure PreviewPaint(Sender: TObject);
     procedure PreviewMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
@@ -105,53 +103,65 @@ type
     function PreviewBackgroundScale: Double;
     function PreviewDestinationRect: TRect;
     function BaseSpacingIntervalCount: Integer;
-    function CreatePreviewBitmap(Image: TTextRenderImage):
-      Vcl.Graphics.TBitmap;
     procedure DrawDecorationHandles(Canvas: TCanvas);
     procedure DrawHalfSyncedText(Canvas: TCanvas; X, Y: Integer;
       const Text: string; TransitionX, CharacterSpacing: Integer);
-    procedure DrawPreviewImage(Canvas: TCanvas; Image,
-      AnchorImage: TTextRenderImage; X, Y, TransitionX: Integer;
-      AfterPhase: Boolean);
     function HitTestDragMode(const PointValue: TPoint):
       TLineDisplayPageDragMode;
     function ResizeHandleRect(const Bounds: TRect;
       Mode: TLineDisplayPageDragMode): TRect;
-    function RenderPreviewTextImage(Canvas: TCanvas; const Text: string;
-      CharacterSpacing: Integer; AfterPhase,
-      IncludeDecoration: Boolean): TTextRenderImage;
     function RubySpacingIntervalCount: Integer;
     function SpacingHandleRect(const Bounds: TRect;
       LeftSide: Boolean): TRect;
   protected
     procedure Resize; override;
   public
+    // Creates the line controls and obtains a Skia preview renderer when available.
     constructor Create(AOwner: TComponent); override;
+    // Releases preview resources owned by this page.
     destructor Destroy; override;
+    // Zooms around ClientPoint while keeping the pointed image location fixed.
     procedure AdjustPreviewZoom(WheelDelta: Integer;
       const ClientPoint: TPoint);
+    // Saves all placement candidates for the form-level restore action.
     procedure CaptureInitialState; override;
+    // Stores the outgoing placement before loading the requested one.
     procedure CandidateChanged(Index: Integer); override;
+    // Returns edited settings for all line-placement candidates.
     function CandidateCommonSettings: TArray<TDisplayCommonSettings>;
+    // Returns the lyrics shown in each placement candidate.
     function CandidateLyrics: TArray<string>;
+    // Loads placement candidates; only position remains independent between them.
     procedure ConfigureCandidates(const Lyrics: TArray<string>;
       const CommonSettings: TArray<TDisplayCommonSettings>;
       InitialIndex: Integer);
+    // Returns a decoration control rectangle in preview-client coordinates.
     function DecorationHandleRect(Mode: TLineDisplayPageDragMode): TRect;
+    // Identifies this page to the shared mode toolbar.
     function ModeGlyph: TSyncLyricsToolbarGlyph; override;
     function ModeID: Integer; override;
     function ModeName: string; override;
+    // Returns the edited common settings of the currently selected placement.
     function SelectedCommonSettings: TDisplayCommonSettings;
+    // Returns the lyrics used by the current preview.
     function SelectedLyrics: string;
+    // Reports whether a captured frame can be shown behind the text.
     function HasBackgroundImage: Boolean;
+    // Reports whether Skia preview initialization succeeded.
     function HasSkiaPreviewRenderer: Boolean;
+    // Returns an individual ruby span's preview rectangle.
     function RubyPreviewRect(Index: Integer): TRect;
+    // Counts ruby spans currently measured in the preview.
     function RubyPreviewRectCount: Integer;
+    // Restores the candidate settings captured when the form opened.
     procedure RestoreInitialState; override;
+    // Replaces the preview frame and requests a redraw.
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
-    property BaseFontCombo: TComboBox read FBaseFontCombo;
-    property RubyFontCombo: TComboBox read FRubyFontCombo;
+    property BaseFontCombo: TSyncLyricsFontHistoryComboBox
+      read FBaseFontCombo;
+    property RubyFontCombo: TSyncLyricsFontHistoryComboBox
+      read FRubyFontCombo;
     property BasePreviewBounds: TRect read FBasePreviewBounds;
     property ColorPanel: TDisplaySettingsColorPanel read FColorPanel;
     property FormattingToolbar: TSyncLyricsToolbarButtons
@@ -172,8 +182,10 @@ uses
   System.Math,
   Winapi.Windows,
   TextRendererSkiaRuntime,
-  SYNC_Lyrics_DarkTheme,
-  SYNC_Lyrics_LyricParser;
+  SYNC_Lyrics_ContrastGuides,
+  SYNC_Lyrics_DisplayDecorationControls,
+  SYNC_Lyrics_LyricParser,
+  SYNC_Lyrics_LineDisplayPreviewText;
 
 type
   TDisplayPageControlAccess = class(TControl);
@@ -196,21 +208,19 @@ begin
   FBaseFontLabel.Parent := Self;
   FBaseFontLabel.Caption := #27468#35422#12501#12457#12531#12488;
   FBaseFontLabel.Font.Assign(Font);
-  FBaseFontCombo := TComboBox.Create(Self);
+  FBaseFontCombo := TSyncLyricsFontHistoryComboBox.Create(Self);
   FBaseFontCombo.Parent := Self;
-  FBaseFontCombo.Items.Assign(Screen.Fonts);
   FontName := 'Yu Gothic UI';
-  FBaseFontCombo.ItemIndex := FBaseFontCombo.Items.IndexOf(FontName);
-  FBaseFontCombo.OnChange := FontComboChange;
+  FBaseFontCombo.SetSelectedFont(FontName);
+  FBaseFontCombo.OnFontCommitted := FontComboChange;
   FRubyFontLabel := TLabel.Create(Self);
   FRubyFontLabel.Parent := Self;
   FRubyFontLabel.Caption := #12523#12499#12501#12457#12531#12488;
   FRubyFontLabel.Font.Assign(Font);
-  FRubyFontCombo := TComboBox.Create(Self);
+  FRubyFontCombo := TSyncLyricsFontHistoryComboBox.Create(Self);
   FRubyFontCombo.Parent := Self;
-  FRubyFontCombo.Items.Assign(Screen.Fonts);
-  FRubyFontCombo.ItemIndex := FRubyFontCombo.Items.IndexOf(FontName);
-  FRubyFontCombo.OnChange := FontComboChange;
+  FRubyFontCombo.SetSelectedFont(FontName);
+  FRubyFontCombo.OnFontCommitted := FontComboChange;
 
   FFormattingToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FFormattingToolbar.Parent := Self;
@@ -242,8 +252,6 @@ begin
   FColorPanel.Parent := Self;
   FColorPanel.OnChange := ColorPanelChange;
   FColorPanel.OnTargetChange := ColorTargetChange;
-  ApplySyncLyricsDarkComboBox(FBaseFontCombo, ComboDrawItem);
-  ApplySyncLyricsDarkComboBox(FRubyFontCombo, ComboDrawItem);
   FSelection := ldpsBase;
   FColorTarget := 0;
   FCurrentCandidate := -1;
@@ -322,6 +330,7 @@ begin
   // Existing songs can have different lane styles; the selected lane supplies
   // the shared style while every lane keeps its saved position.
   SharedSettings := FCandidateCommon[InitialIndex];
+  ClampDisplayCommonDecoration(SharedSettings);
   for I := 0 to High(FCandidateCommon) do
   begin
     PositionX := FCandidateCommon[I].PositionX;
@@ -348,14 +357,6 @@ begin
     FCurrentCommon := DefaultDisplayCommonSettings;
     UpdateControls;
   end;
-end;
-
-procedure TFrameLyricsLineDisplaySettingsPage.ComboDrawItem(
-  Control: TWinControl; Index: Integer; Rect: TRect;
-  State: TOwnerDrawState);
-begin
-  DrawSyncLyricsDarkComboBoxItem(Control as TComboBox, Index, Rect,
-    State, CurrentPPI);
 end;
 
 procedure TFrameLyricsLineDisplaySettingsPage.ColorPanelChange(
@@ -413,10 +414,10 @@ procedure TFrameLyricsLineDisplaySettingsPage.FontComboChange(
 begin
   if FUpdatingControls or (FCurrentCandidate < 0) then
     Exit;
-  if (Sender = FBaseFontCombo) and (FBaseFontCombo.ItemIndex >= 0) then
-    FCurrentCommon.BaseFontName := FBaseFontCombo.Text
-  else if (Sender = FRubyFontCombo) and (FRubyFontCombo.ItemIndex >= 0) then
-    FCurrentCommon.RubyFontName := FRubyFontCombo.Text;
+  if Sender = FBaseFontCombo then
+    FCurrentCommon.BaseFontName := FBaseFontCombo.CommittedFont
+  else if Sender = FRubyFontCombo then
+    FCurrentCommon.RubyFontName := FRubyFontCombo.CommittedFont;
   FPreview.Invalidate;
 end;
 
@@ -520,257 +521,14 @@ begin
   Result := #49#34892#37197#32622;
 end;
 
-function TFrameLyricsLineDisplaySettingsPage.CreatePreviewBitmap(
-  Image: TTextRenderImage): Vcl.Graphics.TBitmap;
-var
-  Destination: PByte;
-  Source: PTextRenderPixel;
-  X: Integer;
-  Y: Integer;
-begin
-  Result := nil;
-  if (Image = nil) or Image.IsEmpty then
-    Exit;
-  Result := Vcl.Graphics.TBitmap.Create;
-  try
-    Result.PixelFormat := pf32bit;
-    Result.SetSize(Image.Width, Image.Height);
-    for Y := 0 to Image.Height - 1 do
-    begin
-      Source := PTextRenderPixel(PByte(Image.Data) +
-        NativeInt(Y) * Image.Stride);
-      Destination := Result.ScanLine[Y];
-      for X := 0 to Image.Width - 1 do
-      begin
-        Destination[0] := (Cardinal(Source^.B) * Source^.A + 127) div 255;
-        Destination[1] := (Cardinal(Source^.G) * Source^.A + 127) div 255;
-        Destination[2] := (Cardinal(Source^.R) * Source^.A + 127) div 255;
-        Destination[3] := Source^.A;
-        Inc(Destination, 4);
-        Inc(Source);
-      end;
-    end;
-    Result.AlphaFormat := afPremultiplied;
-  except
-    FreeAndNil(Result);
-    raise;
-  end;
-end;
-
 procedure TFrameLyricsLineDisplaySettingsPage.DrawHalfSyncedText(
   Canvas: TCanvas; X, Y: Integer; const Text: string; TransitionX,
   CharacterSpacing: Integer);
-var
-  AfterImage: TTextRenderImage;
-  AnchorImage: TTextRenderImage;
-  BeforeImage: TTextRenderImage;
-  RenderedWithSkia: Boolean;
-  SavedDC: Integer;
 begin
-  BeforeImage := nil;
-  AfterImage := nil;
-  AnchorImage := nil;
-  RenderedWithSkia := False;
-  if FPreviewRenderer <> nil then
-    try
-      AnchorImage := RenderPreviewTextImage(Canvas, Text, CharacterSpacing,
-        False, False);
-      BeforeImage := RenderPreviewTextImage(Canvas, Text, CharacterSpacing,
-        False, True);
-      AfterImage := RenderPreviewTextImage(Canvas, Text, CharacterSpacing,
-        True, True);
-      if (AnchorImage <> nil) and (BeforeImage <> nil) and
-        (AfterImage <> nil) then
-      begin
-        DrawPreviewImage(Canvas, BeforeImage, AnchorImage, X, Y,
-          TransitionX, False);
-        DrawPreviewImage(Canvas, AfterImage, AnchorImage, X, Y,
-          TransitionX, True);
-        RenderedWithSkia := True;
-      end;
-    except
-      { Retain the transparent GDI preview if Skia cannot render a font. }
-    end;
-  BeforeImage.Free;
-  AfterImage.Free;
-  AnchorImage.Free;
-  if RenderedWithSkia then
-    Exit;
-
-  Canvas.Font.Color := TColor(FCurrentCommon.BeforeColor);
-  Canvas.TextOut(X, Y, Text);
-  SavedDC := SaveDC(Canvas.Handle);
-  try
-    IntersectClipRect(Canvas.Handle, 0, 0, TransitionX,
-      FPreview.ClientHeight);
-    Canvas.Font.Color := TColor(FCurrentCommon.AfterColor);
-    Canvas.TextOut(X, Y, Text);
-  finally
-    RestoreDC(Canvas.Handle, SavedDC);
-  end;
+  DrawLineHalfSyncedText(Canvas, FPreviewRenderer, FCurrentCommon,
+    PreviewBackgroundScale, FPreview.ClientWidth, FPreview.ClientHeight,
+    X, Y, Text, TransitionX, CharacterSpacing);
 end;
-
-procedure TFrameLyricsLineDisplaySettingsPage.DrawPreviewImage(
-  Canvas: TCanvas; Image, AnchorImage: TTextRenderImage; X, Y,
-  TransitionX: Integer; AfterPhase: Boolean);
-var
-  Bitmap: Vcl.Graphics.TBitmap;
-  Blend: BLENDFUNCTION;
-  ImageLeft: Integer;
-  ImageTop: Integer;
-  SavedDC: Integer;
-begin
-  Bitmap := CreatePreviewBitmap(Image);
-  if Bitmap = nil then
-    Exit;
-  try
-    if (Length(AnchorImage.TextUnitOrigins) > 0) and
-      (Length(Image.TextUnitOrigins) > 0) then
-    begin
-      ImageLeft := X + Round(AnchorImage.TextUnitOrigins[0].X +
-        AnchorImage.Bounds.Left - AnchorImage.LayoutBounds.Left -
-        Image.TextUnitOrigins[0].X);
-      ImageTop := Y + Round(AnchorImage.TextUnitOrigins[0].Y +
-        AnchorImage.Bounds.Top - AnchorImage.LayoutBounds.Top -
-        Image.TextUnitOrigins[0].Y);
-    end
-    else
-    begin
-      ImageLeft := X + Image.Bounds.Left - Image.LayoutBounds.Left;
-      ImageTop := Y + Image.Bounds.Top - Image.LayoutBounds.Top;
-    end;
-    SavedDC := SaveDC(Canvas.Handle);
-    try
-      if AfterPhase then
-        IntersectClipRect(Canvas.Handle, 0, 0, TransitionX,
-          FPreview.ClientHeight)
-      else
-        IntersectClipRect(Canvas.Handle, TransitionX, 0,
-          FPreview.ClientWidth, FPreview.ClientHeight);
-      Blend.BlendOp := AC_SRC_OVER;
-      Blend.BlendFlags := 0;
-      Blend.SourceConstantAlpha := 255;
-      Blend.AlphaFormat := AC_SRC_ALPHA;
-      AlphaBlend(Canvas.Handle, ImageLeft, ImageTop, Bitmap.Width,
-        Bitmap.Height, Bitmap.Canvas.Handle, 0, 0, Bitmap.Width,
-        Bitmap.Height, Blend);
-    finally
-      RestoreDC(Canvas.Handle, SavedDC);
-    end;
-  finally
-    Bitmap.Free;
-  end;
-end;
-
-function TFrameLyricsLineDisplaySettingsPage.RenderPreviewTextImage(
-  Canvas: TCanvas; const Text: string; CharacterSpacing: Integer;
-  AfterPhase, IncludeDecoration: Boolean): TTextRenderImage;
-var
-  BlurColor: TColor;
-  BlurOpacity: Byte;
-  FillColor: TColor;
-  FillOpacity: Byte;
-  Metrics: TTextRenderMetrics;
-  OutlineColor: TColor;
-  OutlineOpacity: Byte;
-  PreviewScale: Double;
-  Request: TTextRenderRequest;
-  Shadow: TTextRenderShadow;
-  ShadowColor: TColor;
-  ShadowOpacity: Byte;
-
-  function AlphaColor(Color: TColor; Opacity: Byte): TAlphaColor;
-  var
-    Resolved: TColor;
-  begin
-    Resolved := ColorToRGB(Color);
-    Result := TAlphaColor((Cardinal(Opacity) shl 24) or
-      (Cardinal(GetRValue(Resolved)) shl 16) or
-      (Cardinal(GetGValue(Resolved)) shl 8) or
-      Cardinal(GetBValue(Resolved)));
-  end;
-begin
-  Result := nil;
-  if (FPreviewRenderer = nil) or (Text = '') then
-    Exit;
-  if AfterPhase then
-  begin
-    FillColor := TColor(FCurrentCommon.AfterColor);
-    FillOpacity := FCurrentCommon.AfterOpacity;
-    OutlineColor := TColor(FCurrentCommon.AfterOutlineColor);
-    OutlineOpacity := FCurrentCommon.AfterOutlineOpacity;
-    ShadowColor := TColor(FCurrentCommon.AfterShadowColor);
-    ShadowOpacity := FCurrentCommon.AfterShadowOpacity;
-    BlurColor := TColor(FCurrentCommon.AfterBlurColor);
-    BlurOpacity := FCurrentCommon.AfterBlurOpacity;
-  end
-  else
-  begin
-    FillColor := TColor(FCurrentCommon.BeforeColor);
-    FillOpacity := FCurrentCommon.BeforeOpacity;
-    OutlineColor := TColor(FCurrentCommon.BeforeOutlineColor);
-    OutlineOpacity := FCurrentCommon.BeforeOutlineOpacity;
-    ShadowColor := TColor(FCurrentCommon.BeforeShadowColor);
-    ShadowOpacity := FCurrentCommon.BeforeShadowOpacity;
-    BlurColor := TColor(FCurrentCommon.BeforeBlurColor);
-    BlurOpacity := FCurrentCommon.BeforeBlurOpacity;
-  end;
-  PreviewScale := PreviewBackgroundScale;
-  if PreviewScale <= 0 then
-    PreviewScale := 1;
-  Request := TTextRenderRequest.Default;
-  Request.Text := Text;
-  Request.FontFamilies := [Canvas.Font.Name, 'Yu Gothic UI', 'Meiryo UI',
-    'Segoe UI'];
-  Request.FontSize := Max(1, Abs(Canvas.Font.Height));
-  Request.LetterSpacing := CharacterSpacing;
-  Request.FontStyle := [];
-  if fsBold in Canvas.Font.Style then
-    Include(Request.FontStyle, TTextRenderFontStyleItem.Bold);
-  if fsItalic in Canvas.Font.Style then
-    Include(Request.FontStyle, TTextRenderFontStyleItem.Italic);
-  if fsUnderline in Canvas.Font.Style then
-    Include(Request.FontStyle, TTextRenderFontStyleItem.Underline);
-  if fsStrikeOut in Canvas.Font.Style then
-    Include(Request.FontStyle, TTextRenderFontStyleItem.StrikeOut);
-  Request.FillColor := AlphaColor(FillColor, FillOpacity);
-  Request.CaptureTextUnits := True;
-  Request.Outlines := [];
-  if IncludeDecoration and FCurrentCommon.OutlineEnabled and
-    (FCurrentCommon.OutlineWidth > 0) then
-  begin
-    if FCurrentCommon.OutlineBlur <= 0 then
-      Request.Outlines := [TTextRenderOutline.Create(
-        FCurrentCommon.OutlineWidth * PreviewScale,
-        AlphaColor(OutlineColor, OutlineOpacity))]
-    else if (ColorToRGB(BlurColor) = ColorToRGB(OutlineColor)) and
-      (BlurOpacity = OutlineOpacity) then
-      Request.Outlines := [TTextRenderOutline.Create(
-        FCurrentCommon.OutlineWidth * PreviewScale,
-        FCurrentCommon.OutlineBlur * PreviewScale,
-        AlphaColor(OutlineColor, OutlineOpacity))]
-    else
-      Request.Outlines := [
-        TTextRenderOutline.Create(FCurrentCommon.OutlineWidth * PreviewScale,
-          FCurrentCommon.OutlineBlur * PreviewScale,
-          AlphaColor(BlurColor, BlurOpacity)),
-        TTextRenderOutline.Create(FCurrentCommon.OutlineWidth * PreviewScale,
-          AlphaColor(OutlineColor, OutlineOpacity))];
-  end;
-  Request.Shadows := [];
-  if IncludeDecoration and FCurrentCommon.ShadowEnabled then
-  begin
-    Shadow := System.Default(TTextRenderShadow);
-    Shadow.Offset := PointF(FCurrentCommon.ShadowOffsetX * PreviewScale,
-      FCurrentCommon.ShadowOffsetY * PreviewScale);
-    Shadow.BlurRadius := FCurrentCommon.ShadowBlur * PreviewScale;
-    Shadow.SpreadRadius := FCurrentCommon.ShadowSpread * PreviewScale;
-    Shadow.Color := AlphaColor(ShadowColor, ShadowOpacity);
-    Request.Shadows := [Shadow];
-  end;
-  Result := FPreviewRenderer.Render(Request, Metrics);
-end;
-
 procedure TFrameLyricsLineDisplaySettingsPage.PreviewPaint(Sender: TObject);
 var
   BaseRect: TRect;
@@ -1015,8 +773,13 @@ begin
     ldpdShadowSpread:
       Inc(Center.X, Round(FCurrentCommon.ShadowSpread * PreviewScale));
   end;
-  Center.X := EnsureRange(Center.X, Extent div 2,
-    Max(Extent div 2, FPreview.ClientWidth - Extent div 2));
+  if Mode = ldpdShadowOffset then
+    Center.X := EnsureRange(Center.X, Extent div 2,
+      Max(Extent div 2, FPreview.ClientWidth -
+        (3 * Extent) div 2 - Gap))
+  else
+    Center.X := EnsureRange(Center.X, Extent div 2,
+      Max(Extent div 2, FPreview.ClientWidth - Extent div 2));
   Center.Y := EnsureRange(Center.Y, Extent div 2,
     Max(Extent div 2, FPreview.ClientHeight - Extent div 2));
   Result := Rect(Center.X - Extent div 2, Center.Y - Extent div 2,
@@ -1083,12 +846,9 @@ begin
       Anchor.Y := Bounds.Top
     else
       Anchor.Y := Bounds.Bottom;
-    Canvas.Pen.Style := psDot;
-    Canvas.Pen.Color := RGB(144, 144, 144);
-    Canvas.MoveTo(Anchor.X, Anchor.Y);
-    Canvas.LineTo((Handle.Left + Handle.Right) div 2,
-      (Handle.Top + Handle.Bottom) div 2);
-    Canvas.Pen.Style := psSolid;
+    DrawContrastDashedLine(Canvas, Anchor,
+      Point((Handle.Left + Handle.Right) div 2,
+      (Handle.Top + Handle.Bottom) div 2), CurrentPPI);
     if FDragMode = Mode then
       Canvas.Pen.Color := clAqua
     else
@@ -1194,6 +954,14 @@ var
   SelectedBounds: TRect;
   OnHandle: Boolean;
 begin
+  if Button = mbMiddle then
+  begin
+    FDragMode := ldpdPan;
+    FDragStartPoint := Point(X, Y);
+    FDragStartViewPan := FViewPan;
+    TDisplayPageControlAccess(FPreview).MouseCapture := True;
+    Exit;
+  end;
   if Button <> mbLeft then
     Exit;
   PointValue := Point(X, Y);
@@ -1215,8 +983,6 @@ begin
   end;
   UpdateControls;
   FDragMode := HitTestDragMode(PointValue);
-  if FDragMode = ldpdNone then
-    FDragMode := ldpdPan;
   if FDragMode <> ldpdNone then
   begin
     FSnapX := False;
@@ -1355,24 +1121,30 @@ begin
       FCurrentCommon.RubyGapAdjustment := EnsureRange(
         FDragStartRubyGapAdjustment - DeltaY, -200, 500);
     ldpdOutlineWidth:
-      FCurrentCommon.OutlineWidth := EnsureRange(
-        FDragStartOutlineWidth + DeltaX, 0.0, 500.0);
+      FCurrentCommon.OutlineWidth := DisplayDecorationDragValue(
+        FDragStartOutlineWidth, X - FDragStartPoint.X,
+        PreviewScale, ddkOutlineWidth);
     ldpdOutlineBlur:
-      FCurrentCommon.OutlineBlur := EnsureRange(
-        FDragStartOutlineBlur - DeltaX, 0.0, 500.0);
+      FCurrentCommon.OutlineBlur := DisplayDecorationDragValue(
+        FDragStartOutlineBlur, X - FDragStartPoint.X,
+        PreviewScale, ddkOutlineBlur);
     ldpdShadowOffset:
       begin
-        FCurrentCommon.ShadowOffsetX := EnsureRange(
-          FDragStartShadowOffsetX + DeltaX, -2000.0, 2000.0);
-        FCurrentCommon.ShadowOffsetY := EnsureRange(
-          FDragStartShadowOffsetY + DeltaY, -2000.0, 2000.0);
+        FCurrentCommon.ShadowOffsetX := DisplayDecorationDragValue(
+          FDragStartShadowOffsetX, X - FDragStartPoint.X,
+          PreviewScale, ddkShadowOffset);
+        FCurrentCommon.ShadowOffsetY := DisplayDecorationDragValue(
+          FDragStartShadowOffsetY, Y - FDragStartPoint.Y,
+          PreviewScale, ddkShadowOffset);
       end;
     ldpdShadowBlur:
-      FCurrentCommon.ShadowBlur := EnsureRange(
-        FDragStartShadowBlur - DeltaX, 0.0, 500.0);
+      FCurrentCommon.ShadowBlur := DisplayDecorationDragValue(
+        FDragStartShadowBlur, X - FDragStartPoint.X,
+        PreviewScale, ddkShadowBlur);
     ldpdShadowSpread:
-      FCurrentCommon.ShadowSpread := EnsureRange(
-        FDragStartShadowSpread + DeltaX, 0.0, 500.0);
+      FCurrentCommon.ShadowSpread := DisplayDecorationDragValue(
+        FDragStartShadowSpread, X - FDragStartPoint.X,
+        PreviewScale, ddkShadowSpread);
   end;
   FPreview.Invalidate;
 end;
@@ -1442,7 +1214,8 @@ end;
 procedure TFrameLyricsLineDisplaySettingsPage.PreviewMouseUp(
   Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
-  if Button <> mbLeft then
+  if ((Button = mbMiddle) <> (FDragMode = ldpdPan)) or
+    not (Button in [mbLeft, mbMiddle]) then
     Exit;
   FDragMode := ldpdNone;
   FSnapX := False;
@@ -1571,10 +1344,8 @@ var
 begin
   FUpdatingControls := True;
   try
-    FBaseFontCombo.ItemIndex := FBaseFontCombo.Items.IndexOf(
-      FCurrentCommon.BaseFontName);
-    FRubyFontCombo.ItemIndex := FRubyFontCombo.Items.IndexOf(
-      FCurrentCommon.RubyFontName);
+    FBaseFontCombo.SetSelectedFont(FCurrentCommon.BaseFontName);
+    FRubyFontCombo.SetSelectedFont(FCurrentCommon.RubyFontName);
     StyleValue := SelectedFontStyle;
     for I := 0 to High(FFormattingButtons) do
       FFormattingButtons[I].CheckState := TSyncLyricsToolbarCheckState(

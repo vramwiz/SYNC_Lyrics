@@ -1,6 +1,6 @@
-unit SYNC_Lyrics_CharacterDisplaySettingsPage;
+﻿unit SYNC_Lyrics_CharacterDisplaySettingsPage;
 
-// Display-only first migration page for per-character free placement.
+// Owns free-placement editing state and connects controls to preview helpers and SL3 data.
 
 interface
 
@@ -12,12 +12,15 @@ uses
   Vcl.Controls,
   Vcl.ExtCtrls,
   Vcl.Forms,
+  Vcl.Graphics,
   Vcl.StdCtrls,
+  TextRendererSkia,
   SYNC_Lyrics_DisplaySettingsColorPanel,
   SYNC_Lyrics_DisplaySettingsData,
   SYNC_Lyrics_CharacterLayoutInteraction,
   SYNC_Lyrics_DisplayPreviewBackground,
   SYNC_Lyrics_DisplaySettingsModePage,
+  SYNC_Lyrics_FontHistoryComboBox,
   SYNC_Lyrics_LyricParser,
   SYNC_Lyrics_ToolbarButtons;
 
@@ -31,10 +34,7 @@ type
   private
     FActionToolbar: TSyncLyricsToolbarButtons;
     FBackground: TDisplayPreviewBackground;
-    FBackgroundPixels: TBytes;
-    FBackgroundPixelWidth: Integer;
-    FBackgroundPixelHeight: Integer;
-    FBaseFontCombo: TComboBox;
+    FBaseFontCombo: TSyncLyricsFontHistoryComboBox;
     FBaseFontLabel: TLabel;
     FColorPanel: TDisplaySettingsColorPanel;
     FElementCombo: TComboBox;
@@ -61,6 +61,7 @@ type
     FDragStartMouse: TPoint;
     FDragStartElementBounds: TArray<TRect>;
     FDragStartPlacements: TDisplayPlacementItems;
+    FDragStartDecorations: TArray<TDisplayCommonSettings>;
     FDragStartGroupBounds: TRect;
     FDragStartViewPan: TPointF;
     FSnapX: Boolean;
@@ -77,9 +78,10 @@ type
     FUpdatingControls: Boolean;
     FLayoutReady: Boolean;
     FPreview: TPaintBox;
+    FPreviewRenderer: TSkiaTextRenderer;
     FViewPan: TPointF;
     FViewZoom: Double;
-    FRubyFontCombo: TComboBox;
+    FRubyFontCombo: TSyncLyricsFontHistoryComboBox;
     FRubyFontLabel: TLabel;
     procedure ComboDrawItem(Control: TWinControl; Index: Integer;
       Rect: TRect; State: TOwnerDrawState);
@@ -91,11 +93,14 @@ type
     procedure ActionToolbarExecute(Sender: TObject;
       Button: TSyncLyricsToolbarButton);
     procedure BuildDefaultPlacements;
-    procedure EditSelectedDecoration;
+    function DecorationSettings(Index: Integer): TDisplayCommonSettings;
+    procedure DrawDecorationHandles(Canvas: TCanvas);
     function DisplayUnitBaseText(Index: Integer): string;
     function DisplayUnitRubyText(Index: Integer): string;
     function GroupSelectionBounds: TRect;
     function HitTestModeHandle(X, Y: Integer):
+      TCharacterLayoutDragMode;
+    function HitTestDecorationHandle(X, Y: Integer):
       TCharacterLayoutDragMode;
     function HitTestResizeHandle(X, Y: Integer):
       TCharacterLayoutDragMode;
@@ -104,6 +109,7 @@ type
     procedure PopulateElementCombo;
     function PreviewScale: Double;
     function PreviewDestinationRect: TRect;
+    function PreviewRubyTextBounds(Index: Integer): TRect;
     procedure PreviewMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
     procedure PreviewMouseMove(Sender: TObject; Shift: TShiftState;
@@ -114,6 +120,7 @@ type
       WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
     procedure PreviewPaint(Sender: TObject);
     procedure ResizeSelection(X, Y: Integer);
+    procedure DragDecoration(X, Y: Integer);
     procedure SelectElement(Index: Integer; Toggle: Boolean = False);
     function SelectionCount: Integer;
     function SelectionSupportsRubyMode: Boolean;
@@ -123,39 +130,64 @@ type
   protected
     procedure Resize; override;
   public
+    // Creates the controls and obtains a preview renderer when Skia is available.
     constructor Create(AOwner: TComponent); override;
+    // Releases the preview renderer and background owned by this page.
     destructor Destroy; override;
+    // Zooms around ClientPoint so the pointed image location stays fixed.
     procedure AdjustPreviewZoom(WheelDelta: Integer;
       const ClientPoint: TPoint);
+    // Saves every candidate and its selection for the form-level restore action.
     procedure CaptureInitialState; override;
+    // Stores the outgoing candidate before loading the requested one.
     procedure CandidateChanged(Index: Integer); override;
+    // Loads all lyrics candidates and their independent SL3 placements for editing.
     procedure ConfigureCandidates(const Lyrics: TArray<string>;
       const CommonSettings: TArray<TDisplayCommonSettings>;
       const SettingsTexts: TArray<string>; InitialIndex: Integer);
+    // Counts display units in the current lyrics candidate.
     function ElementCount: Integer;
+    // Returns the preview hit rectangle for a selected decoration control.
+    function DecorationHandleRect(Mode: TCharacterLayoutDragMode): TRect;
+    // Returns a copy of the current placement for inspection by the host or tests.
     function ElementPlacement(Index: Integer): TDisplayPlacementItem;
+    // Identifies this page to the shared mode toolbar.
     function ModeGlyph: TSyncLyricsToolbarGlyph; override;
     function ModeID: Integer; override;
     function ModeName: string; override;
+    // Reports whether the latest captured frame is available to the preview.
     function HasBackgroundImage: Boolean;
+    // Reports whether Skia preview initialization succeeded.
+    function HasSkiaPreviewRenderer: Boolean;
+    // Includes both base and ruby text, with margin for selection handles.
     function PreviewElementBounds(Index: Integer): TRect;
+    // Keeps narrow ruby glyphs large enough to provide a usable drag target.
+    function PreviewRubyBounds(Index: Integer): TRect;
+    // Counts the current multi-selection, including units outside the focused combo item.
     function SelectedElementCount: Integer;
+    // Returns the focused unit in the current selection, or -1 when none is selected.
     function SelectedElementIndex: Integer;
+    // Distinguishes move, base spacing, and ruby editing for the current selection.
     function SelectedMode: TCharacterLayoutSelectionMode;
-    function SelectedDecorationSettings: TDisplayCommonSettings;
-    procedure ApplySelectedDecoration(
-      const Settings: TDisplayCommonSettings);
+    // Serializes every candidate; False means at least one result exceeds the SL3 limit.
     function TryBuildCandidateSettingsTexts(
       out SettingsTexts: TArray<string>): Boolean;
+    // Returns the current view offset in preview pixels.
     function ViewPan: TPointF;
+    // Returns the zoom applied to the preview background and placements.
     function ViewZoom: Double;
+    // Returns the lyrics source of the currently loaded candidate.
     function SelectedLyrics: string;
+    // Restores all candidates and selections captured when the form opened.
     procedure RestoreInitialState; override;
+    // Replaces the preview frame and requests a redraw.
     procedure SetBackgroundRgba(const Pixels: TBytes;
       Width, Height: Integer);
     property ColorPanel: TDisplaySettingsColorPanel read FColorPanel;
-    property BaseFontCombo: TComboBox read FBaseFontCombo;
-    property RubyFontCombo: TComboBox read FRubyFontCombo;
+    property BaseFontCombo: TSyncLyricsFontHistoryComboBox
+      read FBaseFontCombo;
+    property RubyFontCombo: TSyncLyricsFontHistoryComboBox
+      read FRubyFontCombo;
     property ActionToolbar: TSyncLyricsToolbarButtons read FActionToolbar;
     property ElementCombo: TComboBox read FElementCombo;
     property FormattingToolbar: TSyncLyricsToolbarButtons
@@ -170,22 +202,17 @@ implementation
 uses
   System.Math,
   Winapi.Windows,
-  Vcl.Graphics,
+  SYNC_Lyrics_CharacterDecorationOverlay,
+  SYNC_Lyrics_CharacterPreviewGeometry,
   SYNC_Lyrics_CharacterLayoutDrawing,
-  SYNC_Lyrics_DarkTheme,
-  SYNC_Lyrics_LineDisplaySettingsForm;
+  SYNC_Lyrics_ContrastGuides,
+  SYNC_Lyrics_DisplayDecorationControls,
+  SYNC_Lyrics_DisplayPreviewText,
+  TextRendererSkiaRuntime,
+  SYNC_Lyrics_DarkTheme;
 
 type
   TCharacterDisplayPageControlAccess = class(TControl);
-
-function CharacterFontStyle(Value: Byte): TFontStyles;
-begin
-  Result := [];
-  if (Value and 1) <> 0 then Include(Result, fsBold);
-  if (Value and 2) <> 0 then Include(Result, fsItalic);
-  if (Value and 4) <> 0 then Include(Result, fsUnderline);
-  if (Value and 8) <> 0 then Include(Result, fsStrikeOut);
-end;
 
 constructor TFrameLyricsCharacterDisplaySettingsPage.Create(
   AOwner: TComponent);
@@ -195,25 +222,30 @@ begin
   inherited Create(AOwner);
   Name := 'FrameLyricsCharacterDisplaySettingsPage';
   FBackground := TDisplayPreviewBackground.Create;
+  FPreviewRenderer := nil;
+  if TTextRendererSkiaRuntime.IsAcquired then
+    try
+      FPreviewRenderer := TSkiaTextRenderer.Create;
+    except
+      FPreviewRenderer := nil;
+    end;
   FBaseFontLabel := TLabel.Create(Self);
   FBaseFontLabel.Parent := Self;
   FBaseFontLabel.Caption := #27468#35422#12501#12457#12531#12488;
   FBaseFontLabel.Font.Assign(Font);
-  FBaseFontCombo := TComboBox.Create(Self);
+  FBaseFontCombo := TSyncLyricsFontHistoryComboBox.Create(Self);
   FBaseFontCombo.Parent := Self;
-  FBaseFontCombo.OnChange := FontComboChange;
-  FBaseFontCombo.Items.Assign(Screen.Fonts);
+  FBaseFontCombo.OnFontCommitted := FontComboChange;
   FontName := 'Yu Gothic UI';
-  FBaseFontCombo.ItemIndex := FBaseFontCombo.Items.IndexOf(FontName);
+  FBaseFontCombo.SetSelectedFont(FontName);
   FRubyFontLabel := TLabel.Create(Self);
   FRubyFontLabel.Parent := Self;
   FRubyFontLabel.Caption := #12523#12499#12501#12457#12531#12488;
   FRubyFontLabel.Font.Assign(Font);
-  FRubyFontCombo := TComboBox.Create(Self);
+  FRubyFontCombo := TSyncLyricsFontHistoryComboBox.Create(Self);
   FRubyFontCombo.Parent := Self;
-  FRubyFontCombo.OnChange := FontComboChange;
-  FRubyFontCombo.Items.Assign(Screen.Fonts);
-  FRubyFontCombo.ItemIndex := FRubyFontCombo.Items.IndexOf(FontName);
+  FRubyFontCombo.OnFontCommitted := FontComboChange;
+  FRubyFontCombo.SetSelectedFont(FontName);
   FFormattingToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FFormattingToolbar.Parent := Self;
   FFormattingToolbar.Color := Color;
@@ -224,13 +256,13 @@ begin
   FFormattingToolbar.AddToggleButton(#19979#32218, tbgUnderline);
   FFormattingToolbar.AddToggleButton(#21462#12426#28040#12375#32218,
     tbgStrikeOut);
+  FFormattingToolbar.AddToggleButton(#32257#21462#12426, tbgOutline);
+  FFormattingToolbar.AddToggleButton(#24433, tbgShadow);
   FActionToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FActionToolbar.Parent := Self;
   FActionToolbar.Color := Color;
   FActionToolbar.ParentBackground := False;
   FActionToolbar.OnButtonExecute := ActionToolbarExecute;
-  FActionToolbar.AddDialogButton(#34892#20849#36890#35373#23450,
-    tbgOutline);
   FActionToolbar.AddCommandButton(#20013#22830#12408,
     tbgMoveToCenter);
   FActionToolbar.AddCommandButton(#36984#25246#12434#21021#26399#21270,
@@ -261,8 +293,6 @@ begin
   FColorPanel.Parent := Self;
   FColorPanel.OnChange := ColorPanelChange;
   FColorPanel.OnTargetChange := ColorTargetChange;
-  ApplySyncLyricsDarkComboBox(FBaseFontCombo, ComboDrawItem);
-  ApplySyncLyricsDarkComboBox(FRubyFontCombo, ComboDrawItem);
   ApplySyncLyricsDarkComboBox(FElementCombo, ComboDrawItem);
   FCurrentCandidate := -1;
   FSelectionMode := clsmTransform;
@@ -273,6 +303,7 @@ end;
 
 destructor TFrameLyricsCharacterDisplaySettingsPage.Destroy;
 begin
+  FPreviewRenderer.Free;
   FBackground.Free;
   inherited;
 end;
@@ -331,11 +362,6 @@ begin
   if Button = nil then
     Exit;
   case Button.Glyph of
-    tbgOutline:
-      begin
-        EditSelectedDecoration;
-        Exit;
-      end;
     tbgMoveToCenter:
       if SelectionCount > 0 then
       begin
@@ -408,33 +434,6 @@ begin
   FPreview.Invalidate;
 end;
 
-procedure TFrameLyricsCharacterDisplaySettingsPage.EditSelectedDecoration;
-var
-  DecorationForm: TFormLyricsLineDisplaySettings;
-  Settings: TDisplayCommonSettings;
-begin
-  if SelectionCount = 0 then
-    Exit;
-  Settings := SelectedDecorationSettings;
-  DecorationForm := TFormLyricsLineDisplaySettings.Create(Self);
-  try
-    DecorationForm.Caption := #36984#25246#35201#32032#12398#35013#39166;
-    if (Length(FBackgroundPixels) > 0) and
-      (FBackgroundPixelWidth > 0) and
-      (FBackgroundPixelHeight > 0) then
-      DecorationForm.SetBackgroundRgba(FBackgroundPixels,
-        FBackgroundPixelWidth, FBackgroundPixelHeight);
-    DecorationForm.Configure(DisplayUnitBaseText(SelectedElementIndex),
-      Settings);
-    DecorationForm.ConfigurePlacementMode(1);
-    DecorationForm.SetPlacementModeSwitchVisible(False);
-    if DecorationForm.ShowModal = mrOk then
-      ApplySelectedDecoration(DecorationForm.SelectedCommonSettings);
-  finally
-    DecorationForm.Free;
-  end;
-end;
-
 procedure TFrameLyricsCharacterDisplaySettingsPage.ComboDrawItem(
   Control: TWinControl; Index: Integer; Rect: TRect;
   State: TOwnerDrawState);
@@ -451,7 +450,7 @@ var
 begin
   if FUpdatingControls or (SelectionCount = 0) then
     Exit;
-  Value := (Sender as TComboBox).Text;
+  Value := (Sender as TSyncLyricsFontHistoryComboBox).CommittedFont;
   for I := 0 to High(FSelected) do
     if FSelected[I] then
       if Sender = FBaseFontCombo then
@@ -482,6 +481,28 @@ var
 begin
   if (Button = nil) or (SelectionCount = 0) then
     Exit;
+  if Button.Glyph in [tbgOutline, tbgShadow] then
+  begin
+    TurnOn := Button.CheckState = tbcsChecked;
+    for I := 0 to High(FSelected) do
+      if FSelected[I] then
+        if Button.Glyph = tbgOutline then
+        begin
+          FCurrentPlacements[I].OutlineEnabled := TurnOn;
+          FCurrentPlacements[I].HasOutlineEnabled := TurnOn <>
+            FCurrentCommon.OutlineEnabled;
+        end
+        else
+        begin
+          FCurrentPlacements[I].ShadowEnabled := TurnOn;
+          FCurrentPlacements[I].HasShadowEnabled := TurnOn <>
+            FCurrentCommon.ShadowEnabled;
+        end;
+    StoreCurrentCandidate;
+    UpdateSelectedControls;
+    FPreview.Invalidate;
+    Exit;
+  end;
   case Button.Glyph of
     tbgBold: BitValue := 1;
     tbgItalic: BitValue := 2;
@@ -722,8 +743,13 @@ begin
   end;
   FCurrentCandidate := -1;
   if Length(FCandidateLyrics) > 0 then
+  begin
+    // Establish the same default placements for every line before comparing edits.
+    for I := 0 to High(FCandidateLyrics) do
+      LoadCandidate(I);
     LoadCandidate(EnsureRange(InitialIndex, 0,
-      High(FCandidateLyrics)))
+      High(FCandidateLyrics)));
+  end
   else
     LoadCandidate(-1);
 end;
@@ -783,7 +809,10 @@ begin
   for I := 0 to Min(High(FSelected), High(FCurrentPlacements)) do
     if FSelected[I] then
     begin
-      Bounds := PreviewElementBounds(I);
+      if FSelectionMode = clsmRuby then
+        Bounds := PreviewRubyBounds(I)
+      else
+        Bounds := PreviewElementBounds(I);
       if not Initialized then
       begin
         Result := Bounds;
@@ -809,7 +838,7 @@ var
   end;
 begin
   Result := cldmNone;
-  if (FSelectionMode <> clsmTransform) or
+  if (FSelectionMode = clsmCharacterSpacing) or
     (SelectionCount = 0) then
     Exit;
   Bounds := GroupSelectionBounds;
@@ -821,15 +850,23 @@ begin
   if NearPoint(Bounds.Right, Bounds.Bottom) then Exit(cldmResizeBottomRight);
   if NearPoint(CenterX, Bounds.Top) then Exit(cldmResizeTop);
   if NearPoint(CenterX, Bounds.Bottom) then Exit(cldmResizeBottom);
-  if NearPoint(Bounds.Left, CenterY) then Exit(cldmResizeLeft);
-  if NearPoint(Bounds.Right, CenterY) then Exit(cldmResizeRight);
+  if NearPoint(Bounds.Left, CenterY) then
+  begin
+    if FSelectionMode = clsmRuby then Exit(cldmSpacingLeft);
+    Exit(cldmResizeLeft);
+  end;
+  if NearPoint(Bounds.Right, CenterY) then
+  begin
+    if FSelectionMode = clsmRuby then Exit(cldmSpacingRight);
+    Exit(cldmResizeRight);
+  end;
 end;
 
 function TFrameLyricsCharacterDisplaySettingsPage.HitTestModeHandle(
   X, Y: Integer): TCharacterLayoutDragMode;
 begin
   Result := cldmNone;
-  if (FSelectionMode = clsmTransform) or
+  if (FSelectionMode <> clsmCharacterSpacing) or
     (SelectionCount = 0) then
     Exit;
   Result := HitTestCharacterLayoutModeHandle(GroupSelectionBounds,
@@ -845,6 +882,12 @@ function TFrameLyricsCharacterDisplaySettingsPage.HasBackgroundImage:
   Boolean;
 begin
   Result := (FBackground <> nil) and FBackground.HasImage;
+end;
+
+function TFrameLyricsCharacterDisplaySettingsPage.HasSkiaPreviewRenderer:
+  Boolean;
+begin
+  Result := FPreviewRenderer <> nil;
 end;
 
 function TFrameLyricsCharacterDisplaySettingsPage.ModeGlyph:
@@ -877,6 +920,9 @@ begin
     if Index < Length(FCandidatePlacements) then
       FCurrentPlacements := Copy(FCandidatePlacements[Index]);
   end;
+  ClampDisplayCommonDecoration(FCurrentCommon);
+  for I := 0 to High(FCurrentPlacements) do
+    ClampDisplayPlacementDecoration(FCurrentPlacements[I]);
   ParseLyrics(FCurrentLyrics, FPlainText, FRubySpans);
   BuildLyricsDisplayUnits(FPlainText, FRubySpans, FUnits);
   SetLength(FSelected, Length(FUnits));
@@ -887,12 +933,8 @@ begin
     FSelected := Copy(FCandidateSelected[Index]);
   if Length(FCurrentPlacements) <> Length(FUnits) then
     BuildDefaultPlacements;
-  if FBaseFontCombo.Items.IndexOf(FCurrentCommon.BaseFontName) >= 0 then
-    FBaseFontCombo.ItemIndex :=
-      FBaseFontCombo.Items.IndexOf(FCurrentCommon.BaseFontName);
-  if FRubyFontCombo.Items.IndexOf(FCurrentCommon.RubyFontName) >= 0 then
-    FRubyFontCombo.ItemIndex :=
-      FRubyFontCombo.Items.IndexOf(FCurrentCommon.RubyFontName);
+  FBaseFontCombo.SetSelectedFont(FCurrentCommon.BaseFontName);
+  FRubyFontCombo.SetSelectedFont(FCurrentCommon.RubyFontName);
   DesiredSelection := -1;
   if (Index >= 0) and (Index < Length(FCandidateSelections)) then
     DesiredSelection := FCandidateSelections[Index];
@@ -940,91 +982,146 @@ end;
 
 function TFrameLyricsCharacterDisplaySettingsPage.PreviewElementBounds(
   Index: Integer): TRect;
-var
-  BaseHeight: Integer;
-  BaseSpacing: Integer;
-  BaseStyle: Byte;
-  BaseRect: TRectF;
-  BaseSize: TSize;
-  Center: TPoint;
-  Destination: TRect;
-  Item: TDisplayPlacementItem;
-  RubyHeight: Integer;
-  RubySpacing: Integer;
-  RubyStyle: Byte;
-  RubyRect: TRectF;
-  RubySize: TSize;
-  RubyText: string;
-  Scale: Double;
 begin
-  Result := Rect(0, 0, 0, 0);
+  Result := TRect.Empty;
   if (Index < 0) or (Index >= Length(FUnits)) or
-    (Index >= Length(FCurrentPlacements)) then
+    (Index >= Length(FCurrentPlacements)) then Exit;
+  Result := CharacterPreviewElementBounds(FPreview.Canvas, FCurrentCommon,
+    FCurrentPlacements[Index], DisplayUnitBaseText(Index),
+    DisplayUnitRubyText(Index), PreviewDestinationRect, PreviewScale,
+    CurrentPPI);
+end;
+function TFrameLyricsCharacterDisplaySettingsPage.DecorationHandleRect(
+  Mode: TCharacterLayoutDragMode): TRect;
+var
+  Overlay: TCharacterDecorationOverlay;
+begin
+  Result := TRect.Empty;
+  if SelectionCount = 0 then Exit;
+  Overlay := TCharacterDecorationOverlay.Create(GroupSelectionBounds,
+    DecorationSettings(SelectedElementIndex), FDragMode, PreviewScale,
+    FPreview.ClientRect, CurrentPPI);
+  Result := Overlay.HandleRect(Mode);
+end;
+
+function TFrameLyricsCharacterDisplaySettingsPage.HitTestDecorationHandle(
+  X, Y: Integer): TCharacterLayoutDragMode;
+var
+  Overlay: TCharacterDecorationOverlay;
+begin
+  Result := cldmNone;
+  if SelectionCount = 0 then Exit;
+  Overlay := TCharacterDecorationOverlay.Create(GroupSelectionBounds,
+    DecorationSettings(SelectedElementIndex), FDragMode, PreviewScale,
+    FPreview.ClientRect, CurrentPPI);
+  Result := Overlay.HitTest(Point(X, Y));
+end;
+
+procedure TFrameLyricsCharacterDisplaySettingsPage.DrawDecorationHandles(
+  Canvas: TCanvas);
+var
+  Overlay: TCharacterDecorationOverlay;
+begin
+  if SelectionCount = 0 then Exit;
+  Overlay := TCharacterDecorationOverlay.Create(GroupSelectionBounds,
+    DecorationSettings(SelectedElementIndex), FDragMode, PreviewScale,
+    FPreview.ClientRect, CurrentPPI);
+  Overlay.Draw(Canvas);
+end;
+procedure TFrameLyricsCharacterDisplaySettingsPage.DragDecoration(
+  X, Y: Integer);
+var
+  I: Integer;
+  Settings: TDisplayCommonSettings;
+  Value: Single;
+begin
+  for I := 0 to Min(High(FSelected), High(FDragStartDecorations)) do
+    if FSelected[I] then
+    begin
+      Settings := FDragStartDecorations[I];
+      case FDragMode of
+        cldmOutlineBlur:
+          begin
+            Value := DisplayDecorationDragValue(Settings.OutlineBlur,
+              X - FDragStartMouse.X, PreviewScale, ddkOutlineBlur);
+            FCurrentPlacements[I].OutlineBlur := Value;
+            FCurrentPlacements[I].HasOutlineBlur :=
+              not SameValue(Value, FCurrentCommon.OutlineBlur);
+          end;
+        cldmOutlineWidth:
+          begin
+            Value := DisplayDecorationDragValue(Settings.OutlineWidth,
+              X - FDragStartMouse.X, PreviewScale, ddkOutlineWidth);
+            FCurrentPlacements[I].OutlineWidth := Value;
+            FCurrentPlacements[I].HasOutlineWidth :=
+              not SameValue(Value, FCurrentCommon.OutlineWidth);
+          end;
+        cldmShadowBlur:
+          begin
+            Value := DisplayDecorationDragValue(Settings.ShadowBlur,
+              X - FDragStartMouse.X, PreviewScale, ddkShadowBlur);
+            FCurrentPlacements[I].ShadowBlur := Value;
+            FCurrentPlacements[I].HasShadowBlur :=
+              not SameValue(Value, FCurrentCommon.ShadowBlur);
+          end;
+        cldmShadowOffset:
+          begin
+            Value := DisplayDecorationDragValue(Settings.ShadowOffsetX,
+              X - FDragStartMouse.X, PreviewScale, ddkShadowOffset);
+            FCurrentPlacements[I].ShadowOffsetX := Value;
+            FCurrentPlacements[I].HasShadowOffsetX :=
+              not SameValue(Value, FCurrentCommon.ShadowOffsetX);
+            Value := DisplayDecorationDragValue(Settings.ShadowOffsetY,
+              Y - FDragStartMouse.Y, PreviewScale, ddkShadowOffset);
+            FCurrentPlacements[I].ShadowOffsetY := Value;
+            FCurrentPlacements[I].HasShadowOffsetY :=
+              not SameValue(Value, FCurrentCommon.ShadowOffsetY);
+          end;
+        cldmShadowSpread:
+          begin
+            Value := DisplayDecorationDragValue(Settings.ShadowSpread,
+              X - FDragStartMouse.X, PreviewScale, ddkShadowSpread);
+            FCurrentPlacements[I].ShadowSpread := Value;
+            FCurrentPlacements[I].HasShadowSpread :=
+              not SameValue(Value, FCurrentCommon.ShadowSpread);
+          end;
+      end;
+    end;
+end;
+
+function TFrameLyricsCharacterDisplaySettingsPage.PreviewRubyTextBounds(
+  Index: Integer): TRect;
+begin
+  Result := TRect.Empty;
+  if (Index < 0) or (Index >= Length(FUnits)) or
+    (Index >= Length(FCurrentPlacements)) then Exit;
+  Result := CharacterPreviewRubyTextBounds(FPreview.Canvas, FCurrentCommon,
+    FCurrentPlacements[Index], DisplayUnitBaseText(Index),
+    DisplayUnitRubyText(Index), PreviewDestinationRect, PreviewScale);
+end;
+function TFrameLyricsCharacterDisplaySettingsPage.PreviewRubyBounds(
+  Index: Integer): TRect;
+var
+  MinimumExtent: Integer;
+  Midpoint: TPoint;
+begin
+  Result := PreviewRubyTextBounds(Index);
+  if IsRectEmpty(Result) then
     Exit;
-  Destination := PreviewDestinationRect;
-  Scale := PreviewScale;
-  Item := FCurrentPlacements[Index];
-  Center.X := Destination.Left + Destination.Width div 2 +
-    Round(Item.X * Scale);
-  Center.Y := Destination.Top + Destination.Height div 2 +
-    Round(Item.Y * Scale);
-  FPreview.Canvas.Font.Name := FCurrentCommon.BaseFontName;
-  if Item.BaseFontName <> '' then
-    FPreview.Canvas.Font.Name := Item.BaseFontName;
-  BaseHeight := FCurrentCommon.BaseFontHeight;
-  if Item.HasBaseFontHeight then
-    BaseHeight := Item.BaseFontHeight;
-  FPreview.Canvas.Font.Height := -Max(1, BaseHeight);
-  BaseStyle := FCurrentCommon.BaseFontStyle;
-  if Item.HasBaseFontStyle then BaseStyle := Item.BaseFontStyle;
-  FPreview.Canvas.Font.Style := CharacterFontStyle(BaseStyle);
-  BaseSpacing := 0;
-  if Item.HasBaseCharacterSpacing then
-    BaseSpacing := Item.BaseCharacterSpacing;
-  SetTextCharacterExtra(FPreview.Canvas.Handle, BaseSpacing);
-  BaseSize := FPreview.Canvas.TextExtent(DisplayUnitBaseText(Index));
-  BaseRect := RectF(-BaseSize.cx * 0.5, -BaseSize.cy * 0.5,
-    BaseSize.cx * 0.5, BaseSize.cy * 0.5);
-  Result := Rect(Center.X + Round(BaseRect.Left * Scale * Item.ScaleX),
-    Center.Y + Round(BaseRect.Top * Scale * Item.ScaleY),
-    Center.X + Round(BaseRect.Right * Scale * Item.ScaleX),
-    Center.Y + Round(BaseRect.Bottom * Scale * Item.ScaleY));
-  RubyText := DisplayUnitRubyText(Index);
-  if RubyText <> '' then
-  begin
-    FPreview.Canvas.Font.Name := FCurrentCommon.RubyFontName;
-    if Item.RubyFontName <> '' then
-      FPreview.Canvas.Font.Name := Item.RubyFontName;
-    RubyHeight := FCurrentCommon.RubyFontHeight;
-    if Item.HasRubyFontHeight then
-      RubyHeight := Item.RubyFontHeight;
-    FPreview.Canvas.Font.Height := -Max(1, RubyHeight);
-    RubyStyle := FCurrentCommon.RubyFontStyle;
-    if Item.HasRubyFontStyle then RubyStyle := Item.RubyFontStyle;
-    FPreview.Canvas.Font.Style := CharacterFontStyle(RubyStyle);
-    RubySpacing := 0;
-    if Item.HasRubyCharacterSpacing then
-      RubySpacing := Item.RubyCharacterSpacing;
-    SetTextCharacterExtra(FPreview.Canvas.Handle, RubySpacing);
-    RubySize := FPreview.Canvas.TextExtent(RubyText);
-    RubyRect.Left := -RubySize.cx * 0.5;
-    RubyRect.Top := -BaseSize.cy * 0.5 - RubySize.cy -
-      (4 + FCurrentCommon.RubyGapAdjustment);
-    if Item.HasRubyOffsetX then
-      RubyRect.Left := RubyRect.Left + Item.RubyOffsetX;
-    if Item.HasRubyOffsetY then
-      RubyRect.Top := RubyRect.Top + Item.RubyOffsetY;
-    RubyRect.Right := RubyRect.Left + RubySize.cx;
-    RubyRect.Bottom := RubyRect.Top + RubySize.cy;
-    UnionRect(Result, Result, Rect(
-      Center.X + Round(RubyRect.Left * Scale * Item.ScaleX),
-      Center.Y + Round(RubyRect.Top * Scale * Item.ScaleY),
-      Center.X + Round(RubyRect.Right * Scale * Item.ScaleX),
-      Center.Y + Round(RubyRect.Bottom * Scale * Item.ScaleY)));
-  end;
-  SetTextCharacterExtra(FPreview.Canvas.Handle, 0);
   InflateRect(Result, MulDiv(4, CurrentPPI, 96),
     MulDiv(4, CurrentPPI, 96));
+  MinimumExtent := MulDiv(30, CurrentPPI, 96);
+  Midpoint := Result.CenterPoint;
+  if Result.Width < MinimumExtent then
+  begin
+    Result.Left := Midpoint.X - MinimumExtent div 2;
+    Result.Right := Result.Left + MinimumExtent;
+  end;
+  if Result.Height < MinimumExtent then
+  begin
+    Result.Top := Midpoint.Y - MinimumExtent div 2;
+    Result.Bottom := Result.Top + MinimumExtent;
+  end;
 end;
 
 function TFrameLyricsCharacterDisplaySettingsPage.PreviewDestinationRect:
@@ -1063,37 +1160,53 @@ var
 begin
   FClickCandidateModeToggle := False;
   FDragChanged := False;
-  if Button = mbRight then
+  if Button = mbMiddle then
   begin
-    FSelectingRectangle := True;
-    FSelectionStart := Point(X, Y);
-    FSelectionCurrent := FSelectionStart;
-    FDragMode := cldmNone;
-    FPreview.Invalidate;
+    FDragMode := cldmPan;
+    FDragStartMouse := Point(X, Y);
+    FDragStartViewPan := FViewPan;
+    TCharacterDisplayPageControlAccess(FPreview).MouseCapture := True;
     Exit;
   end;
   if Button <> mbLeft then
     Exit;
-  FDragMode := HitTestModeHandle(X, Y);
+  FDragMode := HitTestDecorationHandle(X, Y);
+  if FDragMode = cldmNone then
+    FDragMode := HitTestModeHandle(X, Y);
   if FDragMode = cldmNone then
     FDragMode := HitTestResizeHandle(X, Y);
   if FDragMode = cldmNone then
   begin
-    HitIndex := High(FCurrentPlacements);
-    while (HitIndex >= 0) and
-      not PtInRect(PreviewElementBounds(HitIndex), Point(X, Y)) do
-      Dec(HitIndex);
-    if ssShift in Shift then
+    HitIndex := -1;
+    if FSelectionMode = clsmRuby then
+      for I := Min(High(FSelected), High(FCurrentPlacements)) downto 0 do
+        if FSelected[I] and
+          PtInRect(PreviewRubyTextBounds(I), Point(X, Y)) then
+        begin
+          HitIndex := I;
+          Break;
+        end;
+    if HitIndex < 0 then
+    begin
+      HitIndex := High(FCurrentPlacements);
+      while (HitIndex >= 0) and
+        not PtInRect(PreviewElementBounds(HitIndex), Point(X, Y)) do
+        Dec(HitIndex);
+    end;
+    if HitIndex < 0 then
+    begin
+      FSelectionMode := clsmTransform;
+      FSelectingRectangle := True;
+      FSelectionStart := Point(X, Y);
+      FSelectionCurrent := FSelectionStart;
+      TCharacterDisplayPageControlAccess(FPreview).MouseCapture := True;
+      FPreview.Invalidate;
+      Exit;
+    end
+    else if ssShift in Shift then
     begin
       FSelectionMode := clsmTransform;
       SelectElement(HitIndex, True)
-    end
-    else if HitIndex < 0 then
-    begin
-      FSelectionMode := clsmTransform;
-      SelectElement(-1);
-      FDragMode := cldmPan;
-      FDragStartViewPan := FViewPan;
     end
     else if (HitIndex >= Length(FSelected)) or
       not FSelected[HitIndex] then
@@ -1109,7 +1222,10 @@ begin
     end;
     if (HitIndex >= 0) and (HitIndex < Length(FSelected)) and
       FSelected[HitIndex] then
-      if FSelectionMode in [clsmCharacterSpacing, clsmRuby] then
+      if (FSelectionMode = clsmRuby) and
+        PtInRect(PreviewRubyTextBounds(HitIndex), Point(X, Y)) then
+        FDragMode := cldmRubyMove
+      else if FSelectionMode in [clsmCharacterSpacing, clsmRuby] then
         FDragMode := cldmSelectionClick
       else
         FDragMode := cldmMove;
@@ -1118,10 +1234,16 @@ begin
   begin
     FDragStartMouse := Point(X, Y);
     FDragStartPlacements := Copy(FCurrentPlacements);
+    SetLength(FDragStartDecorations, Length(FCurrentPlacements));
+    for I := 0 to High(FCurrentPlacements) do
+      FDragStartDecorations[I] := DecorationSettings(I);
     FDragStartGroupBounds := GroupSelectionBounds;
     SetLength(FDragStartElementBounds, Length(FCurrentPlacements));
     for I := 0 to High(FDragStartElementBounds) do
-      FDragStartElementBounds[I] := PreviewElementBounds(I);
+      if FSelectionMode = clsmRuby then
+        FDragStartElementBounds[I] := PreviewRubyBounds(I)
+      else
+        FDragStartElementBounds[I] := PreviewElementBounds(I);
   end;
 end;
 
@@ -1163,7 +1285,16 @@ begin
       FPreview.Invalidate;
       Exit;
     end;
-    if FDragMode = cldmMove then
+    if FDragMode in [cldmOutlineBlur, cldmOutlineWidth,
+      cldmShadowBlur, cldmShadowOffset, cldmShadowSpread] then
+    begin
+      DragDecoration(X, Y);
+      if FDragMode = cldmShadowOffset then
+        FPreview.Cursor := crSizeAll
+      else
+        FPreview.Cursor := crSizeWE;
+    end
+    else if FDragMode = cldmMove then
     begin
       Destination := PreviewDestinationRect;
       SnapOffsetX := Destination.CenterPoint.X -
@@ -1191,8 +1322,22 @@ begin
       cldmResizeTop, cldmResizeBottom, cldmResizeTopLeft,
       cldmResizeTopRight, cldmResizeBottomLeft,
       cldmResizeBottomRight] then
+    begin
       ResizeSelection(X, Y);
+      case FDragMode of
+        cldmResizeLeft, cldmResizeRight:
+          FPreview.Cursor := crSizeWE;
+        cldmResizeTop, cldmResizeBottom:
+          FPreview.Cursor := crSizeNS;
+        cldmResizeTopLeft, cldmResizeBottomRight:
+          FPreview.Cursor := crSizeNWSE;
+        cldmResizeTopRight, cldmResizeBottomLeft:
+          FPreview.Cursor := crSizeNESW;
+      end;
+    end;
     if FDragMode in [cldmSpacingLeft, cldmSpacingRight] then
+    begin
+      FPreview.Cursor := crSizeWE;
       if FSelectionMode = clsmCharacterSpacing then
       begin
         SetLength(CharacterCounts, Length(FUnits));
@@ -1203,16 +1348,33 @@ begin
           FDragMode, X - FDragStartMouse.X, Scale);
       end
       else
-        ApplyCharacterLayoutRubySpacingDrag(FCurrentPlacements,
-          FSelected, FDragStartPlacements, FDragMode,
-          X - FDragStartMouse.X, Scale)
+      begin
+        SetLength(CharacterCounts, Length(FUnits));
+        for I := 0 to High(CharacterCounts) do
+          CharacterCounts[I] := Length(DisplayUnitRubyText(I));
+        ApplyCharacterLayoutRubySpacingDragByEdge(FCurrentPlacements,
+          FSelected, CharacterCounts, FDragStartPlacements,
+          FDragMode, X - FDragStartMouse.X, Scale);
+      end;
+    end
     else if FDragMode = cldmRubyMove then
+    begin
       ApplyCharacterLayoutRubyMoveDrag(FCurrentPlacements,
         FSelected, FDragStartPlacements,
         X - FDragStartMouse.X, Y - FDragStartMouse.Y, Scale);
+      FPreview.Cursor := crSizeAll;
+    end;
     FPreview.Invalidate;
     Exit;
   end;
+  HoverMode := HitTestDecorationHandle(X, Y);
+  case HoverMode of
+    cldmShadowOffset: FPreview.Cursor := crSizeAll;
+    cldmOutlineBlur, cldmOutlineWidth, cldmShadowBlur,
+      cldmShadowSpread: FPreview.Cursor := crSizeWE;
+  end;
+  if HoverMode <> cldmNone then
+    Exit;
   HoverMode := HitTestModeHandle(X, Y);
   case HoverMode of
     cldmSpacingLeft, cldmSpacingRight:
@@ -1226,6 +1388,8 @@ begin
   case HoverMode of
     cldmResizeLeft, cldmResizeRight:
       FPreview.Cursor := crSizeWE;
+    cldmSpacingLeft, cldmSpacingRight:
+      FPreview.Cursor := crSizeWE;
     cldmResizeTop, cldmResizeBottom:
       FPreview.Cursor := crSizeNS;
     cldmResizeTopLeft, cldmResizeBottomRight:
@@ -1237,11 +1401,27 @@ begin
   end;
   if HoverMode <> cldmNone then
     Exit;
-  HitIndex := High(FCurrentPlacements);
-  while (HitIndex >= 0) and
-    not PtInRect(PreviewElementBounds(HitIndex), Point(X, Y)) do
-    Dec(HitIndex);
-  if HitIndex >= 0 then
+  HitIndex := -1;
+  if FSelectionMode = clsmRuby then
+    for I := Min(High(FSelected), High(FCurrentPlacements)) downto 0 do
+      if FSelected[I] and
+        PtInRect(PreviewRubyTextBounds(I), Point(X, Y)) then
+      begin
+        HitIndex := I;
+        Break;
+      end;
+  if HitIndex < 0 then
+  begin
+    HitIndex := High(FCurrentPlacements);
+    while (HitIndex >= 0) and
+      not PtInRect(PreviewElementBounds(HitIndex), Point(X, Y)) do
+      Dec(HitIndex);
+  end;
+  if (FSelectionMode = clsmRuby) and (HitIndex >= 0) and
+    (HitIndex < Length(FSelected)) and FSelected[HitIndex] and
+    not PtInRect(PreviewRubyTextBounds(HitIndex), Point(X, Y)) then
+    FPreview.Cursor := crDefault
+  else if HitIndex >= 0 then
     FPreview.Cursor := crSizeAll
   else
     FPreview.Cursor := crDefault;
@@ -1255,7 +1435,15 @@ var
   I: Integer;
   Intersection: TRect;
 begin
-  if (Button = mbRight) and FSelectingRectangle then
+  if (Button = mbMiddle) and (FDragMode = cldmPan) then
+  begin
+    FDragMode := cldmNone;
+    FDragChanged := False;
+    TCharacterDisplayPageControlAccess(FPreview).MouseCapture := False;
+    PreviewMouseMove(Sender, Shift, X, Y);
+    Exit;
+  end;
+  if (Button = mbLeft) and FSelectingRectangle then
   begin
     FSelectionCurrent := Point(X, Y);
     Bounds := Rect(Min(FSelectionStart.X, FSelectionCurrent.X),
@@ -1274,6 +1462,7 @@ begin
         FCandidateSelections[FCurrentCandidate] := I;
       end;
     FSelectingRectangle := False;
+    TCharacterDisplayPageControlAccess(FPreview).MouseCapture := False;
     FSelectionMode := clsmTransform;
     FCandidateSelected[FCurrentCandidate] := Copy(FSelected);
     UpdateElementComboSelection;
@@ -1357,6 +1546,40 @@ begin
         (OldCenterX - FDragStartGroupBounds.Left) * FactorX;
       NewCenterY := NewBounds.Top +
         (OldCenterY - FDragStartGroupBounds.Top) * FactorY;
+      if FSelectionMode = clsmRuby then
+      begin
+        FCurrentPlacements[I].RubyOffsetX := EnsureRange(
+          IfThen(FDragStartPlacements[I].HasRubyOffsetX,
+            Integer(FDragStartPlacements[I].RubyOffsetX), 0) +
+          Round((NewCenterX - OldCenterX) /
+            (Scale * Max(MIN_SCALE, FDragStartPlacements[I].ScaleX))),
+          -1024, 1024);
+        FCurrentPlacements[I].RubyOffsetY := EnsureRange(
+          IfThen(FDragStartPlacements[I].HasRubyOffsetY,
+            Integer(FDragStartPlacements[I].RubyOffsetY), 0) +
+          Round((NewCenterY - OldCenterY) /
+            (Scale * Max(MIN_SCALE, FDragStartPlacements[I].ScaleY))),
+          -1024, 1024);
+        FCurrentPlacements[I].HasRubyOffsetX :=
+          FCurrentPlacements[I].RubyOffsetX <> 0;
+        FCurrentPlacements[I].HasRubyOffsetY :=
+          FCurrentPlacements[I].RubyOffsetY <> 0;
+        if FDragMode in [cldmResizeLeft, cldmResizeRight,
+          cldmResizeTopLeft, cldmResizeTopRight,
+          cldmResizeBottomLeft, cldmResizeBottomRight] then
+          FCurrentPlacements[I].RubyScaleX := EnsureRange(
+            IfThen(FDragStartPlacements[I].RubyScaleX > 0,
+              Double(FDragStartPlacements[I].RubyScaleX), 1.0) * FactorX,
+            MIN_SCALE, MAX_SCALE);
+        if FDragMode in [cldmResizeTop, cldmResizeBottom,
+          cldmResizeTopLeft, cldmResizeTopRight,
+          cldmResizeBottomLeft, cldmResizeBottomRight] then
+          FCurrentPlacements[I].RubyScaleY := EnsureRange(
+            IfThen(FDragStartPlacements[I].RubyScaleY > 0,
+              Double(FDragStartPlacements[I].RubyScaleY), 1.0) * FactorY,
+            MIN_SCALE, MAX_SCALE);
+        Continue;
+      end;
       FCurrentPlacements[I].X := FDragStartPlacements[I].X +
         (NewCenterX - OldCenterX) / Scale;
       FCurrentPlacements[I].Y := FDragStartPlacements[I].Y +
@@ -1495,6 +1718,8 @@ var
   I: Integer;
   Index: Integer;
   Item: TDisplayPlacementItem;
+  OutlineEnabled: Boolean;
+  ShadowEnabled: Boolean;
   StyleValue: Byte;
 begin
   if FUpdatingControls then
@@ -1510,17 +1735,13 @@ begin
       Exit;
     Item := FCurrentPlacements[Index];
     if Item.BaseFontName <> '' then
-      FBaseFontCombo.ItemIndex :=
-        FBaseFontCombo.Items.IndexOf(Item.BaseFontName)
+      FBaseFontCombo.SetSelectedFont(Item.BaseFontName)
     else
-      FBaseFontCombo.ItemIndex :=
-        FBaseFontCombo.Items.IndexOf(FCurrentCommon.BaseFontName);
+      FBaseFontCombo.SetSelectedFont(FCurrentCommon.BaseFontName);
     if Item.RubyFontName <> '' then
-      FRubyFontCombo.ItemIndex :=
-        FRubyFontCombo.Items.IndexOf(Item.RubyFontName)
+      FRubyFontCombo.SetSelectedFont(Item.RubyFontName)
     else
-      FRubyFontCombo.ItemIndex :=
-        FRubyFontCombo.Items.IndexOf(FCurrentCommon.RubyFontName);
+      FRubyFontCombo.SetSelectedFont(FCurrentCommon.RubyFontName);
     StyleValue := FCurrentCommon.BaseFontStyle;
     if Item.HasBaseFontStyle then
       StyleValue := Item.BaseFontStyle;
@@ -1530,6 +1751,36 @@ begin
       Button.CheckState := TSyncLyricsToolbarCheckState(
         Ord((StyleValue and (1 shl I)) <> 0));
     end;
+    OutlineEnabled := FCurrentCommon.OutlineEnabled;
+    ShadowEnabled := FCurrentCommon.ShadowEnabled;
+    if Item.HasOutlineEnabled then
+      OutlineEnabled := Item.OutlineEnabled;
+    if Item.HasShadowEnabled then
+      ShadowEnabled := Item.ShadowEnabled;
+    FFormattingToolbar.Items[4].CheckState :=
+      TSyncLyricsToolbarCheckState(Ord(OutlineEnabled));
+    FFormattingToolbar.Items[5].CheckState :=
+      TSyncLyricsToolbarCheckState(Ord(ShadowEnabled));
+    for I := 0 to High(FSelected) do
+      if FSelected[I] then
+      begin
+        Item := FCurrentPlacements[I];
+        if Item.HasOutlineEnabled then
+        begin
+          if Item.OutlineEnabled <> OutlineEnabled then
+            FFormattingToolbar.Items[4].CheckState := tbcsMixed;
+        end
+        else if FCurrentCommon.OutlineEnabled <> OutlineEnabled then
+          FFormattingToolbar.Items[4].CheckState := tbcsMixed;
+        if Item.HasShadowEnabled then
+        begin
+          if Item.ShadowEnabled <> ShadowEnabled then
+            FFormattingToolbar.Items[5].CheckState := tbcsMixed;
+        end
+        else if FCurrentCommon.ShadowEnabled <> ShadowEnabled then
+          FFormattingToolbar.Items[5].CheckState := tbcsMixed;
+      end;
+    Item := FCurrentPlacements[Index];
     case FColorPanel.TargetIndex of
       0:
         begin
@@ -1601,19 +1852,75 @@ var
   BaseStyle: Byte;
   BaseSize: TSize;
   BaseText: string;
+  BaseTransform: TXForm;
   Center: TPoint;
+  Decoration: TDisplayCommonSettings;
   Destination: TRect;
   I: Integer;
   IdentityTransform: TXForm;
   Item: TDisplayPlacementItem;
   R: TRect;
   RubyHeight: Integer;
+  RubyScaleX: Double;
+  RubyScaleY: Double;
   RubySpacing: Integer;
   RubyStyle: Byte;
   RubySize: TSize;
   RubyText: string;
   Scale: Double;
   WorldTransform: TXForm;
+
+  procedure DrawDecoratedText(const Value: string;
+    X, Y, CharacterSpacing: Integer);
+  const
+    OUTLINE_STEPS = 24;
+  var
+    FillColor: TColor;
+    Identity: TXForm;
+    Radius: Integer;
+    SavedTransform: TXForm;
+    Step: Integer;
+  begin
+    if (FPreviewRenderer <> nil) and
+      GetWorldTransform(FPreview.Canvas.Handle, SavedTransform) then
+    begin
+      FillChar(Identity, SizeOf(Identity), 0);
+      Identity.eM11 := 1;
+      Identity.eM22 := 1;
+      if SetWorldTransform(FPreview.Canvas.Handle, Identity) then
+      try
+        if DrawDisplayPreviewText(FPreview.Canvas, FPreviewRenderer,
+          Value, FPreview.Canvas.Font.Name,
+          Abs(FPreview.Canvas.Font.Height), CharacterSpacing,
+          FPreview.Canvas.Font.Style, Decoration,
+          SavedTransform.eDx, SavedTransform.eDy,
+          SavedTransform.eM11, SavedTransform.eM22) then
+          Exit;
+      finally
+        SetWorldTransform(FPreview.Canvas.Handle, SavedTransform);
+      end;
+    end;
+    FillColor := FPreview.Canvas.Font.Color;
+    if Decoration.ShadowEnabled and
+      (Decoration.BeforeShadowOpacity > 0) then
+    begin
+      FPreview.Canvas.Font.Color := TColor(Decoration.BeforeShadowColor);
+      FPreview.Canvas.TextOut(X + Round(Decoration.ShadowOffsetX),
+        Y + Round(Decoration.ShadowOffsetY), Value);
+    end;
+    if Decoration.OutlineEnabled and (Decoration.OutlineWidth > 0) and
+      (Decoration.BeforeOutlineOpacity > 0) then
+    begin
+      FPreview.Canvas.Font.Color := TColor(Decoration.BeforeOutlineColor);
+      Radius := Max(1, Round(Decoration.OutlineWidth));
+      for Step := 0 to OUTLINE_STEPS - 1 do
+        FPreview.Canvas.TextOut(
+          X + Round(Radius * Cos(2 * Pi * Step / OUTLINE_STEPS)),
+          Y + Round(Radius * Sin(2 * Pi * Step / OUTLINE_STEPS)), Value);
+    end;
+    FPreview.Canvas.Font.Color := FillColor;
+    FPreview.Canvas.TextOut(X, Y, Value);
+  end;
 begin
   Destination := PreviewDestinationRect;
   FBackground.DrawAt(FPreview.Canvas, FPreview.ClientRect, Destination);
@@ -1624,6 +1931,7 @@ begin
   for I := 0 to Min(High(FUnits), High(FCurrentPlacements)) do
   begin
     Item := FCurrentPlacements[I];
+    Decoration := DecorationSettings(I);
     Center.X := Destination.Left + Destination.Width div 2 +
       Round(Item.X * Scale);
     Center.Y := Destination.Top + Destination.Height div 2 +
@@ -1674,6 +1982,7 @@ begin
     WorldTransform.eM22 := Scale * Item.ScaleY;
     WorldTransform.eDx := Center.X;
     WorldTransform.eDy := Center.Y;
+    BaseTransform := WorldTransform;
     if SetWorldTransform(FPreview.Canvas.Handle, WorldTransform) then
     try
       FPreview.Canvas.Brush.Style := bsClear;
@@ -1685,12 +1994,24 @@ begin
         FPreview.Canvas.Font.Height := -Max(1, RubyHeight);
         FPreview.Canvas.Font.Style := CharacterFontStyle(RubyStyle);
         SetTextCharacterExtra(FPreview.Canvas.Handle, RubySpacing);
-        FPreview.Canvas.TextOut(-RubySize.cx div 2 +
-          IfThen(Item.HasRubyOffsetX, Item.RubyOffsetX, 0),
-          -BaseSize.cy div 2 - RubySize.cy -
-            (4 + FCurrentCommon.RubyGapAdjustment) +
-            IfThen(Item.HasRubyOffsetY, Item.RubyOffsetY, 0),
-          RubyText);
+        RubyScaleX := IfThen(Item.RubyScaleX > 0,
+          Double(Item.RubyScaleX), 1.0);
+        RubyScaleY := IfThen(Item.RubyScaleY > 0,
+          Double(Item.RubyScaleY), 1.0);
+        WorldTransform.eM11 := Scale * Item.ScaleX * RubyScaleX;
+        WorldTransform.eM22 := Scale * Item.ScaleY * RubyScaleY;
+        WorldTransform.eDx := Center.X + Round(
+          IfThen(Item.HasRubyOffsetX, Item.RubyOffsetX, 0) *
+          Scale * Item.ScaleX);
+        WorldTransform.eDy := Center.Y + Round(
+          (-BaseSize.cy * 0.5 - RubySize.cy * 0.5 -
+          (4 + FCurrentCommon.RubyGapAdjustment) +
+          IfThen(Item.HasRubyOffsetY, Item.RubyOffsetY, 0)) *
+          Scale * Item.ScaleY);
+        SetWorldTransform(FPreview.Canvas.Handle, WorldTransform);
+        DrawDecoratedText(RubyText, -RubySize.cx div 2,
+          -RubySize.cy div 2, RubySpacing);
+        SetWorldTransform(FPreview.Canvas.Handle, BaseTransform);
       end;
       FPreview.Canvas.Font.Name := FCurrentCommon.BaseFontName;
       if Item.BaseFontName <> '' then
@@ -1698,8 +2019,8 @@ begin
       FPreview.Canvas.Font.Height := -Max(1, BaseHeight);
       FPreview.Canvas.Font.Style := CharacterFontStyle(BaseStyle);
       SetTextCharacterExtra(FPreview.Canvas.Handle, BaseSpacing);
-      FPreview.Canvas.TextOut(-BaseSize.cx div 2,
-        -BaseSize.cy div 2, BaseText);
+      DrawDecoratedText(BaseText, -BaseSize.cx div 2,
+        -BaseSize.cy div 2, BaseSpacing);
     finally
       FillChar(IdentityTransform, SizeOf(IdentityTransform), 0);
       IdentityTransform.eM11 := 1;
@@ -1707,7 +2028,11 @@ begin
       SetWorldTransform(FPreview.Canvas.Handle, IdentityTransform);
       SetTextCharacterExtra(FPreview.Canvas.Handle, 0);
     end;
-    R := PreviewElementBounds(I);
+    if (FSelectionMode = clsmRuby) and
+      (I < Length(FSelected)) and FSelected[I] then
+      R := PreviewRubyBounds(I)
+    else
+      R := PreviewElementBounds(I);
     FPreview.Canvas.Brush.Style := bsClear;
     if (I < Length(FSelected)) and FSelected[I] then
       FPreview.Canvas.Pen.Color :=
@@ -1724,14 +2049,15 @@ begin
       CharacterLayoutSelectionColor(FSelectionMode);
     FPreview.Canvas.Pen.Width := 1;
     if SelectionCount > 1 then
-      FPreview.Canvas.Pen.Style := psDash;
-    FPreview.Canvas.Rectangle(R);
-    FPreview.Canvas.Pen.Style := psSolid;
-    if FSelectionMode in [clsmCharacterSpacing, clsmRuby] then
+      DrawContrastDashedRect(FPreview.Canvas, R, CurrentPPI)
+    else
+      FPreview.Canvas.Rectangle(R);
+    if FSelectionMode = clsmCharacterSpacing then
       DrawCharacterLayoutSpacingHandles(FPreview.Canvas, R,
-        FSelectionMode = clsmRuby)
+        False)
     else
       DrawCharacterLayoutResizeHandles(FPreview.Canvas, R);
+    DrawDecorationHandles(FPreview.Canvas);
   end;
   if FSelectingRectangle then
   begin
@@ -1739,11 +2065,7 @@ begin
       Min(FSelectionStart.Y, FSelectionCurrent.Y),
       Max(FSelectionStart.X, FSelectionCurrent.X),
       Max(FSelectionStart.Y, FSelectionCurrent.Y));
-    FPreview.Canvas.Brush.Style := bsClear;
-    FPreview.Canvas.Pen.Color := clWhite;
-    FPreview.Canvas.Pen.Style := psDot;
-    FPreview.Canvas.Rectangle(R);
-    FPreview.Canvas.Pen.Style := psSolid;
+    DrawContrastDashedRect(FPreview.Canvas, R, CurrentPPI);
   end;
 end;
 
@@ -1802,14 +2124,12 @@ begin
   Result := FCurrentLyrics;
 end;
 
-function TFrameLyricsCharacterDisplaySettingsPage.SelectedDecorationSettings:
-  TDisplayCommonSettings;
+function TFrameLyricsCharacterDisplaySettingsPage.DecorationSettings(
+  Index: Integer): TDisplayCommonSettings;
 var
-  Index: Integer;
   Item: TDisplayPlacementItem;
 begin
   Result := FCurrentCommon;
-  Index := SelectedElementIndex;
   if (Index < 0) or (Index >= Length(FCurrentPlacements)) then
     Exit;
   Item := FCurrentPlacements[Index];
@@ -1853,99 +2173,9 @@ begin
   if Item.HasShadowSpread then Result.ShadowSpread := Item.ShadowSpread;
 end;
 
-procedure TFrameLyricsCharacterDisplaySettingsPage.ApplySelectedDecoration(
-  const Settings: TDisplayCommonSettings);
-var
-  I: Integer;
-  Item: TDisplayPlacementItem;
-begin
-  for I := 0 to High(FSelected) do
-    if FSelected[I] then
-    begin
-      Item := FCurrentPlacements[I];
-      Item.BeforeColor := Settings.BeforeColor;
-      Item.HasBeforeColor := Settings.BeforeColor <> FCurrentCommon.BeforeColor;
-      Item.AfterColor := Settings.AfterColor;
-      Item.HasAfterColor := Settings.AfterColor <> FCurrentCommon.AfterColor;
-      Item.BeforeOpacity := Settings.BeforeOpacity;
-      Item.HasBeforeOpacity := Settings.BeforeOpacity <>
-        FCurrentCommon.BeforeOpacity;
-      Item.AfterOpacity := Settings.AfterOpacity;
-      Item.HasAfterOpacity := Settings.AfterOpacity <>
-        FCurrentCommon.AfterOpacity;
-      Item.BeforeOutlineColor := Settings.BeforeOutlineColor;
-      Item.HasBeforeOutlineColor := Settings.BeforeOutlineColor <>
-        FCurrentCommon.BeforeOutlineColor;
-      Item.AfterOutlineColor := Settings.AfterOutlineColor;
-      Item.HasAfterOutlineColor := Settings.AfterOutlineColor <>
-        FCurrentCommon.AfterOutlineColor;
-      Item.BeforeOutlineOpacity := Settings.BeforeOutlineOpacity;
-      Item.HasBeforeOutlineOpacity := Settings.BeforeOutlineOpacity <>
-        FCurrentCommon.BeforeOutlineOpacity;
-      Item.AfterOutlineOpacity := Settings.AfterOutlineOpacity;
-      Item.HasAfterOutlineOpacity := Settings.AfterOutlineOpacity <>
-        FCurrentCommon.AfterOutlineOpacity;
-      Item.BeforeShadowColor := Settings.BeforeShadowColor;
-      Item.HasBeforeShadowColor := Settings.BeforeShadowColor <>
-        FCurrentCommon.BeforeShadowColor;
-      Item.AfterShadowColor := Settings.AfterShadowColor;
-      Item.HasAfterShadowColor := Settings.AfterShadowColor <>
-        FCurrentCommon.AfterShadowColor;
-      Item.BeforeShadowOpacity := Settings.BeforeShadowOpacity;
-      Item.HasBeforeShadowOpacity := Settings.BeforeShadowOpacity <>
-        FCurrentCommon.BeforeShadowOpacity;
-      Item.AfterShadowOpacity := Settings.AfterShadowOpacity;
-      Item.HasAfterShadowOpacity := Settings.AfterShadowOpacity <>
-        FCurrentCommon.AfterShadowOpacity;
-      Item.BeforeBlurColor := Settings.BeforeBlurColor;
-      Item.HasBeforeBlurColor := Settings.BeforeBlurColor <>
-        FCurrentCommon.BeforeBlurColor;
-      Item.AfterBlurColor := Settings.AfterBlurColor;
-      Item.HasAfterBlurColor := Settings.AfterBlurColor <>
-        FCurrentCommon.AfterBlurColor;
-      Item.BeforeBlurOpacity := Settings.BeforeBlurOpacity;
-      Item.HasBeforeBlurOpacity := Settings.BeforeBlurOpacity <>
-        FCurrentCommon.BeforeBlurOpacity;
-      Item.AfterBlurOpacity := Settings.AfterBlurOpacity;
-      Item.HasAfterBlurOpacity := Settings.AfterBlurOpacity <>
-        FCurrentCommon.AfterBlurOpacity;
-      Item.OutlineEnabled := Settings.OutlineEnabled;
-      Item.HasOutlineEnabled := Settings.OutlineEnabled <>
-        FCurrentCommon.OutlineEnabled;
-      Item.OutlineWidth := Settings.OutlineWidth;
-      Item.HasOutlineWidth := Abs(Settings.OutlineWidth -
-        FCurrentCommon.OutlineWidth) > 0.0001;
-      Item.OutlineBlur := Settings.OutlineBlur;
-      Item.HasOutlineBlur := Abs(Settings.OutlineBlur -
-        FCurrentCommon.OutlineBlur) > 0.0001;
-      Item.ShadowEnabled := Settings.ShadowEnabled;
-      Item.HasShadowEnabled := Settings.ShadowEnabled <>
-        FCurrentCommon.ShadowEnabled;
-      Item.ShadowOffsetX := Settings.ShadowOffsetX;
-      Item.HasShadowOffsetX := Abs(Settings.ShadowOffsetX -
-        FCurrentCommon.ShadowOffsetX) > 0.0001;
-      Item.ShadowOffsetY := Settings.ShadowOffsetY;
-      Item.HasShadowOffsetY := Abs(Settings.ShadowOffsetY -
-        FCurrentCommon.ShadowOffsetY) > 0.0001;
-      Item.ShadowBlur := Settings.ShadowBlur;
-      Item.HasShadowBlur := Abs(Settings.ShadowBlur -
-        FCurrentCommon.ShadowBlur) > 0.0001;
-      Item.ShadowSpread := Settings.ShadowSpread;
-      Item.HasShadowSpread := Abs(Settings.ShadowSpread -
-        FCurrentCommon.ShadowSpread) > 0.0001;
-      FCurrentPlacements[I] := Item;
-    end;
-  StoreCurrentCandidate;
-  UpdateSelectedControls;
-  FPreview.Invalidate;
-end;
-
 procedure TFrameLyricsCharacterDisplaySettingsPage.SetBackgroundRgba(
   const Pixels: TBytes; Width, Height: Integer);
 begin
-  FBackgroundPixels := Copy(Pixels);
-  FBackgroundPixelWidth := Width;
-  FBackgroundPixelHeight := Height;
   FBackground.SetRgba(Pixels, Width, Height);
   FPreview.Invalidate;
 end;

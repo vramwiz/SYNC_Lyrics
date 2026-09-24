@@ -39,6 +39,9 @@ function AlignSongLyricsLinesToStartLine(const Lines: TLyricsSongLines;
 // contains it, the single line nearest to its synchronization range is used.
 function ResolveSongLyricsPlacementCandidateIndexes(
   const Lines: TLyricsSongLines; LocalFrame: Int64): TLyricsSongLineIndexes;
+// Returns every song line in document order for the placement editor.
+function ResolveSongLyricsPlacementAllIndexes(
+  const Lines: TLyricsSongLines): TLyricsSongLineIndexes;
 // Returns the position in Candidates whose synchronization range is nearest.
 function ResolveSongLyricsPlacementInitialCandidate(
   const Lines: TLyricsSongLines; const Candidates: TLyricsSongLineIndexes;
@@ -190,14 +193,21 @@ var
   BestDistance: Int64;
   CandidateIndex: Integer;
   Distance: Int64;
+  FallbackIndex: Integer;
   I: Integer;
 begin
   Result := -1;
   BestDistance := High(Int64);
+  FallbackIndex := -1;
   for I := 0 to High(Candidates) do
   begin
     CandidateIndex := Candidates[I];
     if (CandidateIndex < 0) or (CandidateIndex >= Length(Lines)) then
+      Continue;
+    if FallbackIndex < 0 then
+      FallbackIndex := I;
+    if (Lines[CandidateIndex].SyncStartFrame < 0) and
+      (Lines[CandidateIndex].SyncEndFrame < 0) then
       Continue;
     Distance := FrameDistanceToRange(LocalFrame,
       Lines[CandidateIndex].SyncStartFrame,
@@ -211,6 +221,8 @@ begin
       BestDistance := Distance;
     end;
   end;
+  if Result < 0 then
+    Result := FallbackIndex;
 end;
 
 function ResolveSongLyricsPlacementCandidateIndexes(
@@ -264,6 +276,16 @@ begin
     SetLength(Result, 1);
     Result[0] := BestCandidate;
   end;
+end;
+
+function ResolveSongLyricsPlacementAllIndexes(
+  const Lines: TLyricsSongLines): TLyricsSongLineIndexes;
+var
+  I: Integer;
+begin
+  SetLength(Result, Length(Lines));
+  for I := 0 to High(Lines) do
+    Result[I] := I;
 end;
 
 type

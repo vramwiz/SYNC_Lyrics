@@ -4,16 +4,21 @@
 
 uses
   System.Classes,
+  System.IOUtils,
   System.Math,
   System.SysUtils,
   System.Types,
+  Winapi.Messages,
   Winapi.Windows,
   Vcl.Controls,
   Vcl.Forms,
   Vcl.Graphics,
+  TextRendererSkia in '..\Source\Lib\TextRenderer\TextRendererSkia.pas',
   TextRendererSkiaRuntime in '..\Source\Lib\TextRenderer\TextRendererSkiaRuntime.pas',
   SYNC_Lyrics_ToolbarButtons in '..\Source\Lib\SYNC_Lyrics_ToolbarButtons.pas',
   SYNC_Lyrics_DarkTheme in '..\Source\Lib\SYNC_Lyrics_DarkTheme.pas',
+  SYNC_Lyrics_FontHistoryComboBox in '..\Source\Lib\SYNC_Lyrics_FontHistoryComboBox.pas',
+  SYNC_Lyrics_ContrastGuides in '..\Source\Lib\SYNC_Lyrics_ContrastGuides.pas',
   SYNC_Lyrics_LyricParser in '..\Source\Common\Lyrics\SYNC_Lyrics_LyricParser.pas',
   SYNC_Lyrics_DisplaySettingsData in '..\Source\Common\Render\SYNC_Lyrics_DisplaySettingsData.pas',
   ColorPickerColorMath in '..\Source\Lib\ColorPicker\ColorPickerColorMath.pas',
@@ -22,6 +27,11 @@ uses
   SYNC_Lyrics_DisplaySettingsModePage in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsModePage.pas',
   SYNC_Lyrics_DisplaySettingsColorPanel in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsColorPanel.pas',
   SYNC_Lyrics_DisplayPreviewBackground in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewBackground.pas',
+  SYNC_Lyrics_DisplayDecorationControls in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayDecorationControls.pas',
+  SYNC_Lyrics_DisplayPreviewText in '..\Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewText.pas',
+  SYNC_Lyrics_LineDisplayPreviewText in '..\Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplayPreviewText.pas',
+  SYNC_Lyrics_CharacterDecorationOverlay in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDecorationOverlay.pas',
+  SYNC_Lyrics_CharacterPreviewGeometry in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterPreviewGeometry.pas',
   SYNC_Lyrics_CharacterLayoutInteraction in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterLayoutInteraction.pas',
   SYNC_Lyrics_LineDisplaySettingsPage in '..\Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsPage.pas',
   SYNC_Lyrics_CharacterDisplaySettingsPage in '..\Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDisplaySettingsPage.pas',
@@ -45,9 +55,11 @@ var
   CharacterPlacementBefore: TDisplayPlacementItem;
   CharacterPlacement1Before: TDisplayPlacementItem;
   CharacterSettingsTexts: TArray<string>;
+  InitialCharacterSettingsTexts: TArray<string>;
   DecodedCharacterCommon: TDisplayCommonSettings;
   DecodedCharacterPlacements: TDisplayPlacementItems;
   Form: TFormLyricsDisplaySettings;
+  HistoryFileName: string;
   CharacterPage: TFrameLyricsCharacterDisplaySettingsPage;
   LinePage: TFrameLyricsLineDisplaySettingsPage;
   RubyBounds0: TRect;
@@ -57,6 +69,12 @@ var
   ViewPanBefore: TPointF;
   ZoomBefore: Double;
   PlacementsMatchLyrics: Boolean;
+  DecorationMode: TCharacterLayoutDragMode;
+  DecorationBefore: TDisplayPlacementItem;
+  PreviewRenderer: TSkiaTextRenderer;
+  PreviewSettings: TDisplayCommonSettings;
+  PreviewSignatureBefore: UInt64;
+  PreviewSignatureAfter: UInt64;
 
 type
   TTestExceptionHandler = class
@@ -74,17 +92,158 @@ begin
     NativeUInt(ExceptAddr) - NativeUInt(GetModuleHandle(nil)), 8));
 end;
 
+function BitmapSignature(const Value: TBitmap): UInt64;
+var
+  X, Y: Integer;
+begin
+  Result := 2166136261;
+  for Y := 0 to Value.Height - 1 do
+    for X := 0 to Value.Width - 1 do
+      Result := (Result xor Cardinal(ColorToRGB(
+        Value.Canvas.Pixels[X, Y]))) * 16777619;
+end;
+
+function DecoratedPreviewSignature(Renderer: TSkiaTextRenderer;
+  const Settings: TDisplayCommonSettings): UInt64;
+var
+  PreviewBitmap: TBitmap;
+begin
+  PreviewBitmap := TBitmap.Create;
+  try
+    PreviewBitmap.SetSize(240, 120);
+    PreviewBitmap.Canvas.Brush.Color := clWhite;
+    PreviewBitmap.Canvas.FillRect(Rect(0, 0, 240, 120));
+    if not DrawDisplayPreviewText(PreviewBitmap.Canvas, Renderer,
+      'A', 'Arial', 48, 0, [], Settings, 120, 60, 1, 1) then
+      raise Exception.Create('Skia free preview draw failed');
+    Result := BitmapSignature(PreviewBitmap);
+  finally
+    PreviewBitmap.Free;
+  end;
+end;
+
+function PreviewAfterHalfOutlinePixels(Renderer: TSkiaTextRenderer): Integer;
+var
+  Color: Cardinal;
+  PreviewBitmap: TBitmap;
+  Settings: TDisplayCommonSettings;
+  X, Y: Integer;
+begin
+  Settings := DefaultDisplayCommonSettings;
+  Settings.BeforeColor := $00FFFFFF;
+  Settings.AfterColor := $00FFFF00;
+  Settings.OutlineEnabled := True;
+  Settings.OutlineWidth := 8;
+  Settings.AfterOutlineOpacity := 0;
+  PreviewBitmap := TBitmap.Create;
+  try
+    PreviewBitmap.SetSize(240, 120);
+    PreviewBitmap.Canvas.Brush.Color := clWhite;
+    PreviewBitmap.Canvas.FillRect(Rect(0, 0, 240, 120));
+    if not DrawDisplayPreviewText(PreviewBitmap.Canvas, Renderer,
+      'A', 'Arial', 64, 0, [], Settings, 120, 60, 1, 1) then
+      raise Exception.Create('after-color outline preview draw failed');
+    Result := 0;
+    for Y := 0 to PreviewBitmap.Height - 1 do
+      for X := 0 to 119 do
+      begin
+        Color := Cardinal(ColorToRGB(PreviewBitmap.Canvas.Pixels[X, Y]));
+        if ((Color and $FF) < 80) and
+          (((Color shr 8) and $FF) < 80) and
+          (((Color shr 16) and $FF) < 80) then
+          Inc(Result);
+      end;
+  finally
+    PreviewBitmap.Free;
+  end;
+end;
+
 var
   ExceptionHandler: TTestExceptionHandler;
 
 begin
   ExceptionHandler := nil;
   Form := nil;
+  HistoryFileName := TPath.Combine(TPath.GetTempPath,
+    'SYNC_Lyrics_FontHistory_FormTest_' +
+    IntToStr(GetCurrentProcessId) + '.txt');
+  DeleteFile(PChar(HistoryFileName));
+  TSyncLyricsFontHistoryComboBox.ConfigureHistoryFile(HistoryFileName);
   try
     try
       Application.Initialize;
+      if (DisplayDecorationDragValue(8, 10, 1,
+        ddkOutlineWidth) >= 10) or
+        (DisplayDecorationDragValue(8, 10000, 1,
+        ddkOutlineWidth) <> 24) or
+        (DisplayDecorationDragValue(10, 10000, 1,
+        ddkShadowOffset) <> 96) or
+        (DisplayDecorationDragValue(4, -10000, 1,
+        ddkShadowBlur) <> 32) then
+        raise Exception.Create('decoration drag sensitivity or limit mismatch');
+      Bitmap := TBitmap.Create;
+      try
+        Bitmap.SetSize(64, 24);
+        Bitmap.Canvas.Brush.Color := clWhite;
+        Bitmap.Canvas.FillRect(Rect(0, 0, 64, 24));
+        DrawContrastDashedLine(Bitmap.Canvas, Point(4, 8), Point(60, 8));
+        if ColorToRGB(Bitmap.Canvas.Pixels[5, 7]) <> clBlack then
+          raise Exception.Create('contrast guide is invisible on white');
+        Bitmap.Canvas.Brush.Color := clBlack;
+        Bitmap.Canvas.FillRect(Rect(0, 0, 64, 24));
+        DrawContrastDashedLine(Bitmap.Canvas, Point(4, 8), Point(60, 8));
+        if ColorToRGB(Bitmap.Canvas.Pixels[5, 8]) <> clWhite then
+          raise Exception.Create('contrast guide is invisible on black');
+      finally
+        Bitmap.Free;
+      end;
       TTextRendererSkiaRuntime.Acquire(
         ExtractFilePath(ParamStr(0)) + 'sk4d.dll');
+      PreviewRenderer := TSkiaTextRenderer.Create;
+      try
+        PreviewSettings := DefaultDisplayCommonSettings;
+        PreviewSettings.BeforeColor := $00000000;
+        PreviewSettings.AfterColor := $00000000;
+        PreviewSettings.OutlineEnabled := True;
+        PreviewSettings.OutlineWidth := 4;
+        if PreviewAfterHalfOutlinePixels(PreviewRenderer) = 0 then
+          raise Exception.Create('after-color preview lost the underlying outline');
+        PreviewSignatureBefore := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        PreviewSettings.OutlineBlur := 8;
+        PreviewSignatureAfter := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        if PreviewSignatureAfter = PreviewSignatureBefore then
+          raise Exception.Create('free preview outline blur has no effect');
+        PreviewSettings.OutlineEnabled := False;
+        PreviewSettings.ShadowEnabled := True;
+        PreviewSignatureBefore := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        PreviewSettings.ShadowBlur := 12;
+        PreviewSignatureAfter := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        if PreviewSignatureAfter = PreviewSignatureBefore then
+          raise Exception.Create('free preview shadow blur has no effect');
+        PreviewSignatureBefore := PreviewSignatureAfter;
+        PreviewSettings.ShadowSpread := 8;
+        PreviewSignatureAfter := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        if PreviewSignatureAfter = PreviewSignatureBefore then
+          raise Exception.Create('free preview shadow spread has no effect');
+        PreviewSettings.ShadowEnabled := False;
+        PreviewSettings.BeforeOpacity := 255;
+        PreviewSettings.AfterOpacity := 255;
+        PreviewSignatureBefore := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        PreviewSettings.BeforeOpacity := 0;
+        PreviewSettings.AfterOpacity := 0;
+        PreviewSignatureAfter := DecoratedPreviewSignature(
+          PreviewRenderer, PreviewSettings);
+        if PreviewSignatureAfter = PreviewSignatureBefore then
+          raise Exception.Create('free preview opacity has no effect');
+      finally
+        PreviewRenderer.Free;
+      end;
       ExceptionHandler := TTestExceptionHandler.Create;
       Application.OnException := ExceptionHandler.HandleException;
       Form := TFormLyricsDisplaySettings.Create(nil);
@@ -121,6 +280,24 @@ begin
           raise Exception.Create('line Skia preview renderer was not created');
         CharacterPage := TFrameLyricsCharacterDisplaySettingsPage(
           Form.PageForMode(DISPLAY_SETTINGS_MODE_FREE));
+        if not CharacterPage.HasSkiaPreviewRenderer then
+          raise Exception.Create('free Skia preview renderer was not created');
+        CharacterPage.ColorPanel.BeforeOpacityTrack.Position := 0;
+        CharacterPage.ColorPanel.BeforeOpacityTrack.Perform(WM_LBUTTONDOWN,
+          MK_LBUTTON, (12 shl 16) or 8);
+        CharacterPage.ColorPanel.BeforeOpacityTrack.Perform(WM_MOUSEMOVE,
+          MK_LBUTTON, (12 shl 16) or
+          (CharacterPage.ColorPanel.BeforeOpacityTrack.ClientWidth div 2));
+        CharacterPage.ColorPanel.BeforeOpacityTrack.Perform(WM_LBUTTONUP,
+          0, (12 shl 16) or
+          (CharacterPage.ColorPanel.BeforeOpacityTrack.ClientWidth div 2));
+        if (CharacterPage.ColorPanel.BeforeOpacityTrack.Position < 100) or
+          (CharacterPage.ColorPanel.BeforeOpacityTrack.Position > 155) then
+          raise Exception.Create('opacity track drag did not follow pointer');
+        CharacterPage.ColorPanel.BeforeOpacityTrack.Position := 49;
+        if CharacterPage.ColorPanel.BeforeOpacityTrack.Position <> 51 then
+          raise Exception.Create('opacity track 10 percent snap failed');
+        CharacterPage.ColorPanel.BeforeOpacityTrack.Position := 255;
         if (LinePage.BaseFontCombo.ItemHeight <>
           MulDiv(16, LinePage.BaseFontCombo.CurrentPPI, 96)) or
           (LinePage.RubyFontCombo.ItemHeight <>
@@ -180,6 +357,9 @@ begin
           raise Exception.Create('character test settings encode failed');
         CharacterPage.ConfigureCandidates(CharacterLyrics,
           CharacterCommonSettings, CharacterSettingsTexts, 0);
+        if not CharacterPage.TryBuildCandidateSettingsTexts(
+          InitialCharacterSettingsTexts) then
+          raise Exception.Create('initial character settings build failed');
         InitialCharacterPlacement := CharacterPage.ElementPlacement(0);
         Form.CaptureInitialState;
         if (Form.ModeToolbar.ItemCount <> 5) or
@@ -200,8 +380,43 @@ begin
         CharacterPage.CandidateChanged(0);
         if CharacterPage.SelectedElementIndex <> 1 then
           raise Exception.Create('character selection was not retained');
+        if not CharacterPage.TryBuildCandidateSettingsTexts(
+          CharacterSettingsTexts) or
+          (Length(CharacterSettingsTexts) <>
+          Length(InitialCharacterSettingsTexts)) then
+          raise Exception.Create('unchanged character candidates were lost');
+        for CornerIndex := 0 to High(CharacterSettingsTexts) do
+          if CharacterSettingsTexts[CornerIndex] <>
+            InitialCharacterSettingsTexts[CornerIndex] then
+            raise Exception.Create('visiting a line changed its placement');
         Form.SetMode(DISPLAY_SETTINGS_MODE_FREE);
         CharacterPage.Preview.OnPaint(CharacterPage.Preview);
+        if (ParamCount > 1) and
+          SameText(ParamStr(1), '--snapshot-ruby') then
+        begin
+          CharacterPage.ElementCombo.ItemIndex := 1;
+          CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
+          Bounds := CharacterPage.PreviewElementBounds(1);
+          for CornerIndex := 1 to 2 do
+          begin
+            CharacterPage.Preview.OnMouseDown(CharacterPage.Preview,
+              mbLeft, [], Bounds.CenterPoint.X, Bounds.Bottom - 10);
+            CharacterPage.Preview.OnMouseUp(CharacterPage.Preview,
+              mbLeft, [], Bounds.CenterPoint.X, Bounds.Bottom - 10);
+          end;
+          if CharacterPage.SelectedMode <> clsmRuby then
+            raise Exception.Create('ruby snapshot could not select mode');
+          Form.Show;
+          Application.ProcessMessages;
+          Bitmap := Form.GetFormImage;
+          try
+            Bitmap.SaveToFile(ParamStr(2));
+          finally
+            Bitmap.Free;
+          end;
+          Form.Hide;
+          CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
+        end;
         Bounds := CharacterPage.PreviewElementBounds(0);
         CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
           Bounds.Left + 1,
@@ -282,11 +497,11 @@ begin
         Bounds := CharacterPage.PreviewElementBounds(0);
         UnionRect(Bounds, Bounds,
           CharacterPage.PreviewElementBounds(1));
-        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbRight,
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
           [], Bounds.Left - 4, Bounds.Top - 4);
         CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
           Bounds.Right + 4, Bounds.Bottom + 4);
-        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbRight,
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
           [], Bounds.Right + 4, Bounds.Bottom + 4);
         if CharacterPage.SelectedElementCount <> 2 then
           raise Exception.Create('character rectangle selection mismatch');
@@ -327,21 +542,98 @@ begin
           (Bounds.Top + Bounds.Bottom) div 2);
         if CharacterPage.SelectedMode <> clsmRuby then
           raise Exception.Create('character ruby mode mismatch');
+        RubyBounds1 := CharacterPage.PreviewRubyBounds(1);
+        if IsRectEmpty(RubyBounds1) then
+          raise Exception.Create('character ruby bounds missing');
+        for CornerIndex := 0 to 7 do
+        begin
+          case CornerIndex of
+            0: CornerPoint := RubyBounds1.TopLeft;
+            1: CornerPoint := Point(RubyBounds1.CenterPoint.X,
+              RubyBounds1.Top);
+            2: CornerPoint := Point(RubyBounds1.Right, RubyBounds1.Top);
+            3: CornerPoint := Point(RubyBounds1.Left,
+              RubyBounds1.CenterPoint.Y);
+            4: CornerPoint := Point(RubyBounds1.Right,
+              RubyBounds1.CenterPoint.Y);
+            5: CornerPoint := Point(RubyBounds1.Left, RubyBounds1.Bottom);
+            6: CornerPoint := Point(RubyBounds1.CenterPoint.X,
+              RubyBounds1.Bottom);
+          else
+            CornerPoint := RubyBounds1.BottomRight;
+          end;
+          if CornerIndex in [0, 7] then
+            ExpectedCursor := crSizeNWSE
+          else if CornerIndex in [2, 5] then
+            ExpectedCursor := crSizeNESW
+          else if CornerIndex in [1, 6] then
+            ExpectedCursor := crSizeNS
+          else
+            ExpectedCursor := crSizeWE;
+          CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+            CornerPoint.X, CornerPoint.Y);
+          if CharacterPage.Preview.Cursor <> ExpectedCursor then
+            raise Exception.CreateFmt(
+              'ruby handle %d cursor mismatch', [CornerIndex]);
+        end;
         CharacterPlacementBefore := CharacterPage.ElementPlacement(1);
         CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
-          (Bounds.Left + Bounds.Right) div 2, Bounds.Top);
-        if CharacterPage.Preview.Cursor <> crSizeAll then
-          raise Exception.Create('character ruby cursor mismatch');
+          RubyBounds1.Right, RubyBounds1.Bottom);
+        if CharacterPage.Preview.Cursor <> crSizeNWSE then
+          raise Exception.Create('character ruby resize cursor mismatch');
         CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
-          [], (Bounds.Left + Bounds.Right) div 2, Bounds.Top);
+          [], RubyBounds1.Right, RubyBounds1.Bottom);
         CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
-          (Bounds.Left + Bounds.Right) div 2 + 8, Bounds.Top + 6);
+          RubyBounds1.Right + 16, RubyBounds1.Bottom + 12);
         CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
-          [], (Bounds.Left + Bounds.Right) div 2 + 8, Bounds.Top + 6);
+          [], RubyBounds1.Right + 16, RubyBounds1.Bottom + 12);
+        if (CharacterPage.ElementPlacement(1).RubyScaleX <= 1) or
+          (CharacterPage.ElementPlacement(1).RubyScaleY <= 1) or
+          (CharacterPage.ElementPlacement(1).ScaleX <>
+            CharacterPlacementBefore.ScaleX) or
+          (CharacterPage.ElementPlacement(1).ScaleY <>
+            CharacterPlacementBefore.ScaleY) then
+          raise Exception.Create('character ruby resize changed base scale');
+        RubyBounds1 := CharacterPage.PreviewRubyBounds(1);
+        CharacterPlacementBefore := CharacterPage.ElementPlacement(1);
+        CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+          RubyBounds1.Left, RubyBounds1.CenterPoint.Y);
+        if CharacterPage.Preview.Cursor <> crSizeWE then
+          raise Exception.CreateFmt(
+            'character ruby spacing cursor mismatch: %d, bounds=%d,%d,%d,%d, mode=%d',
+            [Integer(CharacterPage.Preview.Cursor), RubyBounds1.Left,
+             RubyBounds1.Top, RubyBounds1.Right, RubyBounds1.Bottom,
+             Ord(CharacterPage.SelectedMode)]);
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+          [], RubyBounds1.Left, RubyBounds1.CenterPoint.Y);
+        CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+          RubyBounds1.Left - 14, RubyBounds1.CenterPoint.Y);
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+          [], RubyBounds1.Left - 14, RubyBounds1.CenterPoint.Y);
+        if CharacterPage.ElementPlacement(1).RubyCharacterSpacing =
+          CharacterPlacementBefore.RubyCharacterSpacing then
+          raise Exception.Create('character ruby spacing drag mismatch');
+        RubyBounds1 := CharacterPage.PreviewRubyBounds(1);
+        CharacterPlacementBefore := CharacterPage.ElementPlacement(1);
+        CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+          RubyBounds1.CenterPoint.X, RubyBounds1.CenterPoint.Y);
+        if CharacterPage.Preview.Cursor <> crSizeAll then
+          raise Exception.Create('character ruby body cursor mismatch');
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+          [], RubyBounds1.CenterPoint.X, RubyBounds1.CenterPoint.Y);
+        CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+          RubyBounds1.CenterPoint.X + 8, RubyBounds1.CenterPoint.Y + 6);
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+          [], RubyBounds1.CenterPoint.X + 8,
+          RubyBounds1.CenterPoint.Y + 6);
         if (CharacterPage.ElementPlacement(1).RubyOffsetX =
           CharacterPlacementBefore.RubyOffsetX) or
           (CharacterPage.ElementPlacement(1).RubyOffsetY =
-          CharacterPlacementBefore.RubyOffsetY) then
+          CharacterPlacementBefore.RubyOffsetY) or
+          (CharacterPage.ElementPlacement(1).X <>
+            CharacterPlacementBefore.X) or
+          (CharacterPage.ElementPlacement(1).Y <>
+            CharacterPlacementBefore.Y) then
           raise Exception.Create('character ruby move mismatch');
         ZoomBefore := CharacterPage.ViewZoom;
         CharacterPage.AdjustPreviewZoom(120,
@@ -350,11 +642,11 @@ begin
         if CharacterPage.ViewZoom <= ZoomBefore then
           raise Exception.Create('character preview zoom mismatch');
         ViewPanBefore := CharacterPage.ViewPan;
-        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbMiddle,
           [], 2, 2);
         CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
           18, 12);
-        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbMiddle,
           [], 18, 12);
         if (CharacterPage.ViewPan.X = ViewPanBefore.X) and
           (CharacterPage.ViewPan.Y = ViewPanBefore.Y) then
@@ -362,7 +654,7 @@ begin
         CharacterPage.ElementCombo.ItemIndex := 1;
         CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
         CharacterPlacementBefore := CharacterPage.ElementPlacement(1);
-        CharacterPage.ActionToolbar.Items[2].Execute;
+        CharacterPage.ActionToolbar.Items[1].Execute;
         if (CharacterPage.ElementPlacement(1).ScaleX =
           CharacterPlacementBefore.ScaleX) and
           (CharacterPage.ElementPlacement(1).RubyOffsetX =
@@ -370,24 +662,115 @@ begin
           raise Exception.Create('character reset selected mismatch');
         CharacterPage.BaseFontCombo.ItemIndex :=
           CharacterPage.BaseFontCombo.Items.IndexOf('Arial');
-        CharacterPage.BaseFontCombo.OnChange(
-          CharacterPage.BaseFontCombo);
+        if CharacterPage.ElementPlacement(1).BaseFontName = 'Arial' then
+          raise Exception.Create('font applied before explicit commit');
+        CharacterPage.BaseFontCombo.Perform(CN_COMMAND,
+          MakeWParam(0, CBN_SELCHANGE), 0);
+        CharacterPage.BaseFontCombo.Perform(CN_COMMAND,
+          MakeWParam(0, CBN_CLOSEUP), 0);
+        if CharacterPage.ElementPlacement(1).BaseFontName <> 'Arial' then
+          raise Exception.Create('free font list selection was not applied');
         CharacterPage.FormattingToolbar.Items[0].Execute;
+        if (CharacterPage.ActionToolbar.ItemCount <> 5) or
+          (CharacterPage.ActionToolbar.Items[0].Glyph <> tbgMoveToCenter) then
+          raise Exception.Create('obsolete decoration action remains');
+        CharacterPage.FormattingToolbar.Items[4].Execute;
+        CharacterPage.FormattingToolbar.Items[5].Execute;
+        if not CharacterPage.ElementPlacement(1).OutlineEnabled or
+          not CharacterPage.ElementPlacement(1).ShadowEnabled then
+          raise Exception.Create('character decoration toggle mismatch');
+        CharacterPage.FormattingToolbar.Items[4].Execute;
+        CharacterPage.FormattingToolbar.Items[5].Execute;
+        if CharacterPage.ElementPlacement(1).OutlineEnabled or
+          CharacterPage.ElementPlacement(1).ShadowEnabled then
+          raise Exception.Create('character decoration toggle off mismatch');
+        CharacterPage.FormattingToolbar.Items[4].Execute;
+        CharacterPage.FormattingToolbar.Items[5].Execute;
+        for DecorationMode := cldmOutlineBlur to cldmShadowSpread do
+        begin
+          CharacterPage.Preview.OnPaint(CharacterPage.Preview);
+          Bounds := CharacterPage.DecorationHandleRect(DecorationMode);
+          if IsRectEmpty(Bounds) then
+            raise Exception.Create('free decoration handle missing');
+          DragPoint := Bounds.CenterPoint;
+          if DecorationMode = cldmShadowOffset then
+            ExpectedCursor := crSizeAll
+          else
+            ExpectedCursor := crSizeWE;
+          CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+            DragPoint.X, DragPoint.Y);
+          if CharacterPage.Preview.Cursor <> ExpectedCursor then
+            raise Exception.CreateFmt('free decoration hover cursor mismatch: %d actual %d',
+              [Ord(DecorationMode), Integer(CharacterPage.Preview.Cursor)]);
+          DecorationBefore := CharacterPage.ElementPlacement(1);
+          CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+            [], DragPoint.X, DragPoint.Y);
+          if DecorationMode in [cldmOutlineBlur, cldmShadowBlur] then
+            Dec(DragPoint.X, 12)
+          else
+            Inc(DragPoint.X, 12);
+          if DecorationMode = cldmShadowOffset then
+            Inc(DragPoint.Y, 8);
+          CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+            DragPoint.X, DragPoint.Y);
+          CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+            [], DragPoint.X, DragPoint.Y);
+          case DecorationMode of
+            cldmOutlineBlur:
+              if not CharacterPage.ElementPlacement(1).HasOutlineBlur or
+                (CharacterPage.ElementPlacement(1).OutlineBlur =
+                DecorationBefore.OutlineBlur) then
+                raise Exception.Create('free outline blur drag failed');
+            cldmOutlineWidth:
+              if not CharacterPage.ElementPlacement(1).HasOutlineWidth or
+                (CharacterPage.ElementPlacement(1).OutlineWidth =
+                DecorationBefore.OutlineWidth) then
+                raise Exception.Create('free outline width drag failed');
+            cldmShadowBlur:
+              if not CharacterPage.ElementPlacement(1).HasShadowBlur or
+                (CharacterPage.ElementPlacement(1).ShadowBlur =
+                DecorationBefore.ShadowBlur) then
+                raise Exception.Create('free shadow blur drag failed');
+            cldmShadowOffset:
+              if not CharacterPage.ElementPlacement(1).HasShadowOffsetX or
+                not CharacterPage.ElementPlacement(1).HasShadowOffsetY then
+                raise Exception.Create('free shadow offset drag failed');
+            cldmShadowSpread:
+              if not CharacterPage.ElementPlacement(1).HasShadowSpread or
+                (CharacterPage.ElementPlacement(1).ShadowSpread =
+                DecorationBefore.ShadowSpread) then
+                raise Exception.Create('free shadow spread drag failed');
+          end;
+        end;
+        CharacterPage.ElementCombo.ItemIndex := 0;
+        CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
+        Bounds := CharacterPage.PreviewElementBounds(1);
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+          [ssShift], Bounds.Right - 1, Bounds.CenterPoint.Y);
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+          [ssShift], Bounds.Right - 1, Bounds.CenterPoint.Y);
+        if CharacterPage.SelectedElementCount <> 2 then
+          raise Exception.Create('free decoration multi-selection failed');
+        CharacterPlacementBefore := CharacterPage.ElementPlacement(0);
+        CharacterPlacement1Before := CharacterPage.ElementPlacement(1);
+        Bounds := CharacterPage.DecorationHandleRect(cldmOutlineWidth);
+        DragPoint := Bounds.CenterPoint;
+        CharacterPage.Preview.OnMouseDown(CharacterPage.Preview, mbLeft,
+          [], DragPoint.X, DragPoint.Y);
+        CharacterPage.Preview.OnMouseMove(CharacterPage.Preview, [],
+          DragPoint.X + 12, DragPoint.Y);
+        CharacterPage.Preview.OnMouseUp(CharacterPage.Preview, mbLeft,
+          [], DragPoint.X + 12, DragPoint.Y);
+        if (CharacterPage.ElementPlacement(0).OutlineWidth =
+          CharacterPlacementBefore.OutlineWidth) or
+          (CharacterPage.ElementPlacement(1).OutlineWidth =
+          CharacterPlacement1Before.OutlineWidth) then
+          raise Exception.Create('free decoration multi-drag failed');
+        CharacterPage.ElementCombo.ItemIndex := 1;
+        CharacterPage.ElementCombo.OnChange(CharacterPage.ElementCombo);
         CharacterPage.ColorPanel.BeforePicker.Color := clRed;
         CharacterPage.ColorPanel.BeforeOpacityTrack.Position := 111;
         CharacterPage.ColorPanel.OnChange(CharacterPage.ColorPanel);
-        SettingsBeforeDrag := CharacterPage.SelectedDecorationSettings;
-        SettingsBeforeDrag.OutlineEnabled := True;
-        SettingsBeforeDrag.OutlineWidth := 7.25;
-        SettingsBeforeDrag.OutlineBlur := 2.5;
-        SettingsBeforeDrag.ShadowEnabled := True;
-        SettingsBeforeDrag.ShadowOffsetX := 11;
-        SettingsBeforeDrag.ShadowOffsetY := -6;
-        SettingsBeforeDrag.ShadowBlur := 3;
-        SettingsBeforeDrag.ShadowSpread := 4;
-        SettingsBeforeDrag.BeforeOutlineColor := ColorToRGB(clBlue);
-        SettingsBeforeDrag.BeforeOutlineOpacity := 77;
-        CharacterPage.ApplySelectedDecoration(SettingsBeforeDrag);
         if not CharacterPage.TryBuildCandidateSettingsTexts(
           CharacterSettingsTexts) or
           (Length(CharacterSettingsTexts) <> 2) then
@@ -410,25 +793,19 @@ begin
           (DecodedCharacterPlacements[1].BeforeOpacity <> 111) or
           not DecodedCharacterPlacements[1].HasOutlineEnabled or
           not DecodedCharacterPlacements[1].OutlineEnabled or
-          not DecodedCharacterPlacements[1].HasOutlineWidth or
-          (Abs(DecodedCharacterPlacements[1].OutlineWidth - 7.25) > 0.001) or
-          not DecodedCharacterPlacements[1].HasOutlineBlur or
-          (Abs(DecodedCharacterPlacements[1].OutlineBlur - 2.5) > 0.001) or
           not DecodedCharacterPlacements[1].HasShadowEnabled or
           not DecodedCharacterPlacements[1].ShadowEnabled or
+          not DecodedCharacterPlacements[1].HasOutlineWidth or
+          not DecodedCharacterPlacements[1].HasOutlineBlur or
           not DecodedCharacterPlacements[1].HasShadowOffsetX or
-          (Abs(DecodedCharacterPlacements[1].ShadowOffsetX - 11) > 0.001) or
           not DecodedCharacterPlacements[1].HasShadowOffsetY or
-          (Abs(DecodedCharacterPlacements[1].ShadowOffsetY + 6) > 0.001) or
           not DecodedCharacterPlacements[1].HasShadowBlur or
-          (Abs(DecodedCharacterPlacements[1].ShadowBlur - 3) > 0.001) or
           not DecodedCharacterPlacements[1].HasShadowSpread or
-          (Abs(DecodedCharacterPlacements[1].ShadowSpread - 4) > 0.001) or
-          not DecodedCharacterPlacements[1].HasBeforeOutlineColor or
-          (DecodedCharacterPlacements[1].BeforeOutlineColor <>
-            Cardinal(ColorToRGB(clBlue))) or
-          not DecodedCharacterPlacements[1].HasBeforeOutlineOpacity or
-          (DecodedCharacterPlacements[1].BeforeOutlineOpacity <> 77) then
+          (DecodedCharacterPlacements[1].RubyScaleX <= 1) or
+          (DecodedCharacterPlacements[1].RubyScaleY <= 1) or
+          not DecodedCharacterPlacements[1].HasRubyOffsetX or
+          not DecodedCharacterPlacements[1].HasRubyOffsetY or
+          not DecodedCharacterPlacements[1].HasRubyCharacterSpacing then
           raise Exception.Create('character style settings were not retained');
         Form.SetMode(DISPLAY_SETTINGS_MODE_LINE);
         if (Form.CandidateCombo.Items.Count <> 3) or
@@ -715,9 +1092,9 @@ begin
         if LinePage.ViewZoom <= ZoomBefore then
           raise Exception.Create('preview wheel zoom was not retained');
         ViewPanBefore := LinePage.ViewPan;
-        LinePage.Preview.OnMouseDown(LinePage.Preview, mbLeft, [], 5, 5);
+        LinePage.Preview.OnMouseDown(LinePage.Preview, mbMiddle, [], 5, 5);
         LinePage.Preview.OnMouseMove(LinePage.Preview, [], 20, 15);
-        LinePage.Preview.OnMouseUp(LinePage.Preview, mbLeft, [], 20, 15);
+        LinePage.Preview.OnMouseUp(LinePage.Preview, mbMiddle, [], 20, 15);
         if SameValue(LinePage.ViewPan.X, ViewPanBefore.X) or
           SameValue(LinePage.ViewPan.Y, ViewPanBefore.Y) then
           raise Exception.Create('preview drag pan was not retained');
@@ -821,5 +1198,6 @@ begin
   finally
     Application.OnException := nil;
     ExceptionHandler.Free;
+    DeleteFile(PChar(HistoryFileName));
   end;
 end.

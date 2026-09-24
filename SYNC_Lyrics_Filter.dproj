@@ -107,6 +107,7 @@
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ListBoxEdit.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_ToolbarButtons.pas"/>
         <DCCReference Include="Source\Lib\SYNC_Lyrics_DarkTheme.pas"/>
+        <DCCReference Include="Source\Lib\SYNC_Lyrics_FontHistoryComboBox.pas"/>
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerColorMath.pas"/>
         <DCCReference Include="Source\Lib\ColorPicker\ColorPickerRGBEditFrame.pas">
             <Form>FrameColorPickerRGBEdit</Form>
@@ -185,6 +186,12 @@
         <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsModePage.pas"/>
         <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsColorPanel.pas"/>
         <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewBackground.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayDecorationControls.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplayPreviewText.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplayPreviewText.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDecorationOverlay.pas"/>
+        <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterPreviewGeometry.pas"/>
+        <DCCReference Include="Source\Lib\SYNC_Lyrics_ContrastGuides.pas"/>
         <DCCReference Include="Source\Plugin\Filter\Display\Line\SYNC_Lyrics_LineDisplaySettingsPage.pas"/>
         <DCCReference Include="Source\Plugin\Filter\Display\Character\SYNC_Lyrics_CharacterDisplaySettingsPage.pas"/>
         <DCCReference Include="Source\Plugin\Filter\Display\SYNC_Lyrics_DisplaySettingsForm.pas"/>

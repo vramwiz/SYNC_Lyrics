@@ -16,11 +16,11 @@ uses
 
 type
   TDisplaySettingsModePageEntry = record
-    CandidateCaptions: TArray<string>;
-    CandidateIndex: Integer;
-    InitialCandidateIndex: Integer;
-    ModeID: Integer;
-    Page: TFrameDisplaySettingsModePage;
+    CandidateCaptions: TArray<string>;            // Labels in this mode's candidate combo.
+    CandidateIndex: Integer;                      // Last selected candidate for mode switching.
+    InitialCandidateIndex: Integer;               // Candidate restored by the reset action.
+    ModeID: Integer;                              // Stable ID shared with mode toolbar items.
+    Page: TFrameDisplaySettingsModePage;           // Page instance hosted by this form.
   end;
 
   TFormLyricsDisplaySettings = class(TForm)
@@ -48,15 +48,24 @@ type
     procedure Resize; override;
   public
     constructor Create(AOwner: TComponent); override;
+    // Captures the current mode and delegates candidate snapshots to registered pages.
     procedure CaptureInitialState;
+    // Supplies mode-specific candidate labels without changing another mode's selection.
     procedure ConfigureModeCandidates(ModeID: Integer;
       const Captions: TArray<string>; InitialIndex: Integer);
+    // Adds a page to mode switching; the form owns its visible placement.
     procedure RegisterModePage(Page: TFrameDisplaySettingsModePage);
+    // Restores captured candidates and mode while keeping this window open.
     procedure RestoreInitialState;
+    // Preserves the outgoing candidate index before showing the requested mode.
     procedure SetMode(ModeID: Integer);
+    // Returns the currently visible mode page.
     function CurrentPage: TFrameDisplaySettingsModePage;
+    // Finds a registered page without changing the active mode.
     function PageForMode(ModeID: Integer): TFrameDisplaySettingsModePage;
+    // Counts pages registered with this host.
     function ModePageCount: Integer;
+    // Returns the active mode's candidate index, or -1 when none is selected.
     function SelectedCandidateIndex: Integer;
     property CandidateCombo: TComboBox read FCandidateCombo;
     property CurrentMode: Integer read FCurrentMode;

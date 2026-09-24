@@ -217,6 +217,7 @@ uses
   System.Math,
   Winapi.Windows,
   TextRendererSkiaRuntime,
+  SYNC_Lyrics_ContrastGuides,
   SYNC_Lyrics_DarkTheme;
 
 {$R *.dfm}
@@ -836,12 +837,9 @@ begin
       Anchor.Y := Bounds.Top
     else
       Anchor.Y := Bounds.Bottom;
-    Canvas.Pen.Style := psDot;
-    Canvas.Pen.Color := RGB(144, 144, 144);
-    Canvas.MoveTo(Anchor.X, Anchor.Y);
-    Canvas.LineTo((Handle.Left + Handle.Right) div 2,
-      (Handle.Top + Handle.Bottom) div 2);
-    Canvas.Pen.Style := psSolid;
+    DrawContrastDashedLine(Canvas, Anchor,
+      Point((Handle.Left + Handle.Right) div 2,
+      (Handle.Top + Handle.Bottom) div 2), CurrentPPI);
     Canvas.Pen.Color := IfThen(FDragMode = Mode, clAqua,
       TColor(RGB(210, 210, 210)));
     Canvas.Brush.Style := bsSolid;

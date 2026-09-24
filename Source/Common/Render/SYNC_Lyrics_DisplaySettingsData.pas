@@ -49,6 +49,8 @@ type
     Y: Single;
     ScaleX: Single;
     ScaleY: Single;
+    RubyScaleX: Single;
+    RubyScaleY: Single;
     BaseFontName: string;
     RubyFontName: string;
     HasBeforeColor: Boolean;
@@ -120,11 +122,19 @@ type
 
 const
   MAX_DISPLAY_PLACEMENT_ITEMS = 100;
+  MAX_DISPLAY_OUTLINE_WIDTH = 24.0;
+  MAX_DISPLAY_DECORATION_BLUR = 32.0;
+  MAX_DISPLAY_SHADOW_SPREAD = 24.0;
+  MAX_DISPLAY_SHADOW_OFFSET = 96.0;
   // Keep generated text within the default Win32 edit-control input limit.
   MAX_DISPLAY_SETTINGS_TEXT_LENGTH = 32767;
 
 function CalculateDisplayLyricsHash(const Lyrics: string): Cardinal;
 function DefaultDisplayCommonSettings: TDisplayCommonSettings;
+// Restricts previously saved decoration values to the current editing range.
+procedure ClampDisplayCommonDecoration(var Settings: TDisplayCommonSettings);
+// Restricts only explicitly overridden placement decoration fields.
+procedure ClampDisplayPlacementDecoration(var Item: TDisplayPlacementItem);
 function TryDecodeDisplaySettingsText(const Text, Lyrics: string;
   out Common: TDisplayCommonSettings; out Items: TDisplayPlacementItems;
   out PlacementsMatchLyrics: Boolean): Boolean;
@@ -218,6 +228,44 @@ begin
   Result.RubyGapAdjustment := 0;
   Result.BaseCharacterSpacing := 0;
   Result.RubyCharacterSpacing := 0;
+end;
+
+procedure ClampDisplayCommonDecoration(var Settings: TDisplayCommonSettings);
+begin
+  Settings.OutlineWidth := EnsureRange(Settings.OutlineWidth,
+    0.0, MAX_DISPLAY_OUTLINE_WIDTH);
+  Settings.OutlineBlur := EnsureRange(Settings.OutlineBlur,
+    0.0, MAX_DISPLAY_DECORATION_BLUR);
+  Settings.ShadowOffsetX := EnsureRange(Settings.ShadowOffsetX,
+    -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
+  Settings.ShadowOffsetY := EnsureRange(Settings.ShadowOffsetY,
+    -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
+  Settings.ShadowBlur := EnsureRange(Settings.ShadowBlur,
+    0.0, MAX_DISPLAY_DECORATION_BLUR);
+  Settings.ShadowSpread := EnsureRange(Settings.ShadowSpread,
+    0.0, MAX_DISPLAY_SHADOW_SPREAD);
+end;
+
+procedure ClampDisplayPlacementDecoration(var Item: TDisplayPlacementItem);
+begin
+  if Item.HasOutlineWidth then
+    Item.OutlineWidth := EnsureRange(Item.OutlineWidth,
+      0.0, MAX_DISPLAY_OUTLINE_WIDTH);
+  if Item.HasOutlineBlur then
+    Item.OutlineBlur := EnsureRange(Item.OutlineBlur,
+      0.0, MAX_DISPLAY_DECORATION_BLUR);
+  if Item.HasShadowOffsetX then
+    Item.ShadowOffsetX := EnsureRange(Item.ShadowOffsetX,
+      -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
+  if Item.HasShadowOffsetY then
+    Item.ShadowOffsetY := EnsureRange(Item.ShadowOffsetY,
+      -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
+  if Item.HasShadowBlur then
+    Item.ShadowBlur := EnsureRange(Item.ShadowBlur,
+      0.0, MAX_DISPLAY_DECORATION_BLUR);
+  if Item.HasShadowSpread then
+    Item.ShadowSpread := EnsureRange(Item.ShadowSpread,
+      0.0, MAX_DISPLAY_SHADOW_SPREAD);
 end;
 
 function CalculateDisplayLyricsHash(const Lyrics: string): Cardinal;
@@ -706,13 +754,15 @@ begin
     if (Item.Index <> I) or not IsValidCoordinate(Item.X) or
       not IsValidCoordinate(Item.Y) or not IsValidScale(Item.ScaleX) or
       not IsValidScale(Item.ScaleY) or
+      ((Item.RubyScaleX <> 0) and not IsValidScale(Item.RubyScaleX)) or
+      ((Item.RubyScaleY <> 0) and not IsValidScale(Item.RubyScaleY)) or
       not IsValidPlacementDecoration(Item) then
     begin
       Text := '';
       Exit(False);
     end;
     RecordText := Format(
-      '%d,%d,%d,%d,%d,%d,%s,%s,%.6X,%.6X,%d,%d,%d,%d,%d,%d,%d,%d,%s',
+      '%d,%d,%d,%d,%d,%d,%s,%s,%.6X,%.6X,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d',
       [Item.Index, Round(Item.X), Round(Item.Y),
        Round(Item.ScaleX * 1000), Round(Item.ScaleY * 1000),
        BuildFlags(Item), EncodeUtf8Hex(Item.BaseFontName),
@@ -721,7 +771,9 @@ begin
        Item.RubyFontHeight, Item.BaseFontStyle and $0F,
        Item.RubyFontStyle and $0F, Item.BaseCharacterSpacing,
        Item.RubyCharacterSpacing, Item.RubyOffsetX, Item.RubyOffsetY,
-       EncodeDecoration(Item)]);
+       EncodeDecoration(Item),
+       Round(IfThen(Item.RubyScaleX = 0, 1.0, Item.RubyScaleX) * 1000),
+       Round(IfThen(Item.RubyScaleY = 0, 1.0, Item.RubyScaleY) * 1000)]);
     Text := Text + '|' + RecordText;
   end;
   Result := (Length(Text) <= MAX_DISPLAY_SETTINGS_TEXT_LENGTH) and
@@ -888,9 +940,11 @@ begin
     for I := 0 to ItemCount - 1 do
     begin
       Fields.DelimitedText := Records[I + 4];
-      if Fields.Count <> 19 then
+      if not (Fields.Count in [19, 21]) then
         Exit;
       FillChar(Item, SizeOf(Item), 0);
+      Item.RubyScaleX := 1;
+      Item.RubyScaleY := 1;
       if not TryParseInteger(Fields[0], Item.Index) or
         (Item.Index <> I) or
         not TryParseInteger(Fields[1], IntegerValue) or
@@ -952,6 +1006,19 @@ begin
       Item.RubyOffsetY := IntegerValue;
       if not TryDecodeDecoration(Fields[18], Item) then
         Exit;
+      if Fields.Count = 21 then
+      begin
+        if not TryParseInteger(Fields[19], IntegerValue) or
+          (IntegerValue < Round(MIN_PLACEMENT_SCALE * 1000)) or
+          (IntegerValue > Round(MAX_PLACEMENT_SCALE * 1000)) then
+          Exit;
+        Item.RubyScaleX := IntegerValue / 1000;
+        if not TryParseInteger(Fields[20], IntegerValue) or
+          (IntegerValue < Round(MIN_PLACEMENT_SCALE * 1000)) or
+          (IntegerValue > Round(MAX_PLACEMENT_SCALE * 1000)) then
+          Exit;
+        Item.RubyScaleY := IntegerValue / 1000;
+      end;
 
       Item.HasBeforeColor := (Flags and FLAG_BEFORE_COLOR) <> 0;
       Item.HasAfterColor := (Flags and FLAG_AFTER_COLOR) <> 0;

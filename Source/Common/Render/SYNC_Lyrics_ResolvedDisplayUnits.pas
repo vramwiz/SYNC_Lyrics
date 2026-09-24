@@ -53,6 +53,8 @@ type
     SourceLength: Integer;
     OffsetX: Integer;
     OffsetY: Integer;
+    ScaleX: Single;
+    ScaleY: Single;
     OriginX: Single;
     OriginY: Single;
     Bounds: TResolvedLyricsRect;
@@ -136,19 +138,25 @@ begin
   if Placement.HasOutlineEnabled then
     Style.OutlineEnabled := Placement.OutlineEnabled;
   if Placement.HasOutlineWidth then
-    Style.OutlineWidth := Placement.OutlineWidth;
+    Style.OutlineWidth := EnsureRange(Placement.OutlineWidth,
+      0.0, MAX_DISPLAY_OUTLINE_WIDTH);
   if Placement.HasOutlineBlur then
-    Style.OutlineBlur := Placement.OutlineBlur;
+    Style.OutlineBlur := EnsureRange(Placement.OutlineBlur,
+      0.0, MAX_DISPLAY_DECORATION_BLUR);
   if Placement.HasShadowEnabled then
     Style.ShadowEnabled := Placement.ShadowEnabled;
   if Placement.HasShadowOffsetX then
-    Style.ShadowOffsetX := Placement.ShadowOffsetX;
+    Style.ShadowOffsetX := EnsureRange(Placement.ShadowOffsetX,
+      -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
   if Placement.HasShadowOffsetY then
-    Style.ShadowOffsetY := Placement.ShadowOffsetY;
+    Style.ShadowOffsetY := EnsureRange(Placement.ShadowOffsetY,
+      -MAX_DISPLAY_SHADOW_OFFSET, MAX_DISPLAY_SHADOW_OFFSET);
   if Placement.HasShadowBlur then
-    Style.ShadowBlur := Placement.ShadowBlur;
+    Style.ShadowBlur := EnsureRange(Placement.ShadowBlur,
+      0.0, MAX_DISPLAY_DECORATION_BLUR);
   if Placement.HasShadowSpread then
-    Style.ShadowSpread := Placement.ShadowSpread;
+    Style.ShadowSpread := EnsureRange(Placement.ShadowSpread,
+      0.0, MAX_DISPLAY_SHADOW_SPREAD);
 end;
 
 procedure ApplyPlacementStyle(const Placement: TDisplayPlacementItem;
@@ -243,6 +251,17 @@ begin
       LogicalUnits[UnitIndex].BaseLength;
     ResolvedUnits[UnitIndex].Base.Style := BaseStyle;
     ResolvedUnits[UnitIndex].Ruby.Style := RubyStyle;
+    ResolvedUnits[UnitIndex].Ruby.ScaleX := 1;
+    ResolvedUnits[UnitIndex].Ruby.ScaleY := 1;
+    if FreePlacement then
+    begin
+      if Placement.RubyScaleX > 0 then
+        ResolvedUnits[UnitIndex].Ruby.ScaleX := EnsureRange(
+          Placement.RubyScaleX, MIN_PLACEMENT_SCALE, MAX_PLACEMENT_SCALE);
+      if Placement.RubyScaleY > 0 then
+        ResolvedUnits[UnitIndex].Ruby.ScaleY := EnsureRange(
+          Placement.RubyScaleY, MIN_PLACEMENT_SCALE, MAX_PLACEMENT_SCALE);
+    end;
 
     RubyIndex := LogicalUnits[UnitIndex].RubyIndex;
     ResolvedUnits[UnitIndex].HasRuby := RubyIndex >= 0;

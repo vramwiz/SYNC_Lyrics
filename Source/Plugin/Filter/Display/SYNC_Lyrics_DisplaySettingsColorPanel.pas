@@ -17,6 +17,18 @@ uses
   SYNC_Lyrics_ToolbarButtons;
 
 type
+  TDisplayOpacityTrackBar = class(TTrackBar)
+  private
+    FDragging: Boolean;
+    procedure PositionFromX(X: Integer);
+  protected
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+  end;
+
   TDisplaySettingsEmbeddedColorPicker = class(TCustomControl)
   private
     FColor: TColor;
@@ -86,6 +98,47 @@ uses
   Winapi.Windows,
   ColorPickerColorMath,
   SYNC_Lyrics_DarkTheme;
+
+procedure TDisplayOpacityTrackBar.PositionFromX(X: Integer);
+var
+  Margin: Integer;
+begin
+  Margin := MulDiv(8, CurrentPPI, 96);
+  Position := System.Math.EnsureRange(Round((X - Margin) * 255 /
+    System.Math.Max(1, ClientWidth - Margin * 2)), 0, 255);
+end;
+
+procedure TDisplayOpacityTrackBar.MouseDown(Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  inherited;
+  if Button = mbLeft then
+  begin
+    FDragging := True;
+    MouseCapture := True;
+    PositionFromX(X);
+  end;
+end;
+
+procedure TDisplayOpacityTrackBar.MouseMove(Shift: TShiftState;
+  X, Y: Integer);
+begin
+  inherited;
+  if FDragging then
+    PositionFromX(X);
+end;
+
+procedure TDisplayOpacityTrackBar.MouseUp(Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button = mbLeft then
+  begin
+    PositionFromX(X);
+    FDragging := False;
+    MouseCapture := False;
+  end;
+  inherited;
+end;
 
 constructor TDisplaySettingsEmbeddedColorPicker.Create(AOwner: TComponent);
 begin
@@ -201,12 +254,13 @@ begin
   FBeforeOpacityLabel.Parent := Self;
   FBeforeOpacityLabel.Caption := #36879#26126#24230;
   FBeforeOpacityLabel.Font.Assign(Font);
-  FBeforeOpacityTrack := TTrackBar.Create(Self);
+  FBeforeOpacityTrack := TDisplayOpacityTrackBar.Create(Self);
   FBeforeOpacityTrack.Parent := Self;
   FBeforeOpacityTrack.Min := 0;
   FBeforeOpacityTrack.Max := 255;
   FBeforeOpacityTrack.Position := 255;
   FBeforeOpacityTrack.TickStyle := tsNone;
+  FBeforeOpacityTrack.PageSize := 26;
   FBeforeOpacityTrack.OnChange := OpacityChange;
 
   FAfterLabel := TLabel.Create(Self);
@@ -221,12 +275,13 @@ begin
   FAfterOpacityLabel.Parent := Self;
   FAfterOpacityLabel.Caption := #36879#26126#24230;
   FAfterOpacityLabel.Font.Assign(Font);
-  FAfterOpacityTrack := TTrackBar.Create(Self);
+  FAfterOpacityTrack := TDisplayOpacityTrackBar.Create(Self);
   FAfterOpacityTrack.Parent := Self;
   FAfterOpacityTrack.Min := 0;
   FAfterOpacityTrack.Max := 255;
   FAfterOpacityTrack.Position := 255;
   FAfterOpacityTrack.TickStyle := tsNone;
+  FAfterOpacityTrack.PageSize := 26;
   FAfterOpacityTrack.OnChange := OpacityChange;
 end;
 
@@ -266,8 +321,27 @@ begin
 end;
 
 procedure TDisplaySettingsColorPanel.OpacityChange(Sender: TObject);
+var
+  Nearest: Integer;
+  Track: TTrackBar;
 begin
-  if not FUpdating and Assigned(FOnChange) then
+  if FUpdating then
+    Exit;
+  if Sender is TTrackBar then
+  begin
+    Track := TTrackBar(Sender);
+    Nearest := Round(Round(Track.Position * 10 / 255) * 255 / 10);
+    if Abs(Track.Position - Nearest) <= 3 then
+    begin
+      FUpdating := True;
+      try
+        Track.Position := Nearest;
+      finally
+        FUpdating := False;
+      end;
+    end;
+  end;
+  if Assigned(FOnChange) then
     FOnChange(Self);
 end;
 
