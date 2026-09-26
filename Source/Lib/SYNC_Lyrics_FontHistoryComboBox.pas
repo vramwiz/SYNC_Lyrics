@@ -1,6 +1,6 @@
 unit SYNC_Lyrics_FontHistoryComboBox;
 
-// A font picker with an explicit commit event and shared per-user recents.
+// A font picker with live wheel preview, explicit history commits, and shared per-user recents.
 
 interface
 
@@ -14,12 +14,13 @@ uses
 type
   TSyncLyricsFontHistoryComboBox = class(TComboBox)
   private
-    FCommittedFont: string;         // Value last sent to consumers.
+    FCommittedFont: string;         // Value last saved to the shared recent-font history.
     FRecentCount: Integer;          // Length of the leading recent-font section.
     FSelectionInRecent: Boolean;    // Preserve which duplicate the user browsed.
     FUpdatingItems: Boolean;        // Suppress commits during list reconstruction.
     FCancelCloseUp: Boolean;        // Escape restores the previous committed value.
     FOnFontCommitted: TNotifyEvent;
+    FOnFontPreviewChanged: TNotifyEvent;
     class var FHistoryFileName: string;
     class var FHistoryLoaded: Boolean;
     class var FRecentFonts: TStringList;
@@ -28,13 +29,22 @@ type
     class procedure PromoteFont(const FontName: string); static;
     class procedure SaveHistory; static;
     procedure CommitSelectionInternal(ExplicitChoice: Boolean);
+    function FindAlphabeticalFontItem(const FontName: string): Integer;
     function FindFontItem(const FontName: string): Integer;
+    function GetSelectedFont: string;
+    function MoveAlphabetically(Offset: Integer): Boolean;
     procedure RefreshFonts;
   protected
     procedure CNCommand(var Message: TWMCommand); message CN_COMMAND;
     procedure CloseUp; override;
     procedure CreateWnd; override;
     procedure DoExit; override;
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+      MousePos: TPoint): Boolean; override;
+    function DoMouseWheelDown(Shift: TShiftState;
+      MousePos: TPoint): Boolean; override;
+    function DoMouseWheelUp(Shift: TShiftState;
+      MousePos: TPoint): Boolean; override;
     procedure DrawItem(Index: Integer; Rect: TRect;
       State: TOwnerDrawState); override;
     procedure DropDown; override;
@@ -50,11 +60,16 @@ type
     procedure CommitSelection;
     // Displays a saved value without changing history or notifying the owner.
     procedure SetSelectedFont(const FontName: string);
-    // The last value delivered through OnFontCommitted, independent of transient list browsing.
+    // Returns the visible font, including an uncommitted wheel selection.
+    property SelectedFont: string read GetSelectedFont;
+    // The last value committed to history, independent of wheel browsing.
     property CommittedFont: string read FCommittedFont;
     // Fires only when a list choice is committed, after history has been saved.
     property OnFontCommitted: TNotifyEvent read FOnFontCommitted
       write FOnFontCommitted;
+    // Lets the owner redraw each wheel step without saving that font to history.
+    property OnFontPreviewChanged: TNotifyEvent read FOnFontPreviewChanged
+      write FOnFontPreviewChanged;
   end;
 
 implementation
@@ -198,6 +213,19 @@ begin
   SaveHistory;
 end;
 
+function TSyncLyricsFontHistoryComboBox.FindAlphabeticalFontItem(
+  const FontName: string): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  if FontName = '' then
+    Exit;
+  for I := FRecentCount to Items.Count - 1 do
+    if SameText(Items[I], FontName) then
+      Exit(I);
+end;
+
 function TSyncLyricsFontHistoryComboBox.FindFontItem(
   const FontName: string): Integer;
 var
@@ -210,25 +238,69 @@ begin
     for I := 0 to FRecentCount - 1 do
       if SameText(Items[I], FontName) then
         Exit(I);
-  for I := FRecentCount to Items.Count - 1 do
-    if SameText(Items[I], FontName) then
-      Exit(I);
+  Result := FindAlphabeticalFontItem(FontName);
+  if Result >= 0 then Exit;
   if not FSelectionInRecent then
     for I := 0 to FRecentCount - 1 do
       if SameText(Items[I], FontName) then
         Exit(I);
 end;
 
+function TSyncLyricsFontHistoryComboBox.GetSelectedFont: string;
+begin
+  if (ItemIndex >= 0) and (ItemIndex < Items.Count) then
+    Result := Items[ItemIndex]
+  else
+    Result := FCommittedFont;
+end;
+
+function TSyncLyricsFontHistoryComboBox.MoveAlphabetically(
+  Offset: Integer): Boolean;
+var
+  FontIndex: Integer;
+  ListIndex: Integer;
+  PreviousFont: string;
+begin
+  Result := True;
+  if Screen.Fonts.Count = 0 then Exit;
+  PreviousFont := SelectedFont;
+  // The leading history copies are display shortcuts, not wheel neighbors.
+  FontIndex := Screen.Fonts.IndexOf(Text);
+  if FontIndex < 0 then
+  begin
+    if Offset > 0 then FontIndex := -1
+    else FontIndex := Screen.Fonts.Count;
+  end;
+  Inc(FontIndex, Offset);
+  if FontIndex < 0 then FontIndex := 0;
+  if FontIndex >= Screen.Fonts.Count then
+    FontIndex := Screen.Fonts.Count - 1;
+  ListIndex := FindAlphabeticalFontItem(Screen.Fonts[FontIndex]);
+  if ListIndex < 0 then Exit;
+  ItemIndex := ListIndex;
+  Invalidate;
+  if not SameText(SelectedFont, PreviousFont) and
+    Assigned(FOnFontPreviewChanged) then
+    FOnFontPreviewChanged(Self);
+end;
+
 procedure TSyncLyricsFontHistoryComboBox.RefreshFonts;
 var
   FontName: string;
   I: Integer;
+  PendingSelection: Boolean;
+  SelectionWasRecent: Boolean;
 begin
   if FUpdatingItems then
     Exit;
   LoadHistory;
   FontName := FCommittedFont;
-  if FontName = '' then
+  PendingSelection := (ItemIndex >= 0) and (ItemIndex < Items.Count) and
+    not SameText(Items[ItemIndex], FCommittedFont);
+  SelectionWasRecent := ItemIndex < FRecentCount;
+  if PendingSelection then
+    FontName := Items[ItemIndex]
+  else if FontName = '' then
     FontName := Text;
   FUpdatingItems := True;
   Items.BeginUpdate;
@@ -241,7 +313,15 @@ begin
       Items.Add(Screen.Fonts[I]);
     if (FontName <> '') and (Items.IndexOf(FontName) < 0) then
       Items.Add(FontName);
-    ItemIndex := FindFontItem(FontName);
+    if PendingSelection then
+    begin
+      if SelectionWasRecent then
+        ItemIndex := Items.IndexOf(FontName)
+      else
+        ItemIndex := FindAlphabeticalFontItem(FontName);
+    end
+    else
+      ItemIndex := FindFontItem(FontName);
   finally
     Items.EndUpdate;
     FUpdatingItems := False;
@@ -295,12 +375,20 @@ begin
 end;
 
 procedure TSyncLyricsFontHistoryComboBox.CloseUp;
+var
+  PreviousFont: string;
 begin
   inherited;
   if FCancelCloseUp then
+  begin
+    PreviousFont := SelectedFont;
     SetSelectedFont(FCommittedFont)
+  end
   else
     CommitSelectionInternal(False);
+  if FCancelCloseUp and not SameText(SelectedFont, PreviousFont) and
+    Assigned(FOnFontPreviewChanged) then
+    FOnFontPreviewChanged(Self);
   FCancelCloseUp := False;
 end;
 
@@ -309,6 +397,28 @@ begin
   if not FCancelCloseUp then
     CommitSelectionInternal(False);
   inherited;
+end;
+
+function TSyncLyricsFontHistoryComboBox.DoMouseWheel(Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint): Boolean;
+begin
+  Result := inherited;
+  // Suppress native index stepping, including sub-notch deltas accumulated by VCL.
+  if not DroppedDown then Result := True;
+end;
+
+function TSyncLyricsFontHistoryComboBox.DoMouseWheelDown(
+  Shift: TShiftState; MousePos: TPoint): Boolean;
+begin
+  if DroppedDown then Result := inherited
+  else Result := MoveAlphabetically(1);
+end;
+
+function TSyncLyricsFontHistoryComboBox.DoMouseWheelUp(
+  Shift: TShiftState; MousePos: TPoint): Boolean;
+begin
+  if DroppedDown then Result := inherited
+  else Result := MoveAlphabetically(-1);
 end;
 
 procedure TSyncLyricsFontHistoryComboBox.DropDown;

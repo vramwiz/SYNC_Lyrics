@@ -67,6 +67,7 @@ var
   SettingsBeforeDrag: TDisplayCommonSettings;
   SnapshotPath: string;
   ViewPanBefore: TPointF;
+  WheelFontName: string;
   ZoomBefore: Double;
   PlacementsMatchLyrics: Boolean;
   DecorationMode: TCharacterLayoutDragMode;
@@ -338,6 +339,17 @@ begin
           (LinePage.SelectedCommonSettings.PositionY <> 240) then
           raise Exception.Create('line shared style or lane position mismatch');
         LinePage.CandidateChanged(1);
+        if (Screen.Fonts.IndexOf('Arial') < 0) or
+          (Screen.Fonts.IndexOf('Arial') >= Screen.Fonts.Count - 1) then
+          raise Exception.Create('wheel preview test requires Arial neighbor');
+        WheelFontName := Screen.Fonts[Screen.Fonts.IndexOf('Arial') + 1];
+        LinePage.BaseFontCombo.Perform(WM_MOUSEWHEEL,
+          MakeWParam(0, Word(SmallInt(-WHEEL_DELTA))), 0);
+        if LinePage.SelectedCommonSettings.BaseFontName <> WheelFontName then
+          raise Exception.Create('line wheel font was not previewed');
+        LinePage.BaseFontCombo.ItemIndex :=
+          LinePage.BaseFontCombo.Items.IndexOf('Arial');
+        LinePage.BaseFontCombo.CommitSelection;
         Form.ConfigureModeCandidates(DISPLAY_SETTINGS_MODE_FREE,
           ['character 1', 'character 2'], 0);
         SetLength(CharacterCommonSettings, 2);
@@ -670,6 +682,13 @@ begin
           MakeWParam(0, CBN_CLOSEUP), 0);
         if CharacterPage.ElementPlacement(1).BaseFontName <> 'Arial' then
           raise Exception.Create('free font list selection was not applied');
+        CharacterPage.BaseFontCombo.Perform(WM_MOUSEWHEEL,
+          MakeWParam(0, Word(SmallInt(-WHEEL_DELTA))), 0);
+        if CharacterPage.ElementPlacement(1).BaseFontName <> WheelFontName then
+          raise Exception.Create('free wheel font was not previewed');
+        CharacterPage.BaseFontCombo.ItemIndex :=
+          CharacterPage.BaseFontCombo.Items.IndexOf('Arial');
+        CharacterPage.BaseFontCombo.CommitSelection;
         CharacterPage.FormattingToolbar.Items[0].Execute;
         if (CharacterPage.ActionToolbar.ItemCount <> 5) or
           (CharacterPage.ActionToolbar.Items[0].Glyph <> tbgMoveToCenter) then

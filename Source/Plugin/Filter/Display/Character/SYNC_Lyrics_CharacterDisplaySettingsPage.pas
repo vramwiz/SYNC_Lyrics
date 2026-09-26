@@ -236,6 +236,7 @@ begin
   FBaseFontCombo := TSyncLyricsFontHistoryComboBox.Create(Self);
   FBaseFontCombo.Parent := Self;
   FBaseFontCombo.OnFontCommitted := FontComboChange;
+  FBaseFontCombo.OnFontPreviewChanged := FontComboChange;
   FontName := 'Yu Gothic UI';
   FBaseFontCombo.SetSelectedFont(FontName);
   FRubyFontLabel := TLabel.Create(Self);
@@ -245,6 +246,7 @@ begin
   FRubyFontCombo := TSyncLyricsFontHistoryComboBox.Create(Self);
   FRubyFontCombo.Parent := Self;
   FRubyFontCombo.OnFontCommitted := FontComboChange;
+  FRubyFontCombo.OnFontPreviewChanged := FontComboChange;
   FRubyFontCombo.SetSelectedFont(FontName);
   FFormattingToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FFormattingToolbar.Parent := Self;
@@ -450,7 +452,7 @@ var
 begin
   if FUpdatingControls or (SelectionCount = 0) then
     Exit;
-  Value := (Sender as TSyncLyricsFontHistoryComboBox).CommittedFont;
+  Value := (Sender as TSyncLyricsFontHistoryComboBox).SelectedFont;
   for I := 0 to High(FSelected) do
     if FSelected[I] then
       if Sender = FBaseFontCombo then

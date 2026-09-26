@@ -213,6 +213,7 @@ begin
   FontName := 'Yu Gothic UI';
   FBaseFontCombo.SetSelectedFont(FontName);
   FBaseFontCombo.OnFontCommitted := FontComboChange;
+  FBaseFontCombo.OnFontPreviewChanged := FontComboChange;
   FRubyFontLabel := TLabel.Create(Self);
   FRubyFontLabel.Parent := Self;
   FRubyFontLabel.Caption := #12523#12499#12501#12457#12531#12488;
@@ -221,6 +222,7 @@ begin
   FRubyFontCombo.Parent := Self;
   FRubyFontCombo.SetSelectedFont(FontName);
   FRubyFontCombo.OnFontCommitted := FontComboChange;
+  FRubyFontCombo.OnFontPreviewChanged := FontComboChange;
 
   FFormattingToolbar := TSyncLyricsToolbarButtons.Create(Self);
   FFormattingToolbar.Parent := Self;
@@ -415,9 +417,9 @@ begin
   if FUpdatingControls or (FCurrentCandidate < 0) then
     Exit;
   if Sender = FBaseFontCombo then
-    FCurrentCommon.BaseFontName := FBaseFontCombo.CommittedFont
+    FCurrentCommon.BaseFontName := FBaseFontCombo.SelectedFont
   else if Sender = FRubyFontCombo then
-    FCurrentCommon.RubyFontName := FRubyFontCombo.CommittedFont;
+    FCurrentCommon.RubyFontName := FRubyFontCombo.SelectedFont;
   FPreview.Invalidate;
 end;
 
